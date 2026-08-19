@@ -13,13 +13,13 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Optional
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, File, Form, HTTPException, Request, Response, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
-from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 
 from cpg44_api import __version__
 from cpg44_api.store import ProductStore
+from cpg44_api.training_manager import TrainingManager
 from soccer_analytics.modes import EngineManager, MatchMode
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -33,19 +33,21 @@ STORE = ProductStore(
     hostinger_url=os.environ.get("HOSTINGER_RELAY_URL", ""),
 )
 ENGINE = EngineManager(ROOT)
+TRAINER = TrainingManager(ROOT)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     app.state.store = STORE
     app.state.engine = ENGINE
+    app.state.trainer = TRAINER
     yield
 
 
 def create_app() -> FastAPI:
     origins = os.environ.get(
         "CPG44_CORS_ORIGINS",
-        "http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000",
+        "http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000,http://127.0.0.1:3000",
     ).split(",")
     
     app = FastAPI(
@@ -95,8 +97,8 @@ def create_app() -> FastAPI:
     @app.post("/api/v1/matches/{match_id}/start")
     def start_match(match_id: str):
         STORE.match["engine_running"] = True
-        STORE.match["status"] = "live"
-        return {"ok": True, "message": "match marked live"}
+        STORE.match["status"] = "playing"
+        return {"ok": True, "message": "match marked playing"}
 
     @app.post("/api/v1/matches/{match_id}/stop")
     def stop_match(match_id: str):
@@ -111,6 +113,61 @@ def create_app() -> FastAPI:
     @app.get("/api/v1/matches/{match_id}/players")
     def get_match_players(match_id: str):
         return STORE.roster
+
+    @app.get("/api/v1/matches/{match_id}/passing-network")
+    def get_passing_network(match_id: str):
+        return STORE.passing_network
+
+    # --- Video Streaming Endpoint with HTTP 206 Partial Content ---
+    @app.get("/api/v1/video/stream/{match_id}")
+    async def stream_match_video(match_id: str, request: Request):
+        video_path = STORE.demo_video_path
+        if not video_path.is_file():
+            # Fallback test video check
+            for cand in [ROOT / "demo" / "sample_match.mp4", ROOT / "data" / "sample_match.mp4"]:
+                if cand.is_file():
+                    video_path = cand
+                    break
+
+        if not video_path.is_file():
+            raise HTTPException(status_code=404, detail="Video file not found")
+
+        file_size = video_path.stat().st_size
+        range_header = request.headers.get("range")
+
+        if not range_header:
+            return FileResponse(video_path, media_type="video/mp4")
+
+        # Parse range header: e.g. "bytes=0-1048575"
+        try:
+            h = range_header.replace("bytes=", "").split("-")
+            start = int(h[0]) if h[0] else 0
+            end = int(h[1]) if len(h) > 1 and h[1] else file_size - 1
+        except Exception:
+            start, end = 0, file_size - 1
+
+        end = min(end, file_size - 1)
+        chunk_size = end - start + 1
+
+        def iterfile():
+            with open(video_path, "rb") as f:
+                f.seek(start)
+                bytes_left = chunk_size
+                while bytes_left > 0:
+                    read_size = min(64 * 1024, bytes_left)
+                    data = f.read(read_size)
+                    if not data:
+                        break
+                    bytes_left -= len(data)
+                    yield data
+
+        headers = {
+            "Content-Range": f"bytes {start}-{end}/{file_size}",
+            "Accept-Ranges": "bytes",
+            "Content-Length": str(chunk_size),
+            "Content-Type": "video/mp4",
+        }
+        return StreamingResponse(iterfile(), status_code=206, headers=headers)
 
     # --- Video Upload & Processing Mode ---
     @app.post("/api/v1/matches/upload")
@@ -143,6 +200,29 @@ def create_app() -> FastAPI:
         if not prog:
             return {"match_id": match_id, "status": "completed", "progress_pct": 100.0}
         return prog
+
+    # --- Training Manager API (YOLO on SoccerNet & Strain Model) ---
+    @app.get("/api/v1/training/status")
+    def get_training_status():
+        return TRAINER.get_status()
+
+    @app.post("/api/v1/training/start-yolo")
+    def start_yolo_train(body: dict):
+        return TRAINER.start_yolo_training(
+            data_path=body.get("data_path", "/home/siddartha/SoccerNet_YOLO/data.yaml"),
+            model_name=body.get("model_name", "yolov8m.pt"),
+            epochs=int(body.get("epochs", 50)),
+            imgsz=int(body.get("imgsz", 1280)),
+            batch=int(body.get("batch", 4)),
+        )
+
+    @app.post("/api/v1/training/stop-yolo")
+    def stop_yolo_train():
+        return TRAINER.stop_yolo_training()
+
+    @app.post("/api/v1/training/train-strain-model")
+    def train_strain():
+        return TRAINER.train_strain_model()
 
     # --- Camera Network (Single & Multi-Camera Gateway) ---
     @app.get("/api/v1/cameras")

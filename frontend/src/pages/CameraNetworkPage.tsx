@@ -5,87 +5,64 @@ export const CameraNetworkPage: React.FC = () => {
 
   useEffect(() => {
     fetch(`http://${window.location.hostname}:8000/api/v1/cameras`)
-      .then((res) => res.json())
-      .then((data) => setCameras(data))
+      .then((r) => r.json())
+      .then((d) => setCameras(d))
       .catch(() => {});
   }, []);
 
   return (
-    <div>
-      <div className="card-header" style={{ marginBottom: "1.25rem" }}>
-        <div>
-          <h2 style={{ fontSize: "1.4rem", fontWeight: 700 }}>
-            📡 Multi-Camera Network Gateway &amp; Smartphone Streaming
-          </h2>
-          <p style={{ color: "var(--text-secondary)", fontSize: "0.875rem", marginTop: "0.25rem" }}>
-            Connect RTSP cameras, IP streams, and mobile phone cameras via WebRTC for multi-view match tracking.
-          </p>
-        </div>
-        <button className="btn btn-primary">+ Register Camera</button>
+    <div style={{ padding: "1.5rem", maxWidth: "1100px", margin: "0 auto" }}>
+      <div style={{ marginBottom: "1.5rem" }}>
+        <h2 style={{ fontSize: "1.3rem", fontWeight: 700, color: "var(--text-main)" }}>
+          Camera Network &amp; Mobile Streaming
+        </h2>
+        <p style={{ color: "var(--text-muted)", fontSize: "0.85rem", marginTop: "0.25rem" }}>
+          Single and multi-camera RTSP/WebRTC feeds and instant smartphone camera ingest.
+        </p>
       </div>
 
-      <div className="grid-2">
-        {/* Active Cameras List */}
-        <div className="card">
-          <h3 className="card-title" style={{ marginBottom: "1rem" }}>
-            🎥 Connected Video Sources
-          </h3>
-
+      <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr", gap: "1.5rem" }}>
+        <div className="card-clean">
+          <h3 style={{ fontSize: "1rem", fontWeight: 700, marginBottom: "1rem" }}>Connected Cameras</h3>
           <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
-            {cameras.map((cam) => (
+            {cameras.map((c) => (
               <div
-                key={cam.id}
+                key={c.id}
                 style={{
-                  background: "var(--bg-secondary)",
-                  padding: "1rem",
-                  borderRadius: "8px",
-                  border: "1px solid var(--border-subtle)",
+                  padding: "0.85rem",
+                  borderRadius: "6px",
+                  background: "var(--bg-subtle)",
+                  border: "1px solid var(--border-light)",
                   display: "flex",
                   justifyContent: "space-between",
                   alignItems: "center",
                 }}
               >
                 <div>
-                  <div style={{ fontWeight: 600 }}>{cam.name}</div>
-                  <div style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
-                    {cam.source} · {cam.type}
-                  </div>
+                  <div style={{ fontWeight: 600, fontSize: "0.9rem" }}>{c.name}</div>
+                  <div style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>{c.type} · {c.source}</div>
                 </div>
                 <div style={{ textAlign: "right" }}>
-                  <span className="badge-pill badge-low">{cam.status.toUpperCase()}</span>
-                  <div style={{ fontSize: "0.75rem", color: "var(--text-secondary)", marginTop: "0.25rem" }}>
-                    {cam.fps} FPS · {cam.latency_ms} ms
-                  </div>
+                  <span style={{ fontSize: "0.75rem", fontWeight: 600, color: "#10b981" }}>ONLINE</span>
+                  <div style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>{c.fps} FPS · {c.latency_ms} ms</div>
                 </div>
               </div>
             ))}
           </div>
         </div>
 
-        {/* Smartphone Camera Stream QR Ingest */}
-        <div className="card">
-          <h3 className="card-title" style={{ marginBottom: "1rem" }}>
-            📱 Smartphone Camera Quick Stream
-          </h3>
-          <p style={{ fontSize: "0.85rem", color: "var(--text-secondary)", marginBottom: "1rem" }}>
-            Turn any mobile phone into a sideline camera. Open the URL below on the smartphone browser to stream video directly into the CPG44 Gateway.
+        <div className="card-clean">
+          <h3 style={{ fontSize: "1rem", fontWeight: 700, marginBottom: "0.5rem" }}>Smartphone Camera Ingest</h3>
+          <p style={{ fontSize: "0.8rem", color: "var(--text-muted)", marginBottom: "1rem" }}>
+            Open this URL on any phone browser to stream live video directly to the gateway.
           </p>
-
-          <div
-            style={{
-              background: "var(--bg-secondary)",
-              padding: "1.25rem",
-              borderRadius: "8px",
-              border: "1px solid var(--border-subtle)",
-              textAlign: "center",
-            }}
-          >
-            <div style={{ fontSize: "1.1rem", fontWeight: 700, color: "var(--accent-cyan)", marginBottom: "0.5rem" }}>
+          <div style={{ background: "var(--bg-subtle)", padding: "1rem", borderRadius: "6px", textAlign: "center", border: "1px solid var(--border-light)" }}>
+            <div style={{ color: "var(--accent-blue)", fontWeight: 700, fontSize: "0.95rem" }}>
               http://{window.location.hostname}:8000/camera
             </div>
-            <p style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
-              Direct browser-to-gateway WebRTC / MJPEG streaming. No mobile app installation required.
-            </p>
+            <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginTop: "0.25rem" }}>
+              Direct browser WebRTC/MJPEG streaming
+            </div>
           </div>
         </div>
       </div>

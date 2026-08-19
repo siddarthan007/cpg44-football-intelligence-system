@@ -2,63 +2,85 @@ import React from "react";
 import { BrowserRouter, Routes, Route, NavLink, Navigate } from "react-router-dom";
 import { LivePage } from "./pages/LivePage";
 import { WearablePage } from "./pages/WearablePage";
+import { TrainingHubPage } from "./pages/TrainingHubPage";
 import { MatchUploadPage } from "./pages/MatchUploadPage";
 import { CameraNetworkPage } from "./pages/CameraNetworkPage";
 import { PlayerMappingPage } from "./pages/PlayerMappingPage";
-import { AnalyticsPage } from "./pages/AnalyticsPage";
 import { SettingsPage } from "./pages/SettingsPage";
+import {
+  IconRecordings,
+  IconCalendar,
+  IconClips,
+  IconDataExplorer,
+  IconWearable,
+  IconModelHub,
+  IconTagPanels,
+  IconSettings,
+} from "./components/Icons";
 
 export const App: React.FC = () => {
   return (
     <BrowserRouter>
-      <div className="app-container">
-        {/* Top Navigation Bar */}
-        <header className="top-navbar">
-          <div className="brand-logo">
-            <span className="brand-badge">CPG44</span>
-            <span>Football Intelligence</span>
+      <div className="app-shell">
+        {/* Left Sidebar (Matching Reference Image) */}
+        <aside className="sidebar">
+          <div>
+            <div className="sidebar-logo">
+              <div className="logo-circle">S</div>
+              <div className="logo-text">CPG44</div>
+            </div>
+
+            <nav className="nav-menu">
+              <NavLink to="/recordings" className={({ isActive }) => `nav-item ${isActive ? "active" : ""}`}>
+                <IconRecordings size={18} />
+                <span>Recordings</span>
+              </NavLink>
+              <NavLink to="/biometrics" className={({ isActive }) => `nav-item ${isActive ? "active" : ""}`}>
+                <IconWearable size={18} />
+                <span>Biometrics</span>
+              </NavLink>
+              <NavLink to="/training" className={({ isActive }) => `nav-item ${isActive ? "active" : ""}`}>
+                <IconModelHub size={18} />
+                <span>Training Hub</span>
+              </NavLink>
+              <NavLink to="/ingest" className={({ isActive }) => `nav-item ${isActive ? "active" : ""}`}>
+                <IconClips size={18} />
+                <span>Video Ingest</span>
+              </NavLink>
+              <NavLink to="/cameras" className={({ isActive }) => `nav-item ${isActive ? "active" : ""}`}>
+                <IconDataExplorer size={18} />
+                <span>Cameras</span>
+              </NavLink>
+              <NavLink to="/tagging" className={({ isActive }) => `nav-item ${isActive ? "active" : ""}`}>
+                <IconTagPanels size={18} />
+                <span>Tag Panels</span>
+              </NavLink>
+              <NavLink to="/settings" className={({ isActive }) => `nav-item ${isActive ? "active" : ""}`}>
+                <IconSettings size={18} />
+                <span>Settings</span>
+              </NavLink>
+            </nav>
           </div>
 
-          <nav className="nav-links">
-            <NavLink to="/live" className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}>
-              ⚽ Live Match
-            </NavLink>
-            <NavLink to="/upload" className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}>
-              📤 Video Upload
-            </NavLink>
-            <NavLink to="/wearable" className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}>
-              🫀 Wearable Intelligence
-            </NavLink>
-            <NavLink to="/cameras" className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}>
-              📡 Camera Network
-            </NavLink>
-            <NavLink to="/players" className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}>
-              👥 Squad Mapping
-            </NavLink>
-            <NavLink to="/analytics" className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}>
-              📊 Analytics
-            </NavLink>
-            <NavLink to="/settings" className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}>
-              ⚙️ Settings
-            </NavLink>
-          </nav>
-
-          <div className="system-status-pill">
-            <div className="pulse-dot"></div>
-            <span>RTX 5060 GPU Online</span>
+          <div className="user-profile">
+            <div className="avatar">SN</div>
+            <div>
+              <div style={{ fontSize: "0.8rem", fontWeight: 700 }}>Siddartha</div>
+              <div style={{ fontSize: "0.7rem", color: "var(--text-muted)" }}>Analyst</div>
+            </div>
           </div>
-        </header>
+        </aside>
 
-        {/* Page Routing */}
-        <main className="main-content">
+        {/* Main Content Area */}
+        <main className="main-viewport">
           <Routes>
-            <Route path="/" element={<Navigate to="/live" replace />} />
-            <Route path="/live" element={<LivePage />} />
-            <Route path="/upload" element={<MatchUploadPage />} />
-            <Route path="/wearable" element={<WearablePage />} />
+            <Route path="/" element={<Navigate to="/recordings" replace />} />
+            <Route path="/recordings" element={<LivePage />} />
+            <Route path="/biometrics" element={<WearablePage />} />
+            <Route path="/training" element={<TrainingHubPage />} />
+            <Route path="/ingest" element={<MatchUploadPage />} />
             <Route path="/cameras" element={<CameraNetworkPage />} />
-            <Route path="/players" element={<PlayerMappingPage />} />
-            <Route path="/analytics" element={<AnalyticsPage />} />
+            <Route path="/tagging" element={<PlayerMappingPage />} />
             <Route path="/settings" element={<SettingsPage />} />
           </Routes>
         </main>

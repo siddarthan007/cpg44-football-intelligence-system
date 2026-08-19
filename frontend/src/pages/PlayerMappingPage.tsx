@@ -5,60 +5,50 @@ export const PlayerMappingPage: React.FC = () => {
 
   useEffect(() => {
     fetch(`http://${window.location.hostname}:8000/api/v1/matches/live/players`)
-      .then((res) => res.json())
-      .then((data) => setPlayers(data))
+      .then((r) => r.json())
+      .then((d) => setPlayers(d))
       .catch(() => {});
   }, []);
 
   return (
-    <div>
-      <div className="card-header" style={{ marginBottom: "1.25rem" }}>
-        <div>
-          <h2 style={{ fontSize: "1.4rem", fontWeight: 700 }}>
-            👥 Squad Roster &amp; Track-to-Player Identity Mapping
-          </h2>
-          <p style={{ color: "var(--text-secondary)", fontSize: "0.875rem", marginTop: "0.25rem" }}>
-            Map YOLO track IDs to squad roster names, EasyOCR jersey numbers, and ESP32 wearable IDs.
-          </p>
-        </div>
+    <div style={{ padding: "1.5rem", maxWidth: "1100px", margin: "0 auto" }}>
+      <div style={{ marginBottom: "1.5rem" }}>
+        <h2 style={{ fontSize: "1.3rem", fontWeight: 700, color: "var(--text-main)" }}>
+          Squad Roster &amp; Identity Tagging
+        </h2>
+        <p style={{ color: "var(--text-muted)", fontSize: "0.85rem", marginTop: "0.25rem" }}>
+          Assign jersey numbers, team kit colors, and bind ESP32 wearable IDs to vision tracklets.
+        </p>
       </div>
 
-      <div className="card">
-        <table className="data-table">
+      <div className="card-clean">
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.85rem" }}>
           <thead>
-            <tr>
-              <th>Global ID</th>
-              <th>Jersey #</th>
-              <th>Player Name</th>
-              <th>Team</th>
-              <th>Position</th>
-              <th>Wearable Sensor</th>
-              <th>Action</th>
+            <tr style={{ borderBottom: "1px solid var(--border-light)", textAlign: "left", color: "var(--text-muted)" }}>
+              <th style={{ padding: "0.65rem" }}>JERSEY</th>
+              <th style={{ padding: "0.65rem" }}>PLAYER NAME</th>
+              <th style={{ padding: "0.65rem" }}>TEAM</th>
+              <th style={{ padding: "0.65rem" }}>POSITION</th>
+              <th style={{ padding: "0.65rem" }}>WEARABLE SENSOR</th>
             </tr>
           </thead>
           <tbody>
             {players.map((p) => (
-              <tr key={p.global_player_id}>
-                <td><strong>{p.global_player_id}</strong></td>
-                <td>#{p.jersey}</td>
-                <td>{p.name}</td>
-                <td>
-                  <span style={{ color: p.team === 1 ? "var(--team-blue)" : "var(--team-red)" }}>
-                    Team {p.team}
-                  </span>
+              <tr key={p.global_player_id} style={{ borderBottom: "1px solid var(--border-light)" }}>
+                <td style={{ padding: "0.65rem", fontWeight: 700 }}>#{p.jersey}</td>
+                <td style={{ padding: "0.65rem" }}>{p.name}</td>
+                <td style={{ padding: "0.65rem", color: p.team === 1 ? "var(--team-blue)" : "var(--team-red)", fontWeight: 600 }}>
+                  Team {p.team}
                 </td>
-                <td>{p.position}</td>
-                <td>
+                <td style={{ padding: "0.65rem" }}>{p.position}</td>
+                <td style={{ padding: "0.65rem" }}>
                   {p.wearable ? (
-                    <span className="badge-pill badge-wearable">ESP32 ID #{p.wearable_id}</span>
+                    <span style={{ padding: "0.2rem 0.5rem", borderRadius: "4px", background: "var(--accent-blue-light)", color: "var(--accent-blue)", fontWeight: 600, fontSize: "0.75rem" }}>
+                      ESP32 #{p.wearable_id}
+                    </span>
                   ) : (
-                    <span style={{ color: "var(--text-muted)" }}>None</span>
+                    <span style={{ color: "var(--text-light)" }}>None</span>
                   )}
-                </td>
-                <td>
-                  <button className="btn btn-secondary" style={{ padding: "0.25rem 0.5rem", fontSize: "0.75rem" }}>
-                    Edit Binding
-                  </button>
                 </td>
               </tr>
             ))}
