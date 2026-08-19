@@ -6,6 +6,8 @@ import { TrainingHubPage } from "./pages/TrainingHubPage";
 import { MatchUploadPage } from "./pages/MatchUploadPage";
 import { CameraNetworkPage } from "./pages/CameraNetworkPage";
 import { PlayerMappingPage } from "./pages/PlayerMappingPage";
+import { HardwareFlasherPage } from "./pages/HardwareFlasherPage";
+import { PlayerTaggingPage } from "./pages/PlayerTaggingPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import {
   IconRecordings,
@@ -22,7 +24,7 @@ export const App: React.FC = () => {
   return (
     <BrowserRouter>
       <div className="app-shell">
-        {/* Left Sidebar (Matching Reference Image) */}
+        {/* Left Sidebar */}
         <aside className="sidebar">
           <div>
             <div className="sidebar-logo">
@@ -38,6 +40,10 @@ export const App: React.FC = () => {
               <NavLink to="/biometrics" className={({ isActive }) => `nav-item ${isActive ? "active" : ""}`}>
                 <IconWearable size={18} />
                 <span>Biometrics</span>
+              </NavLink>
+              <NavLink to="/flasher" className={({ isActive }) => `nav-item ${isActive ? "active" : ""}`}>
+                <IconCalendar size={18} />
+                <span>ESP32 Flasher</span>
               </NavLink>
               <NavLink to="/training" className={({ isActive }) => `nav-item ${isActive ? "active" : ""}`}>
                 <IconModelHub size={18} />
@@ -77,10 +83,12 @@ export const App: React.FC = () => {
             <Route path="/" element={<Navigate to="/recordings" replace />} />
             <Route path="/recordings" element={<LivePage />} />
             <Route path="/biometrics" element={<WearablePage />} />
+            <Route path="/flasher" element={<HardwareFlasherPage />} />
             <Route path="/training" element={<TrainingHubPage />} />
             <Route path="/ingest" element={<MatchUploadPage />} />
             <Route path="/cameras" element={<CameraNetworkPage />} />
-            <Route path="/tagging" element={<PlayerMappingPage />} />
+            <Route path="/tagging" element={<PlayerTaggingPage />} />
+            <Route path="/roster" element={<PlayerMappingPage />} />
             <Route path="/settings" element={<SettingsPage />} />
           </Routes>
         </main>

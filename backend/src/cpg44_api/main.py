@@ -20,6 +20,8 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Streamin
 from cpg44_api import __version__
 from cpg44_api.store import ProductStore
 from cpg44_api.training_manager import TrainingManager
+from cpg44_api.flasher import ESP32Flasher
+from cpg44_api.tagger import MatchTagger
 from soccer_analytics.modes import EngineManager, MatchMode
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -34,6 +36,8 @@ STORE = ProductStore(
 )
 ENGINE = EngineManager(ROOT)
 TRAINER = TrainingManager(ROOT)
+FLASHER = ESP32Flasher()
+TAGGER = MatchTagger()
 
 
 @asynccontextmanager
@@ -300,6 +304,49 @@ def create_app() -> FastAPI:
                 await asyncio.sleep(0.1)  # 10 Hz telemetry push
         except WebSocketDisconnect:
             pass
+
+
+    # --- ESP32 Hardware & Flashing ---
+    @app.get("/api/v1/hardware/ports")
+    def list_serial_ports():
+        return FLASHER.list_ports()
+
+    @app.get("/api/v1/hardware/chip-info")
+    def get_esp32_chip_info(port: str = "/dev/ttyUSB0"):
+        return FLASHER.get_chip_info(port=port)
+
+    @app.post("/api/v1/hardware/flash")
+    def flash_esp32_firmware(body: dict):
+        return FLASHER.flash_device(
+            port=body.get("port", "/dev/ttyUSB0"),
+            player_id=int(body.get("player_id", 27)),
+            wifi_ssid=body.get("wifi_ssid", "Field_WiFi"),
+            wifi_pass=body.get("wifi_pass", "FieldPass123"),
+            endpoint=body.get("endpoint", "http://192.168.1.100:8000/ingest"),
+        )
+
+    @app.get("/api/v1/hardware/flash/status")
+    def get_flash_job_status():
+        return FLASHER.get_flash_status()
+
+    # --- Player Tagging & Event Logging ---
+    @app.get("/api/v1/tagging/teams")
+    def get_team_profiles():
+        return TAGGER.team_profiles
+
+    @app.post("/api/v1/tagging/teams")
+    def update_team_profiles(body: dict):
+        return TAGGER.save_team_profiles(body)
+
+    @app.get("/api/v1/tagging/events")
+    def list_match_events():
+        return TAGGER.events
+
+    @app.post("/api/v1/tagging/events")
+    def create_match_event(body: dict):
+        ev = TAGGER.log_event(body)
+        STORE.timeline_tags.append(ev)
+        return ev
 
     return app
 
