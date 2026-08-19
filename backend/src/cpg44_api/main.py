@@ -1,0 +1,227 @@
+"""
+FastAPI application factory for the CPG44 Football Intelligence & Sensor Fusion Platform.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import os
+import shutil
+import time
+from contextlib import asynccontextmanager
+from pathlib import Path
+from typing import Optional
+
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
+
+from cpg44_api import __version__
+from cpg44_api.store import ProductStore
+from soccer_analytics.modes import EngineManager, MatchMode
+
+ROOT = Path(__file__).resolve().parents[3]
+STATIC_DIR = ROOT / "backend" / "src" / "cpg44_api" / "static"
+STATIC_DIR.mkdir(parents=True, exist_ok=True)
+UPLOAD_DIR = ROOT / "data" / "uploads"
+UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+
+STORE = ProductStore(
+    hub_url=os.environ.get("CPG44_HUB_URL", "http://127.0.0.1:8081"),
+    hostinger_url=os.environ.get("HOSTINGER_RELAY_URL", ""),
+)
+ENGINE = EngineManager(ROOT)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    app.state.store = STORE
+    app.state.engine = ENGINE
+    yield
+
+
+def create_app() -> FastAPI:
+    origins = os.environ.get(
+        "CPG44_CORS_ORIGINS",
+        "http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000",
+    ).split(",")
+    
+    app = FastAPI(
+        title="CPG44 Football Intelligence Platform",
+        version=__version__,
+        description=(
+            "Full-stack Computer Vision, Multi-Camera Tracking, ESP32 Wearable Sync, "
+            "and Tactical AI Engine."
+        ),
+        lifespan=lifespan,
+    )
+
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=[o.strip() for o in origins if o.strip()] + ["*"],
+        allow_credentials=False,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+    # --- System & Health ---
+    @app.get("/api/v1/health")
+    def health():
+        return {"status": "ok", "version": __version__, "mode": STORE.active_mode}
+
+    @app.get("/api/v1/system/info")
+    def system_info():
+        return STORE.system_info()
+
+    # --- Match Management ---
+    @app.get("/api/v1/matches")
+    def list_matches():
+        return [STORE.match]
+
+    @app.get("/api/v1/matches/{match_id}")
+    def get_match(match_id: str):
+        m = dict(STORE.match)
+        m["match_id"] = match_id
+        return m
+
+    @app.post("/api/v1/matches/{match_id}/mode")
+    def set_match_mode(match_id: str, body: dict):
+        mode = body.get("mode", "demo")
+        STORE.set_mode(mode)
+        return {"ok": True, "active_mode": STORE.active_mode}
+
+    @app.post("/api/v1/matches/{match_id}/start")
+    def start_match(match_id: str):
+        STORE.match["engine_running"] = True
+        STORE.match["status"] = "live"
+        return {"ok": True, "message": "match marked live"}
+
+    @app.post("/api/v1/matches/{match_id}/stop")
+    def stop_match(match_id: str):
+        STORE.match["engine_running"] = False
+        STORE.match["status"] = "paused"
+        return {"ok": True, "message": "match paused"}
+
+    @app.get("/api/v1/matches/{match_id}/analytics")
+    def get_match_analytics(match_id: str):
+        return STORE.live_frame_snapshot()
+
+    @app.get("/api/v1/matches/{match_id}/players")
+    def get_match_players(match_id: str):
+        return STORE.roster
+
+    # --- Video Upload & Processing Mode ---
+    @app.post("/api/v1/matches/upload")
+    async def upload_match_video(
+        file: UploadFile = File(...),
+        match_name: str = Form("College Match"),
+        mode: str = Form("inference"),
+    ):
+        file_path = UPLOAD_DIR / f"{int(time.time())}_{file.filename}"
+        with open(file_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+
+        match_id = f"match_{int(time.time())}"
+        ENGINE.start_upload_processing(
+            match_id=match_id,
+            video_path=str(file_path),
+        )
+
+        return {
+            "ok": True,
+            "match_id": match_id,
+            "filename": file.filename,
+            "saved_path": str(file_path),
+            "status": "processing",
+        }
+
+    @app.get("/api/v1/matches/{match_id}/progress")
+    def get_processing_progress(match_id: str):
+        prog = ENGINE.get_progress(match_id)
+        if not prog:
+            return {"match_id": match_id, "status": "completed", "progress_pct": 100.0}
+        return prog
+
+    # --- Camera Network (Single & Multi-Camera Gateway) ---
+    @app.get("/api/v1/cameras")
+    def list_cameras():
+        return list(STORE.cameras.values())
+
+    @app.post("/api/v1/cameras/register")
+    def register_camera(cam: dict):
+        return STORE.register_camera(cam)
+
+    # --- Observations Endpoint for API Compatibility ---
+    @app.get("/api/v1/observations")
+    def list_observations(source: str = ""):
+        rows = STORE.wearable_log
+        if source:
+            rows = [r for r in rows if r.get("source") == source]
+        return rows[-200:]
+
+    @app.get("/api/v1/observations/wearable")
+    def list_wearables():
+        hub_data = STORE.fetch_hub()
+        if hub_data and "players" in hub_data:
+            return hub_data["players"]
+        return STORE.wearable_log[-100:]
+
+    @app.post("/api/v1/observations/wearable")
+    def post_wearable(body: dict):
+        return STORE.record_wearable(body)
+
+    # --- Smartphone Ingest HTML ---
+    @app.get("/camera", response_class=HTMLResponse)
+    def smartphone_camera_page():
+        html_file = STATIC_DIR / "camera.html"
+        if html_file.is_file():
+            return html_file.read_text(encoding="utf-8")
+        return """
+        <!DOCTYPE html>
+        <html>
+        <head><title>Mobile Camera Streaming</title></head>
+        <body style="background:#111;color:#fff;font-family:sans-serif;text-align:center;padding:2rem;">
+            <h2>CPG44 Smartphone Camera Streamer</h2>
+            <p>Point this camera at the pitch. Video frames will stream directly to the CPG44 Gateway.</p>
+            <video id="v" autoplay playsinline style="width:100%;max-width:480px;border-radius:8px;"></video>
+            <script>
+                navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'}}).then(s=>{
+                    document.getElementById('v').srcObject=s;
+                });
+            </script>
+        </body>
+        </html>
+        """
+
+    # --- Real-Time WebSocket Feeds ---
+    @app.websocket("/ws/live")
+    async def websocket_live_feed(ws: WebSocket):
+        await ws.accept()
+        try:
+            while True:
+                snap = STORE.live_frame_snapshot()
+                await ws.send_json(snap)
+                await asyncio.sleep(0.04)  # ~25 FPS live match broadcast
+        except WebSocketDisconnect:
+            pass
+
+    @app.websocket("/ws/wearables")
+    async def websocket_wearable_feed(ws: WebSocket):
+        await ws.accept()
+        try:
+            while True:
+                hub = STORE.fetch_hub() or {"players": {}}
+                await ws.send_json({
+                    "timestamp": time.time(),
+                    "telemetry": hub,
+                })
+                await asyncio.sleep(0.1)  # 10 Hz telemetry push
+        except WebSocketDisconnect:
+            pass
+
+    return app
+
+
+app = create_app()

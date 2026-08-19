@@ -1,0 +1,17 @@
+# CPG44 local services. GPU vision still runs on the WSL host, not in these containers.
+services:
+  api:
+    image: python:3.11-slim
+    working_dir: /app
+    volumes:
+      - .:/app
+    ports:
+      - "8000:8000"
+    environment:
+      PYTHONPATH: /app/backend/src:/app
+      CPG44_HUB_URL: http://host.docker.internal:8081
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    command: >
+      bash -lc "pip install -q fastapi 'uvicorn[standard]' numpy scipy
+      && python -m uvicorn cpg44_api.main:app --host 0.0.0.0 --port 8000"

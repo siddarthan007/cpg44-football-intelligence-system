@@ -1,0 +1,22 @@
+version: "3.8"
+
+services:
+  cpg44-relay:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.server
+    container_name: cpg44_sensor_relay
+    restart: always
+    ports:
+      - "8081:8081"   # HTTP & WebSocket API
+      - "9000:9000"   # ESP32 Raw TCP Telemetry Stream
+    volumes:
+      - ./data:/app/data
+    environment:
+      - PORT=8081
+      - CPG44_DB_PATH=/app/data/hostinger_telemetry.db
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3

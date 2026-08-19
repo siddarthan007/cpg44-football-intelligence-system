@@ -1,0 +1,23 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install minimal build deps
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    sqlite3 \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements.txt .
+# Install lightweight server dependencies
+RUN pip install --no-cache-dir fastapi uvicorn[standard] websockets pydantic requests
+
+COPY backend/src /app/backend/src
+ENV PYTHONPATH=/app/backend/src:$PYTHONPATH
+ENV PORT=8081
+ENV CPG44_DB_PATH=/app/data/hostinger_telemetry.db
+
+EXPOSE 8081
+EXPOSE 9000
+
+CMD ["python", "-m", "cpg44_api.hostinger_sensor_relay"]

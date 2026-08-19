@@ -1,0 +1,13 @@
+# CPG44 product defaults (vision + wearable). Override with env or CLI flags.
+match_id: live
+
+wearable:
+  player_id: 7
+  hub_http_port: 8081
+  esp32_stream_port: 9000
+  hub_url: http://127.0.0.1:8081
+  poll_hz: 10
+
+vision:
+  imgsz: 960
+  conf: 0.3

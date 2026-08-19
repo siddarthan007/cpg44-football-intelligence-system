@@ -1,0 +1,793 @@
+{
+  "metric": true,
+  "possession_pct": {
+    "1": 71.3,
+    "2": 28.7
+  },
+  "passes": {
+    "team1": 7,
+    "team2": 0
+  },
+  "wearables_bound": {
+    "1": 1,
+    "2": 2,
+    "3": 3,
+    "4": 4,
+    "5": 5,
+    "6": 6
+  },
+  "players": {
+    "1": {
+      "team": 1,
+      "distance_m": 4.9,
+      "top_speed_ms": 6.27,
+      "hsr_m": 1.2,
+      "sprints": 0,
+      "metabolic_power_avg_wkg": 29.43,
+      "energy_kcal": 1.1,
+      "wearable": true
+    },
+    "2": {
+      "team": 1,
+      "distance_m": 56.7,
+      "top_speed_ms": 12.0,
+      "hsr_m": 9.4,
+      "sprints": 1,
+      "metabolic_power_avg_wkg": 21.9,
+      "energy_kcal": 11.1,
+      "wearable": true
+    },
+    "3": {
+      "team": 2,
+      "distance_m": 35.3,
+      "top_speed_ms": 12.0,
+      "hsr_m": 6.8,
+      "sprints": 1,
+      "metabolic_power_avg_wkg": 21.9,
+      "energy_kcal": 5.0,
+      "wearable": true
+    },
+    "4": {
+      "team": 1,
+      "distance_m": 7.8,
+      "top_speed_ms": 12.0,
+      "hsr_m": 0.5,
+      "sprints": 1,
+      "metabolic_power_avg_wkg": 15.83,
+      "energy_kcal": 1.5,
+      "wearable": true
+    },
+    "5": {
+      "team": 2,
+      "distance_m": 7.1,
+      "top_speed_ms": 3.21,
+      "hsr_m": 0.0,
+      "sprints": 0,
+      "metabolic_power_avg_wkg": 10.33,
+      "energy_kcal": 1.1,
+      "wearable": true
+    },
+    "6": {
+      "team": 2,
+      "distance_m": 78.0,
+      "top_speed_ms": 12.0,
+      "hsr_m": 40.9,
+      "sprints": 5,
+      "metabolic_power_avg_wkg": 37.87,
+      "energy_kcal": 16.4,
+      "wearable": true
+    },
+    "7": {
+      "team": 2,
+      "distance_m": 52.4,
+      "top_speed_ms": 12.0,
+      "hsr_m": 9.6,
+      "sprints": 2,
+      "metabolic_power_avg_wkg": 25.91,
+      "energy_kcal": 9.1,
+      "wearable": false
+    },
+    "8": {
+      "team": 1,
+      "distance_m": 41.2,
+      "top_speed_ms": 12.0,
+      "hsr_m": 19.6,
+      "sprints": 2,
+      "metabolic_power_avg_wkg": 47.65,
+      "energy_kcal": 8.8,
+      "wearable": false
+    },
+    "9": {
+      "team": 2,
+      "distance_m": 77.1,
+      "top_speed_ms": 12.0,
+      "hsr_m": 49.2,
+      "sprints": 6,
+      "metabolic_power_avg_wkg": 54.5,
+      "energy_kcal": 14.9,
+      "wearable": false
+    },
+    "10": {
+      "team": 2,
+      "distance_m": 59.2,
+      "top_speed_ms": 12.0,
+      "hsr_m": 42.6,
+      "sprints": 3,
+      "metabolic_power_avg_wkg": 64.44,
+      "energy_kcal": 11.1,
+      "wearable": false
+    },
+    "11": {
+      "team": 2,
+      "distance_m": 114.6,
+      "top_speed_ms": 12.0,
+      "hsr_m": 93.2,
+      "sprints": 4,
+      "metabolic_power_avg_wkg": 60.49,
+      "energy_kcal": 22.5,
+      "wearable": false
+    },
+    "12": {
+      "team": 2,
+      "distance_m": 0.7,
+      "top_speed_ms": 1.87,
+      "hsr_m": 0.0,
+      "sprints": 0,
+      "metabolic_power_avg_wkg": 3.91,
+      "energy_kcal": 0.1,
+      "wearable": false
+    },
+    "13": {
+      "team": 2,
+      "distance_m": 2.0,
+      "top_speed_ms": 3.32,
+      "hsr_m": 0.0,
+      "sprints": 0,
+      "metabolic_power_avg_wkg": 12.67,
+      "energy_kcal": 0.4,
+      "wearable": false
+    },
+    "14": {
+      "team": 1,
+      "distance_m": 10.0,
+      "top_speed_ms": 12.0,
+      "hsr_m": 8.0,
+      "sprints": 1,
+      "metabolic_power_avg_wkg": 46.56,
+      "energy_kcal": 2.0,
+      "wearable": false
+    },
+    "15": {
+      "team": 2,
+      "distance_m": 110.0,
+      "top_speed_ms": 12.0,
+      "hsr_m": 84.6,
+      "sprints": 7,
+      "metabolic_power_avg_wkg": 74.44,
+      "energy_kcal": 23.1,
+      "wearable": false
+    },
+    "16": {
+      "team": 1,
+      "distance_m": 65.8,
+      "top_speed_ms": 12.0,
+      "hsr_m": 45.3,
+      "sprints": 4,
+      "metabolic_power_avg_wkg": 65.0,
+      "energy_kcal": 14.1,
+      "wearable": false
+    },
+    "17": {
+      "team": 1,
+      "distance_m": 21.3,
+      "top_speed_ms": 12.0,
+      "hsr_m": 9.2,
+      "sprints": 2,
+      "metabolic_power_avg_wkg": 19.34,
+      "energy_kcal": 4.0,
+      "wearable": false
+    },
+    "18": {
+      "team": 2,
+      "distance_m": 19.6,
+      "top_speed_ms": 9.97,
+      "hsr_m": 10.9,
+      "sprints": 1,
+      "metabolic_power_avg_wkg": 65.95,
+      "energy_kcal": 5.2,
+      "wearable": false
+    },
+    "19": {
+      "team": 1,
+      "distance_m": 10.3,
+      "top_speed_ms": 5.41,
+      "hsr_m": 0.0,
+      "sprints": 0,
+      "metabolic_power_avg_wkg": 21.06,
+      "energy_kcal": 2.1,
+      "wearable": false
+    },
+    "20": {
+      "team": 1,
+      "distance_m": 40.0,
+      "top_speed_ms": 12.0,
+      "hsr_m": 30.0,
+      "sprints": 4,
+      "metabolic_power_avg_wkg": 75.01,
+      "energy_kcal": 9.0,
+      "wearable": false
+    },
+    "21": {
+      "team": 0,
+      "distance_m": 0.0,
+      "top_speed_ms": 0.03,
+      "hsr_m": 0.0,
+      "sprints": 0,
+      "metabolic_power_avg_wkg": 0.05,
+      "energy_kcal": 0.0,
+      "wearable": false
+    },
+    "22": {
+      "team": 1,
+      "distance_m": 33.5,
+      "top_speed_ms": 12.0,
+      "hsr_m": 24.9,
+      "sprints": 4,
+      "metabolic_power_avg_wkg": 71.45,
+      "energy_kcal": 7.1,
+      "wearable": false
+    },
+    "23": {
+      "team": 1,
+      "distance_m": 15.0,
+      "top_speed_ms": 12.0,
+      "hsr_m": 13.7,
+      "sprints": 1,
+      "metabolic_power_avg_wkg": 82.88,
+      "energy_kcal": 2.6,
+      "wearable": false
+    },
+    "24": {
+      "team": 2,
+      "distance_m": 35.3,
+      "top_speed_ms": 10.67,
+      "hsr_m": 13.6,
+      "sprints": 2,
+      "metabolic_power_avg_wkg": 20.59,
+      "energy_kcal": 6.9,
+      "wearable": false
+    },
+    "25": {
+      "team": 1,
+      "distance_m": 57.7,
+      "top_speed_ms": 12.0,
+      "hsr_m": 31.0,
+      "sprints": 4,
+      "metabolic_power_avg_wkg": 40.7,
+      "energy_kcal": 10.9,
+      "wearable": false
+    },
+    "26": {
+      "team": 1,
+      "distance_m": 38.9,
+      "top_speed_ms": 10.14,
+      "hsr_m": 7.9,
+      "sprints": 1,
+      "metabolic_power_avg_wkg": 24.05,
+      "energy_kcal": 7.9,
+      "wearable": false
+    },
+    "27": {
+      "team": 2,
+      "distance_m": 39.7,
+      "top_speed_ms": 12.0,
+      "hsr_m": 33.1,
+      "sprints": 3,
+      "metabolic_power_avg_wkg": 68.77,
+      "energy_kcal": 8.2,
+      "wearable": false
+    },
+    "28": {
+      "team": 1,
+      "distance_m": 7.9,
+      "top_speed_ms": 8.5,
+      "hsr_m": 3.1,
+      "sprints": 1,
+      "metabolic_power_avg_wkg": 50.07,
+      "energy_kcal": 1.8,
+      "wearable": false
+    },
+    "29": {
+      "team": 2,
+      "distance_m": 59.3,
+      "top_speed_ms": 12.0,
+      "hsr_m": 31.4,
+      "sprints": 4,
+      "metabolic_power_avg_wkg": 42.96,
+      "energy_kcal": 11.7,
+      "wearable": false
+    },
+    "30": {
+      "team": 1,
+      "distance_m": 55.0,
+      "top_speed_ms": 12.0,
+      "hsr_m": 31.6,
+      "sprints": 3,
+      "metabolic_power_avg_wkg": 51.01,
+      "energy_kcal": 12.1,
+      "wearable": false
+    },
+    "31": {
+      "team": 2,
+      "distance_m": 58.9,
+      "top_speed_ms": 12.0,
+      "hsr_m": 44.7,
+      "sprints": 4,
+      "metabolic_power_avg_wkg": 70.08,
+      "energy_kcal": 12.8,
+      "wearable": false
+    },
+    "32": {
+      "team": 1,
+      "distance_m": 32.9,
+      "top_speed_ms": 7.88,
+      "hsr_m": 9.1,
+      "sprints": 2,
+      "metabolic_power_avg_wkg": 38.8,
+      "energy_kcal": 7.1,
+      "wearable": false
+    },
+    "33": {
+      "team": 1,
+      "distance_m": 5.3,
+      "top_speed_ms": 11.68,
+      "hsr_m": 3.4,
+      "sprints": 1,
+      "metabolic_power_avg_wkg": 29.33,
+      "energy_kcal": 0.9,
+      "wearable": false
+    },
+    "34": {
+      "team": 2,
+      "distance_m": 2.1,
+      "top_speed_ms": 12.0,
+      "hsr_m": 2.0,
+      "sprints": 1,
+      "metabolic_power_avg_wkg": 47.48,
+      "energy_kcal": 0.3,
+      "wearable": false
+    },
+    "35": {
+      "team": 1,
+      "distance_m": 6.9,
+      "top_speed_ms": 3.38,
+      "hsr_m": 0.0,
+      "sprints": 0,
+      "metabolic_power_avg_wkg": 15.44,
+      "energy_kcal": 1.1,
+      "wearable": false
+    },
+    "36": {
+      "team": 1,
+      "distance_m": 4.6,
+      "top_speed_ms": 4.42,
+      "hsr_m": 0.0,
+      "sprints": 0,
+      "metabolic_power_avg_wkg": 14.14,
+      "energy_kcal": 0.7,
+      "wearable": false
+    },
+    "37": {
+      "team": 1,
+      "distance_m": 2.6,
+      "top_speed_ms": 2.59,
+      "hsr_m": 0.0,
+      "sprints": 0,
+      "metabolic_power_avg_wkg": 6.71,
+      "energy_kcal": 0.2,
+      "wearable": false
+    },
+    "38": {
+      "team": 2,
+      "distance_m": 2.0,
+      "top_speed_ms": 2.02,
+      "hsr_m": 0.0,
+      "sprints": 0,
+      "metabolic_power_avg_wkg": 6.43,
+      "energy_kcal": 0.2,
+      "wearable": false
+    },
+    "39": {
+      "team": 1,
+      "distance_m": 11.3,
+      "top_speed_ms": 6.64,
+      "hsr_m": 1.8,
+      "sprints": 0,
+      "metabolic_power_avg_wkg": 33.13,
+      "energy_kcal": 2.1,
+      "wearable": false
+    },
+    "40": {
+      "team": 1,
+      "distance_m": 0.5,
+      "top_speed_ms": 1.26,
+      "hsr_m": 0.0,
+      "sprints": 0,
+      "metabolic_power_avg_wkg": 2.61,
+      "energy_kcal": 0.0,
+      "wearable": false
+    },
+    "41": {
+      "team": 2,
+      "distance_m": 6.7,
+      "top_speed_ms": 6.03,
+      "hsr_m": 1.4,
+      "sprints": 0,
+      "metabolic_power_avg_wkg": 24.32,
+      "energy_kcal": 1.5,
+      "wearable": false
+    },
+    "42": {
+      "team": 2,
+      "distance_m": 0.0,
+      "top_speed_ms": 0.0,
+      "hsr_m": 0.0,
+      "sprints": 0,
+      "metabolic_power_avg_wkg": 0.0,
+      "energy_kcal": 0.0,
+      "wearable": false
+    },
+    "43": {
+      "team": 1,
+      "distance_m": 0.0,
+      "top_speed_ms": 0.0,
+      "hsr_m": 0.0,
+      "sprints": 0,
+      "metabolic_power_avg_wkg": 0.0,
+      "energy_kcal": 0.0,
+      "wearable": false
+    },
+    "44": {
+      "team": 1,
+      "distance_m": 0.3,
+      "top_speed_ms": 0.82,
+      "hsr_m": 0.0,
+      "sprints": 0,
+      "metabolic_power_avg_wkg": 1.73,
+      "energy_kcal": 0.0,
+      "wearable": false
+    },
+    "45": {
+      "team": 1,
+      "distance_m": 0.0,
+      "top_speed_ms": 0.2,
+      "hsr_m": 0.0,
+      "sprints": 0,
+      "metabolic_power_avg_wkg": 0.31,
+      "energy_kcal": 0.0,
+      "wearable": false
+    },
+    "46": {
+      "team": 0,
+      "distance_m": 0.0,
+      "top_speed_ms": 0.0,
+      "hsr_m": 0.0,
+      "sprints": 0,
+      "metabolic_power_avg_wkg": 0.0,
+      "energy_kcal": 0.0,
+      "wearable": false
+    },
+    "47": {
+      "team": 1,
+      "distance_m": 0.0,
+      "top_speed_ms": 0.0,
+      "hsr_m": 0.0,
+      "sprints": 0,
+      "metabolic_power_avg_wkg": 0.0,
+      "energy_kcal": 0.0,
+      "wearable": false
+    },
+    "48": {
+      "team": 1,
+      "distance_m": 0.0,
+      "top_speed_ms": 0.0,
+      "hsr_m": 0.0,
+      "sprints": 0,
+      "metabolic_power_avg_wkg": 0.0,
+      "energy_kcal": 0.0,
+      "wearable": false
+    }
+  },
+  "injury_risk": {
+    "1": {
+      "risk": 0.05,
+      "level": "low",
+      "factors": {}
+    },
+    "2": {
+      "risk": 0.007,
+      "level": "low",
+      "factors": {
+        "low_spo2": 0.083
+      }
+    },
+    "3": {
+      "risk": 0.05,
+      "level": "low",
+      "factors": {}
+    },
+    "4": {
+      "risk": 0.05,
+      "level": "low",
+      "factors": {}
+    },
+    "5": {
+      "risk": 0.05,
+      "level": "low",
+      "factors": {}
+    },
+    "6": {
+      "risk": 0.018,
+      "level": "low",
+      "factors": {
+        "low_spo2": 0.133
+      }
+    },
+    "7": {
+      "risk": 0.05,
+      "level": "low",
+      "factors": {}
+    },
+    "8": {
+      "risk": 0.05,
+      "level": "low",
+      "factors": {}
+    },
+    "9": {
+      "risk": 0.05,
+      "level": "low",
+      "factors": {}
+    },
+    "10": {
+      "risk": 0.05,
+      "level": "low",
+      "factors": {}
+    },
+    "11": {
+      "risk": 0.05,
+      "level": "low",
+      "factors": {}
+    },
+    "12": {
+      "risk": 0.05,
+      "level": "low",
+      "factors": {}
+    },
+    "13": {
+      "risk": 0.05,
+      "level": "low",
+      "factors": {}
+    },
+    "14": {
+      "risk": 0.05,
+      "level": "low",
+      "factors": {}
+    },
+    "15": {
+      "risk": 0.05,
+      "level": "low",
+      "factors": {}
+    },
+    "16": {
+      "risk": 0.05,
+      "level": "low",
+      "factors": {}
+    },
+    "17": {
+      "risk": 0.05,
+      "level": "low",
+      "factors": {}
+    },
+    "18": {
+      "risk": 0.05,
+      "level": "low",
+      "factors": {}
+    },
+    "19": {
+      "risk": 0.05,
+      "level": "low",
+      "factors": {}
+    },
+    "20": {
+      "risk": 0.05,
+      "level": "low",
+      "factors": {}
+    },
+    "21": {
+      "risk": 0.05,
+      "level": "low",
+      "factors": {}
+    },
+    "22": {
+      "risk": 0.05,
+      "level": "low",
+      "factors": {}
+    },
+    "23": {
+      "risk": 0.05,
+      "level": "low",
+      "factors": {}
+    },
+    "24": {
+      "risk": 0.05,
+      "level": "low",
+      "factors": {}
+    },
+    "25": {
+      "risk": 0.05,
+      "level": "low",
+      "factors": {}
+    },
+    "26": {
+      "risk": 0.05,
+      "level": "low",
+      "factors": {}
+    },
+    "27": {
+      "risk": 0.05,
+      "level": "low",
+      "factors": {}
+    },
+    "28": {
+      "risk": 0.05,
+      "level": "low",
+      "factors": {}
+    },
+    "29": {
+      "risk": 0.05,
+      "level": "low",
+      "factors": {}
+    },
+    "30": {
+      "risk": 0.05,
+      "level": "low",
+      "factors": {}
+    },
+    "31": {
+      "risk": 0.05,
+      "level": "low",
+      "factors": {}
+    },
+    "32": {
+      "risk": 0.05,
+      "level": "low",
+      "factors": {}
+    },
+    "33": {
+      "risk": 0.05,
+      "level": "low",
+      "factors": {}
+    },
+    "34": {
+      "risk": 0.05,
+      "level": "low",
+      "factors": {}
+    },
+    "35": {
+      "risk": 0.05,
+      "level": "low",
+      "factors": {}
+    },
+    "36": {
+      "risk": 0.05,
+      "level": "low",
+      "factors": {}
+    },
+    "37": {
+      "risk": 0.05,
+      "level": "low",
+      "factors": {}
+    },
+    "38": {
+      "risk": 0.05,
+      "level": "low",
+      "factors": {}
+    },
+    "39": {
+      "risk": 0.05,
+      "level": "low",
+      "factors": {}
+    },
+    "40": {
+      "risk": 0.05,
+      "level": "low",
+      "factors": {}
+    },
+    "41": {
+      "risk": 0.05,
+      "level": "low",
+      "factors": {}
+    },
+    "42": {
+      "risk": 0.05,
+      "level": "low",
+      "factors": {}
+    },
+    "43": {
+      "risk": 0.05,
+      "level": "low",
+      "factors": {}
+    },
+    "44": {
+      "risk": 0.05,
+      "level": "low",
+      "factors": {}
+    },
+    "45": {
+      "risk": 0.05,
+      "level": "low",
+      "factors": {}
+    },
+    "46": {
+      "risk": 0.05,
+      "level": "low",
+      "factors": {}
+    },
+    "47": {
+      "risk": 0.05,
+      "level": "low",
+      "factors": {}
+    },
+    "48": {
+      "risk": 0.05,
+      "level": "low",
+      "factors": {}
+    }
+  },
+  "shots_xg": {
+    "1": {
+      "shots": 3,
+      "xg": 0.036
+    },
+    "2": {
+      "shots": 1,
+      "xg": 0.007
+    }
+  },
+  "substitution_watch": [],
+  "tactics": {
+    "team1": {
+      "team": 1,
+      "formation": "1-5-4",
+      "avg_control": 60.0,
+      "avg_width": 14.6,
+      "avg_depth": 22.6,
+      "avg_compactness": 8.2,
+      "avg_line_height": 43.7,
+      "avg_pressing": 2.5,
+      "avg_surface_area": 185.9,
+      "possession_pct": 71.3,
+      "time_in_att_third_pct": 0.0,
+      "recommendations": [
+        "Narrow (15 m) \u2014 use the width to stretch the opponent and open central lanes.",
+        "Possession without penetration \u2014 progress the ball into the attacking third earlier (verticality)."
+      ]
+    },
+    "team2": {
+      "team": 2,
+      "formation": "2-4-4",
+      "avg_control": 40.0,
+      "avg_width": 11.1,
+      "avg_depth": 23.5,
+      "avg_compactness": 8.4,
+      "avg_line_height": 49.2,
+      "avg_pressing": 1.1,
+      "avg_surface_area": 129.5,
+      "possession_pct": 28.7,
+      "time_in_att_third_pct": 3.3,
+      "recommendations": [
+        "Narrow (11 m) \u2014 use the width to stretch the opponent and open central lanes."
+      ]
+    }
+  }
+}

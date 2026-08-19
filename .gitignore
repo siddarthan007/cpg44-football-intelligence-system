@@ -1,0 +1,36 @@
+# Python & Environment
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+*.so
+.pytest_cache/
+.ruff_cache/
+
+# Node & Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+frontend/tsconfig.tsbuildinfo
+
+# Large Model Checkpoints & Outputs
+*.pt
+*.onnx
+*.engine
+runs/
+demo_out/*.mp4
+*.mp4
+
+# Data & Database files
+data/uploads/*
+!data/uploads/.gitkeep
+data/matches/*
+!data/matches/.gitkeep
+data/*.db
+data/*.db-wal
+data/*.db-shm
+
+# Env
+.env
+.env.*.local

@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Wearable Telemetry</title>
+<style>
+  :root { color-scheme: dark; --bg:#0a0c10; --panel:#11151b; --line:#252c35; --text:#edf1f5; --muted:#87919d; --good:#5ac47a; --warn:#d8ad59; --bad:#df6b6b; }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font:14px/1.45 system-ui,sans-serif}
+  main{width:min(1400px,calc(100% - 28px));margin:auto;padding:24px 0 48px}
+  header{display:flex;justify-content:space-between;align-items:flex-start;gap:20px;margin-bottom:16px}
+  h1{margin:0;font-size:25px}.sub{color:var(--muted);margin-top:5px;font-size:13px}
+  .status{display:flex;gap:8px;align-items:center;border:1px solid var(--line);border-radius:999px;padding:8px 11px;color:var(--muted)}
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--bad)}.dot.ok{background:var(--good)}
+  .grid{display:grid;grid-template-columns:repeat(12,1fr);gap:12px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px;min-width:0}
+  .s3{grid-column:span 3}.s4{grid-column:span 4}.s6{grid-column:span 6}.s12{grid-column:span 12}
+  .label{text-transform:uppercase;letter-spacing:.08em;font-weight:650;color:var(--muted);font-size:10px;margin-bottom:9px}
+  .big{font-size:38px;line-height:1;letter-spacing:-.05em;font-weight:680}.unit{font-size:13px;color:var(--muted);margin-left:3px}
+  .meta{color:var(--muted);font-size:12px;margin-top:8px}.good{color:var(--good)}.warn{color:var(--warn)}
+  .rows{display:grid;gap:7px}.row{display:flex;justify-content:space-between;gap:18px;border-bottom:1px solid #20262e;padding-bottom:7px}
+  .row:last-child{border:0;padding-bottom:0}.row span:last-child{text-align:right;font-variant-numeric:tabular-nums}
+  canvas{display:block;width:100%;height:150px;margin-top:8px}.chart-title{font-size:11px;color:var(--muted)}
+  pre{margin:0;white-space:pre-wrap;max-height:280px;overflow:auto;color:#aab2bc;font:11px/1.5 ui-monospace,monospace}
+  @media(max-width:1000px){.s3,.s4{grid-column:span 6}.s6{grid-column:span 12}}
+</style>
+</head>
+<body>
+<main>
+<header>
+  <div><h1>Wearable Telemetry</h1><div class="sub">Live PPG (bandpass + peaks) · GPS speed/heading · IMU accel — not integrated speed</div></div>
+  <div class="status"><span id="onlineDot" class="dot"></span><span id="onlineText">Waiting</span></div>
+</header>
+<div class="grid">
+  <section class="card s3"><div class="label">Heart rate (live)</div><span id="liveBpm" class="big">--</span><span class="unit">BPM</span><div id="liveBpmMeta" class="meta">Hold still, finger covering both LEDs</div></section>
+  <section class="card s3"><div class="label">SpO₂ estimate (live)</div><span id="liveSpo2" class="big">--</span><span class="unit">%</span><div id="liveSpo2Meta" class="meta">Not a medical device</div></section>
+  <section class="card s3"><div class="label">GPS speed</div><span id="speed" class="big">--</span><span class="unit">m/s</span><div id="speedMeta" class="meta">NEO-6M only — IMU is not integrated</div></section>
+  <section class="card s3"><div class="label">Heading</div><span id="heading" class="big">--</span><span class="unit" id="headingUnit"></span><div id="headingMeta" class="meta">GPS course when fix exists</div></section>
+
+  <section class="card s4">
+    <div class="label">Kinematics (live)</div>
+    <div class="rows">
+      <div class="row"><span>Speed</span><span id="kinSpeed">--</span></div>
+      <div class="row"><span>Course</span><span id="kinCourse">--</span></div>
+      <div class="row"><span>GPS accel</span><span id="kinGpsAccel">--</span></div>
+      <div class="row"><span>Linear accel mag</span><span id="kinLinMag">--</span></div>
+      <div class="row"><span>Linear accel XYZ</span><span id="kinLin">--</span></div>
+      <div class="row"><span>Jerk mag</span><span id="kinJerk">--</span></div>
+      <div class="row"><span>Roll / pitch</span><span id="kinRP">--</span></div>
+      <div class="row"><span>Yaw (relative)</span><span id="kinYaw">--</span></div>
+    </div>
+  </section>
+  <section class="card s4">
+    <div class="label">PPG quality</div>
+    <div class="rows">
+      <div class="row"><span>Contact</span><span id="contact">--</span></div>
+      <div class="row"><span>IR / Red</span><span id="irred">--</span></div>
+      <div class="row"><span>Peaks / IBI CV</span><span id="peaks">--</span></div>
+      <div class="row"><span>R ratio</span><span id="rratio">--</span></div>
+      <div class="row"><span>Red/IR corr</span><span id="corr">--</span></div>
+      <div class="row"><span>Quality</span><span id="quality">--</span></div>
+      <div class="row"><span>Reason</span><span id="reason">--</span></div>
+    </div>
+  </section>
+  <section class="card s4">
+    <div class="label">GPS / device</div>
+    <div class="rows">
+      <div class="row"><span>Fix</span><span id="gpsFix">--</span></div>
+      <div class="row"><span>Position</span><span id="position">--</span></div>
+      <div class="row"><span>Sat / HDOP</span><span id="sathdop">--</span></div>
+      <div class="row"><span>RSSI</span><span id="rssi">--</span></div>
+      <div class="row"><span>Clock RTT</span><span id="rtt">--</span></div>
+      <div class="row"><span>IP</span><span id="deviceIp">--</span></div>
+      <div class="row"><span>Stationary</span><span id="stationary">--</span></div>
+    </div>
+  </section>
+
+  <section class="card s6"><div class="chart-title">MAX30102 IR / Red</div><canvas id="ppgChart"></canvas></section>
+  <section class="card s6"><div class="chart-title">Linear accel magnitude (m/s²)</div><canvas id="accelChart"></canvas></section>
+  <section class="card s6"><div class="chart-title">Live BPM (valid windows only)</div><canvas id="bpmChart"></canvas></section>
+  <section class="card s6"><div class="chart-title">Live SpO₂ (valid windows only)</div><canvas id="spo2Chart"></canvas></section>
+  <section class="card s12"><div class="label">Latest JSON</div><pre id="rawJson">Waiting...</pre></section>
+</div>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+const histories = {ir:[], red:[], accel:[], bpm:[], spo2:[]};
+function f(v,d=2){return Number.isFinite(Number(v))?Number(v).toFixed(d):"--"}
+function boolText(v){return v===true?"yes":v===false?"no":"--"}
+function push(arr,v,max){if(Number.isFinite(Number(v))){arr.push(Number(v));if(arr.length>max)arr.splice(0,arr.length-max)}}
+function draw(canvas, series){
+  const dpr=devicePixelRatio||1,w=canvas.clientWidth,h=canvas.clientHeight;canvas.width=w*dpr;canvas.height=h*dpr;
+  const c=canvas.getContext('2d');c.setTransform(dpr,0,0,dpr,0,0);c.clearRect(0,0,w,h);c.strokeStyle='#252c35';
+  for(let i=1;i<4;i++){const y=h*i/4;c.beginPath();c.moveTo(0,y);c.lineTo(w,y);c.stroke()}
+  const vals=series.flatMap(s=>s.values).filter(Number.isFinite);if(vals.length<2)return;
+  let lo=Math.min(...vals),hi=Math.max(...vals);if(hi===lo){hi+=1;lo-=1}const p=(hi-lo)*.08;lo-=p;hi+=p;
+  series.forEach((s,si)=>{if(s.values.length<2)return;c.strokeStyle=si===0?'#8da9d8':'#d18b77';c.lineWidth=1.6;c.beginPath();
+    s.values.forEach((v,i)=>{const x=i/(Math.max(2,s.values.length)-1)*w;const y=h-(v-lo)/(hi-lo)*h;i?c.lineTo(x,y):c.moveTo(x,y)});c.stroke()});
+}
+function update(s){
+  const dev=s.device||{}, imu=s.imu||{}, gps=s.gps||{}, nav=s.navigation||{}, vit=s.vitals||{};
+  const live=vit.live||{}, roll=vit.rolling||{}, ppg=s.ppg||{}, clock=s.clock||{}, kin=s.kinematics||{};
+  $('onlineDot').classList.toggle('ok',!!dev.connected);
+  $('onlineText').textContent=dev.connected?'Live':'Offline';
+  $('liveBpm').textContent=live.bpm??'--';
+  $('liveSpo2').textContent=live.spo2_estimate_pct??'--';
+  $('liveBpmMeta').textContent=`${live.valid?(live.stale?'held (last good)':'live'):'not valid'} · ${roll.reason||live.reason||'--'}`;
+  $('liveBpmMeta').className='meta '+(live.valid&&!live.stale?'good':'warn');
+  $('liveSpo2Meta').textContent='estimate · not medically calibrated';
+  $('speed').textContent=kin.speed_mps==null?'--':f(kin.speed_mps,2);
+  $('speedMeta').textContent=kin.speed_source==='gps'?`${f(kin.speed_kmh,1)} km/h · GPS fix`:'no GPS fix — speed not estimated from IMU';
+  $('heading').textContent=kin.heading_cardinal||'--';
+  $('headingUnit').textContent=kin.course_deg==null?'':f(kin.course_deg,0)+'°';
+  $('headingMeta').textContent=kin.gps_fix?'GPS course':'need outdoor GPS fix';
+  $('kinSpeed').textContent=kin.speed_mps==null?'--':f(kin.speed_mps,2)+' m/s';
+  $('kinCourse').textContent=kin.course_deg==null?'--':`${f(kin.course_deg,1)}° ${kin.heading_cardinal||''}`;
+  $('kinGpsAccel').textContent=kin.gps_accel_mps2==null?'--':f(kin.gps_accel_mps2,2)+' m/s²';
+  $('kinLinMag').textContent=kin.linear_accel_mag_mps2==null?'--':f(kin.linear_accel_mag_mps2,2)+' m/s²';
+  const la=kin.linear_accel_mps2||[];
+  $('kinLin').textContent=la.length===3?la.map(x=>f(x,2)).join(' / '):'--';
+  $('kinJerk').textContent=kin.jerk_mag_mps3==null?'--':f(kin.jerk_mag_mps3,2)+' m/s³';
+  $('kinRP').textContent=`${f(kin.roll_deg,1)} / ${f(kin.pitch_deg,1)}°`;
+  $('kinYaw').textContent=f(kin.yaw_relative_deg,1)+'°';
+  $('contact').textContent=boolText(ppg.contact);
+  $('irred').textContent=`${ppg.ir??'--'} / ${ppg.red??'--'}`;
+  $('peaks').textContent=`${roll.peak_count??'--'} / ${roll.ibi_cv??'--'}`;
+  $('rratio').textContent=roll.r_ratio??'--';
+  $('corr').textContent=f(roll.red_ir_correlation,3);
+  $('quality').textContent=f(roll.quality,3);
+  $('reason').textContent=roll.reason||'--';
+  $('gpsFix').textContent=boolText(gps.fix);
+  $('position').textContent=gps.fix?`${f(gps.lat,6)}, ${f(gps.lon,6)}`:'--';
+  $('sathdop').textContent=`${gps.sat??'--'} / ${f(gps.hdop,2)}`;
+  $('rssi').textContent=dev.rssi_dbm==null?'--':dev.rssi_dbm+' dBm';
+  $('rtt').textContent=clock.best_rtt_ms==null?'--':f(clock.best_rtt_ms,2)+' ms';
+  $('deviceIp').textContent=dev.ip||'--';
+  $('stationary').textContent=boolText(imu.stationary);
+  push(histories.accel, kin.linear_accel_mag_mps2, 180);
+  if(live.valid){push(histories.bpm, live.bpm, 180); push(histories.spo2, live.spo2_estimate_pct, 180)}
+  draw($('accelChart'),[{values:histories.accel}]);
+  draw($('bpmChart'),[{values:histories.bpm}]);
+  draw($('spo2Chart'),[{values:histories.spo2}]);
+  $('rawJson').textContent=JSON.stringify({vitals:vit,kinematics:kin,device:dev},null,2);
+}
+async function consume(url,onItem){
+  while(true){
+    try{
+      const r=await fetch(url,{cache:'no-store'}); if(!r.ok) throw new Error(r.status);
+      const rd=r.body.getReader(); const dec=new TextDecoder(); let buf='';
+      while(true){
+        const {value,done}=await rd.read(); if(done) break;
+        buf+=dec.decode(value,{stream:true}); const lines=buf.split('\n'); buf=lines.pop();
+        for(const line of lines){ if(!line.trim()) continue; try{onItem(JSON.parse(line))}catch{} }
+      }
+    }catch(e){ await new Promise(r=>setTimeout(r,700)); }
+  }
+}
+consume('/api/stream', update);
+consume('/api/raw-stream', p=>{ if(p.t!=='ppg') return; push(histories.ir,p.ir,250); push(histories.red,p.red,250); draw($('ppgChart'),[{values:histories.ir},{values:histories.red}]); });
+</script>
+</body>
+</html>

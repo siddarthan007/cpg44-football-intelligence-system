@@ -1,0 +1,11 @@
+# Approximate pitch calibration for the SoccerNet demo clip (SNMOT-060, kickoff
+# view centred on the halfway line + centre circle). Pixel coords are eyeballed
+# from frame 1 (1920x1080). Good enough for a PROTOTYPE demo — for real accuracy,
+# calibrate your fixed campus camera with `python -m soccer_analytics.calibrate`.
+points:
+  centre:        [957, 553]
+  half_top:      [960, 322]
+  circle_left:   [472, 553]
+  circle_right:  [1443, 553]
+  circle_top:    [957, 373]
+  circle_bottom: [957, 743]

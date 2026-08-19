@@ -1,0 +1,42 @@
+# ---------------------------------------------------------------------------
+# CPG44 vision + fusion pipeline. Target: RTX 5060 Laptop (Blackwell, 8 GB), WSL2.
+#
+# PyTorch must be the CUDA 12.8 (cu128) build — Blackwell (sm_120) has NO kernels
+# in older CUDA wheels and will crash. Install torch FIRST, separately:
+#
+#   pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128
+#
+# then:  pip install -r requirements.txt
+# ---------------------------------------------------------------------------
+
+# torch / torchvision installed separately (cu128) — see note above.
+
+# vision + tracking
+ultralytics>=8.3.0        # YOLOv8/v11 detection + built-in ByteTrack
+supervision>=0.25.0       # ByteTrack, Detections utils, annotators
+opencv-python>=4.9.0      # video I/O, homography, optical flow, GUI windows
+
+# ML / analytics
+numpy>=1.26,<2.3
+scipy>=1.11               # gaussian smoothing, filtering
+scikit-learn>=1.4         # KMeans team clustering, RandomForest fallback
+xgboost>=2.0             # injury-risk model (report's approach)
+pandas>=2.1              # ball interpolation, metric tables
+matplotlib>=3.8          # heatmap figures
+
+# wearable ingestion (hardware plugs in later; all optional at runtime)
+pyserial>=3.5            # ESP32 / microcontroller over USB
+# fastapi + uvicorn + websockets: optional live dashboard / sensor HTTP bridge
+fastapi>=0.110
+uvicorn[standard]>=0.29
+websockets>=12.0
+
+tqdm>=4.66
+pyyaml>=6.0
+rich>=13.0
+
+# jersey-number OCR (auto-binding wearers to vision tracks) — optional
+easyocr>=1.7
+
+# Optional — pitch-keypoint homography via Roboflow sports templates:
+#   pip install git+https://github.com/roboflow/sports.git
