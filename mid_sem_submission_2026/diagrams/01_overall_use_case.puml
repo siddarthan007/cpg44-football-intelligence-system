@@ -1,0 +1,42 @@
+@startuml
+!pragma layout smetana
+skinparam monochrome true
+skinparam shadowing false
+skinparam margin 8
+left to right direction
+
+actor Coach
+actor Analyst
+actor Player
+actor "Project Administrator" as Admin
+
+rectangle "CPG44 Football Intelligence Platform" {
+  usecase "Prepare roster and session" as UC1
+  usecase "Calibrate camera and teams" as UC2
+  usecase "Pair wearable to player" as UC3
+  usecase "Record synchronised session" as UC4
+  usecase "Monitor live pitch and vitals" as UC5
+  usecase "Review tactical events" as UC6
+  usecase "Correct identity and labels" as UC7
+  usecase "Export reviewed training data" as UC8
+  usecase "Train and evaluate models" as UC9
+  usecase "Inspect device and stream health" as UC10
+}
+
+Coach --> UC1
+Coach --> UC5
+Coach --> UC6
+Coach --> UC7
+Analyst --> UC2
+Analyst --> UC3
+Analyst --> UC4
+Analyst --> UC7
+Analyst --> UC8
+Player --> UC3
+Player --> UC4
+Admin --> UC9
+Admin --> UC10
+UC4 .> UC2 : requires
+UC4 .> UC3 : requires for fusion
+UC8 .> UC7 : includes review
+@enduml

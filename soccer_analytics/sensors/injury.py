@@ -1,21 +1,19 @@
-"""Non-contact injury-risk prediction (CPG44 Objective 3).
+"""Load-review baseline and outcome-labelled model support.
 
 Two interchangeable models sharing one interface (``predict(features) -> InjuryRisk``):
 
-- :class:`HeuristicInjuryModel` — rule-based on established sports-science markers
-  (ACWR sweet-spot 0.8-1.3 after Gabbett, cardiac drift, SpO2, HSR/load). Works
-  with ZERO training data, so the pipeline is useful on day one.
+- :class:`HeuristicInjuryModel` — retained name for compatibility; it produces a
+  transparent, non-medical load-review score from workload markers.
 - :class:`InjuryRiskModel` — gradient-boosted / random-forest model (the report's
   XGBoost/RandomForest approach) trained on historical
-  ``WorkloadFeatures`` → injury-label data. Until real labels exist it can be
-  bootstrapped from heuristic weak-labels (clearly flagged).
+  ``WorkloadFeatures`` → independently collected outcome labels.
 
 Feature order is fixed so a saved model and live features always align.
 """
 
 from __future__ import annotations
 
-from typing import List, Optional, Tuple
+from typing import List
 
 import numpy as np
 
@@ -29,7 +27,7 @@ FEATURE_ORDER = ["total_distance", "hsr_distance", "sprint_count", "accel_effort
 
 def features_to_array(f: WorkloadFeatures) -> np.ndarray:
     v = f.to_vector()
-    # NaNs (missing wearable) → neutral values so the model still runs vision-only
+    # Model-only neutral imputation. Missing readings remain null in the API/UI.
     defaults = {"avg_hr": 150.0, "hr_drift": 0.0, "min_spo2": 97.0, "acwr": 1.0}
     return np.array([defaults.get(k, 0.0) if (v[k] is None or np.isnan(v[k])) else v[k]
                      for k in FEATURE_ORDER], dtype=float)
@@ -40,7 +38,7 @@ def _level(risk: float) -> str:
 
 
 class HeuristicInjuryModel:
-    """Transparent rule-based baseline. No training required."""
+    """Compatibility name for a transparent, non-medical load indicator."""
 
     def predict(self, f: WorkloadFeatures) -> InjuryRisk:
         factors = {}
@@ -116,7 +114,7 @@ class InjuryRiskModel:
 
     def predict(self, f: WorkloadFeatures) -> InjuryRisk:
         if self.model is None:
-            raise RuntimeError("InjuryRiskModel not trained; fit() or use HeuristicInjuryModel")
+            raise RuntimeError("Outcome model not trained; collect and label real sessions first")
         x = features_to_array(f).reshape(1, -1)
         risk = float(self.model.predict_proba(x)[0, 1])
         factors = self._importances(x)
@@ -145,36 +143,3 @@ class InjuryRiskModel:
             d = pickle.load(fh)
         obj.model, obj._backend = d["model"], d["backend"]
         return obj
-
-
-def bootstrap_training_set(n: int = 4000, seed: int = 0
-                           ) -> Tuple[List[WorkloadFeatures], List[int]]:
-    """Synthetic feature set weak-labelled by the heuristic — lets you train and
-    validate the ML pipeline BEFORE real injury data exists. Replace with logged
-    match+wearable+injury records for production use."""
-    rng = np.random.default_rng(seed)
-    heur = HeuristicInjuryModel()
-    feats, labels = [], []
-    for _ in range(n):
-        f = WorkloadFeatures(
-            player_id=0,
-            total_distance=float(rng.uniform(3000, 13000)),
-            hsr_distance=float(rng.uniform(100, 1600)),
-            sprint_count=int(rng.integers(0, 45)),
-            accel_efforts=int(rng.integers(0, 90)),
-            decel_efforts=int(rng.integers(0, 90)),
-            player_load=float(rng.uniform(200, 1000)),
-            metabolic_power_avg=float(rng.uniform(6, 16)),
-            high_metabolic_distance=float(rng.uniform(100, 2000)),
-            energy_kcal=float(rng.uniform(400, 1400)),
-            top_speed=float(rng.uniform(6, 10)),
-            avg_hr=float(rng.uniform(120, 185)),
-            hr_drift=float(rng.uniform(-5, 35)),
-            min_spo2=float(rng.uniform(88, 99)),
-            acwr=float(rng.uniform(0.5, 2.2)),
-        )
-        r = heur.predict(f).risk
-        # probabilistic label around the heuristic risk (adds realistic noise)
-        labels.append(int(rng.uniform() < r))
-        feats.append(f)
-    return feats, labels

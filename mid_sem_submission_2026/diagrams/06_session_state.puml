@@ -1,0 +1,23 @@
+@startuml
+!pragma layout elk
+skinparam monochrome true
+skinparam shadowing false
+skinparam margin 10
+left to right direction
+
+[*] --> Draft
+Draft --> Checking : request start
+Checking --> Ready : checks pass
+Checking --> Draft : check fails
+Ready --> Recording : start clock
+Recording --> Degraded : stream stale
+Degraded --> Recording : stream replayed
+Recording --> Paused : pause
+Paused --> Recording : resume
+Recording --> Closing : stop
+Degraded --> Closing : stop
+Paused --> Closing : stop
+Closing --> Review : flush and summarise
+Review --> Finalised : confirm and export
+Finalised --> [*]
+@enduml

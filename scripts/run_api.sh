@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Product API (FastAPI) + React dashboard.
 # Terminal 1: this script's API. Terminal 2: npm run dev --prefix frontend
-# Optional: also run python -m soccer_analytics.hub --esp32 <ip>
+# Start scripts/run_hub.sh first so the API can read processed relay telemetry.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 export PYTHONPATH="${PYTHONPATH:-}:backend/src:."

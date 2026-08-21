@@ -1,0 +1,289 @@
+\section{Design Specifications}\label{sec:design_specifications}
+
+\subsection{System Architecture}
+Figure~\ref{fig:overall_architecture} shows the complete design. The camera and
+wearables use separate input paths because their rates and errors are different.
+The vision path creates pitch tracks and identity evidence. The sensor path
+creates timestamped wearable readings with quality states. Clock alignment and
+player binding join them on the project PC.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.96\textwidth,height=0.69\textheight,keepaspectratio]{02_overall_architecture.png}
+\caption{Overall system architecture}
+\label{fig:overall_architecture}
+\end{figure}
+
+The joined event store in Figure~\ref{fig:overall_architecture} keeps raw source
+references, mapped time, player identity, and quality. Analytics reads these
+events and gives results to FastAPI. The local React dashboard receives live
+tracks, annotated frames, sensor values, and tactical updates. Reviewed exports
+go to the training pipeline, and a trained model is used only after its test
+result and version are recorded.
+
+The VPS relay is part of the deployed architecture. The wearable sends raw
+timestamped batches to \texttt{cpg44.nivaspms.com}. Cloudflare and Caddy route
+them to a separate relay process. The relay validates each event, adds receive
+time and a relay sequence, then provides live and replay endpoints to the local
+sensor processor. Its default cache is 4 MiB in memory and it has no database
+or file volume.
+
+\subsubsection{Wearable Component}
+The field unit uses ESP32-S3 GPIO 4 and 5 for the I2C sensor bus. The NEO-6M
+transmit line connects to receive GPIO 16, with GPIO 17 available for the
+reverse serial direction. The firmware sends device ID, boot ID, sequence,
+device time, sensor values, and status. Wi-Fi details and player tags are set
+through provisioning and are not fixed in the source code.
+
+The host keeps raw acceleration and a filtered magnitude. GPS includes fix and
+age information. PPG output includes contact, motion, window age, signal
+quality, and estimator version. When a quality test fails, the raw evidence is
+kept but the derived BPM or SpO$_2$ is not treated as valid.
+
+\subsubsection{Vision and Identity Component}
+The detector uses the four football classes in the training data. ByteTrack
+creates short-term tracks. Pitch points, team-colour samples, appearance
+features, jersey votes, and operator corrections are added after tracking. A
+track can stay unresolved when the evidence conflicts.
+
+The ball uses a shorter recovery window and field-speed checks. This prevents a
+long guessed path during occlusion. Identity corrections are saved with their
+time and reason, so they can also become reviewed training labels.
+
+\subsubsection{Relay and Reconnection Component}
+The wearable publishes batches to the relay with a stable event ID, source
+sequence, source time, match ID, player ID, sample type, and bounded tags. The
+relay checks the token, timestamp, value range, body size, and source type.
+Duplicate event IDs keep their earlier relay sequence.
+
+The local sensor processor reconnects with its last accepted relay sequence.
+Events still in the 4 MiB cache are replayed in order. If the requested sequence
+has left the cache, the relay marks a cache gap and the processor starts from
+the latest available state. This supports short network loss without turning
+the VPS into session storage.
+
+\subsubsection{Analytics and Training Component}
+Every feature has a definition version and test inputs. Team width, length,
+centroid, compactness, line spacing, pressure distance, player speed, distance,
+and acceleration load are calculated from checked observations. An event points
+back to the positions and feature values that caused it.
+
+Workload model data uses one row per player-session. The dataset keeps session
+date, player group, label source, missing values, and split. A simple baseline is
+tested before a larger model. Injury-related output remains a workload concern
+because load ratios alone should not be used as a fixed injury boundary
+\cite{bowen2020acwr,dalen2021acwr}.
+
+\subsection{Design Level Diagrams}
+
+\subsubsection{Overall Use-Case Diagram}
+Figure~\ref{fig:overall_use_case} gives the main users and actions. The coach
+prepares the roster, watches the session, reviews events, and confirms
+corrections. The analyst calibrates the camera, pairs devices, records data, and
+exports reviewed labels. The administrator checks streams and model runs.
+
+\subsubsection{Live-Session Activity Diagram}
+Figure~\ref{fig:live_activity} shows the main live case. Camera, roster, field
+mapping, and wearable checks happen before the clock starts. Video and sensor
+processing then run together. Their outputs are joined before the dashboard and
+event timeline are updated.
+
+\begin{figure}[H]
+\centering
+\begin{subfigure}[t]{0.43\textwidth}
+\centering
+\includegraphics[width=\linewidth,height=0.48\textheight,keepaspectratio]{01_overall_use_case.png}
+\caption{Overall use cases}
+\label{fig:overall_use_case}
+\end{subfigure}
+\hfill
+\begin{subfigure}[t]{0.53\textwidth}
+\centering
+\includegraphics[width=\linewidth,height=0.48\textheight,keepaspectratio]{03_live_session_activity.png}
+\caption{Live-session activity}
+\label{fig:live_activity}
+\end{subfigure}
+\caption{Overall user actions and the main live-session flow}
+\end{figure}
+
+The dependency arrows in Figure~\ref{fig:overall_use_case} show that a fused
+recording needs calibration and device pairing. Training export also needs a
+review step. A camera track can still exist without a wearable, but no sensor
+value is assigned to that player.
+
+At the end of Figure~\ref{fig:live_activity}, corrections and checked data are
+saved before session close. Fixed queue limits prevent a slow consumer or short
+network loss from increasing memory without a limit.
+
+\subsubsection{Synchronisation Sequence Diagram}
+Figure~\ref{fig:sync_sequence} explains the clock and fusion steps. SNTP gives
+the wearable a UTC anchor before streaming. Each event keeps its source time,
+relay receive time, and sequence. Relay delay and sequence gaps remain visible
+in the processed record.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.96\textwidth,height=0.63\textheight,keepaspectratio]{04_sync_sequence.png}
+\caption{Sequence diagram for wearable and vision synchronisation}
+\label{fig:sync_sequence}
+\end{figure}
+
+The fusion step in Figure~\ref{fig:sync_sequence} checks time error, identity,
+packet age, and signal quality. If a check fails, the dashboard receives a
+partial update with a reason. It does not receive a made-up normal value.
+
+\subsubsection{Domain and Data Model}
+The domain model in Figure~\ref{fig:domain_model} keeps observations,
+corrections, features, and events separate. Device bindings have a time range
+because the roster or pairing can change. A track may resolve to one player or
+remain unresolved.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.95\textwidth,height=0.62\textheight,keepaspectratio]{05_domain_model.png}
+\caption{Core domain and data model}
+\label{fig:domain_model}
+\end{figure}
+
+Derived features in Figure~\ref{fig:domain_model} point to their observations
+and definition version. A tactical event points to its supporting features.
+This allows the team to recalculate a result after a mapping or identity
+correction.
+
+The compact live envelope is shown in Table~\ref{tab:event_envelope}. Video
+frames are delivered by the local API; the VPS relay accepts only validated raw
+wearable events.
+
+\begin{table}[H]
+\centering
+\caption{Common fields in a live event}
+\label{tab:event_envelope}
+\small
+\begin{tabularx}{\textwidth}{p{1.4in}p{1.1in}X}
+\toprule
+\textbf{Field} & \textbf{Type} & \textbf{Purpose}\\
+\midrule
+session\_id & string & Separates recording sessions\\
+source and entity & string & Identifies camera, wearable, track, player, or event\\
+source\_time & integer & Time created at the source\\
+session\_time & integer & Source time mapped to the session clock\\
+receive\_time & integer & Host or relay arrival time\\
+sequence & integer & Finds gaps, duplicates, and replay order\\
+quality & object & Validity, confidence, age, timing error, and reason\\
+payload & object & Typed values for the event\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsubsection{Overall and Identity State Diagrams}
+Figure~\ref{fig:session_state} gives the state of the complete session. A draft
+must pass camera, roster, and calibration checks before recording. A stale
+important stream changes the state to degraded, while valid streams continue.
+Closing flushes bounded queues before review.
+
+Player identity is a significant object because all joined statistics depend
+on it. Figure~\ref{fig:identity_state} starts at unresolved. Team evidence gives
+only a team state. Jersey or appearance evidence gives a candidate. Strong
+votes or analyst review are needed for a confirmed identity.
+
+\begin{figure}[H]
+\centering
+\begin{subfigure}[t]{0.43\textwidth}
+\centering
+\includegraphics[width=\linewidth,height=0.43\textheight,keepaspectratio]{06_session_state.png}
+\caption{Overall session state}
+\label{fig:session_state}
+\end{subfigure}
+\hfill
+\begin{subfigure}[t]{0.53\textwidth}
+\centering
+\includegraphics[width=\linewidth,height=0.43\textheight,keepaspectratio]{07_identity_state.png}
+\caption{Track-to-player identity state}
+\label{fig:identity_state}
+\end{subfigure}
+\caption{State diagrams for the overall system and a significant identity object}
+\end{figure}
+
+Conflicting evidence in Figure~\ref{fig:identity_state} changes the state to
+ambiguous. A short lost state allows recovery after an occlusion. When the
+recovery limit expires, the new track starts unresolved instead of carrying an
+old player name.
+
+\subsubsection{Deployment Diagram}
+Figure~\ref{fig:deployment} shows the physical boundary. The camera is connected
+to the project PC, while the wearable sends through Wi-Fi to the required domain
+route. Cloudflare and Caddy pass the raw sensor stream to the VPS relay. The
+project PC reads this stream and runs processing, local files, API, and the
+complete coaching dashboard.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.94\textwidth,height=0.61\textheight,keepaspectratio]{08_deployment.png}
+\caption{Deployment with the required memory-only VPS relay}
+\label{fig:deployment}
+\end{figure}
+
+The wearable and local sensor processor in Figure~\ref{fig:deployment} use HTTPS
+or WSS at \texttt{cpg44.nivaspms.com}, never the VPS IP. A token is checked
+before data is accepted or returned. A restart clears the replay cache, while
+full session evidence stays on the project PC.
+
+\subsection{User Interface Diagrams}
+The interface uses a light background, dark text, muted borders, and one small
+accent colour. It has no neon colour, glass effect, or dark default. Status is
+written as ``Live'', ``Delayed'', ``Low signal'', or ``Disconnected'', so colour
+is not the only meaning.
+
+The main pages are Live Session, Session Review, Calibration and Identity,
+Wearables, and Models and Data. The live pitch stays largest. Cards move below
+the pitch on a narrow screen. Technical model controls are kept away from the
+coach's live view.
+
+\evidenceplaceholder{Live dashboard with pitch markings and player data}{Insert the approved live-session screen capture here.}{dashboard_live}
+
+Figure~\ref{fig:dashboard_live} will show the large pitch, player and ball
+markings, session clock, stream health, and selected-player panel. Player labels
+must remain readable on the panel projector. A weak identity is shown as
+unresolved.
+
+\evidenceplaceholder{Session analytics and tactical timeline}{Insert the approved session-review screen capture here.}{dashboard_analytics}
+
+Figure~\ref{fig:dashboard_analytics} will show a selected event, the matching
+pitch state, team geometry, and player workload. Only the values required to
+explain the event are shown first; more detail is opened when needed.
+
+\evidenceplaceholder{Wearable quality and live sensor page}{Insert the approved wearable screen capture here.}{dashboard_wearable}
+
+Figure~\ref{fig:dashboard_wearable} will show device-player binding, packet age,
+sequence gaps, contact, motion quality, GPS fix, BPM, SpO$_2$, and acceleration.
+Quality stays beside the measurement on both wide and narrow layouts.
+
+\subsection{Snapshots of Working Prototype}
+The panel demonstration follows one fixed sequence:
+
+\begin{enumerate}
+  \item Show the wearable, sensor placement, and safe fitting.
+  \item Start the camera, load the roster, and verify pitch calibration.
+  \item Pair the wearable to a visible player and start the session clock.
+  \item Show live player and ball markings, telemetry, and stream health.
+  \item Show one aligned event, one identity correction, and its tactical and workload evidence.
+  \item Reconnect the local sensor processor, close the session, and show the checked export.
+\end{enumerate}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.88\textwidth,height=0.48\textheight,keepaspectratio]{training_results.png}
+\caption{Training curves from the recorded 30-epoch detector run}
+\label{fig:training_results}
+\end{figure}
+
+Figure~\ref{fig:training_results} is evidence that the detector training path
+runs. Its final recorded values are precision 0.8435, recall 0.7318,
+AP$_{50}$ 0.7476, and AP$_{50:95}$ 0.4589 on that split. These are not claimed as
+final campus-field accuracy.
+
+\evidenceplaceholder{Assembled ESP32-S3 football wearable}{Insert the labelled hardware prototype photograph here.}{hardware_front}
+
+Figure~\ref{fig:hardware_front} will show the enclosure, strap, optical contact
+surface, power control, and cable strain relief. Labels should make the sensor
+connections easy to explain.

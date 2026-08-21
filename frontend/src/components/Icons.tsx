@@ -112,13 +112,13 @@ export const IconJersey: React.FC<IconProps> = ({ size = 18, color = "currentCol
 );
 
 export const IconPlay: React.FC<IconProps> = ({ size = 20, color = "currentColor" }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor">
+  <svg width={size} height={size} viewBox="0 0 24 24" fill={color}>
     <polygon points="5 3 19 12 5 21 5 3" />
   </svg>
 );
 
 export const IconPause: React.FC<IconProps> = ({ size = 20, color = "currentColor" }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor">
+  <svg width={size} height={size} viewBox="0 0 24 24" fill={color}>
     <rect x="6" y="4" width="4" height="16" />
     <rect x="14" y="4" width="4" height="16" />
   </svg>

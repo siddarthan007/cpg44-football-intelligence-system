@@ -113,6 +113,9 @@ class TeamTacticalReport:
     avg_surface_area: float          # convex-hull area, m² (collective dynamics)
     possession_pct: float
     time_in_att_third_pct: float
+    observed_players: int
+    evidence_frames: int
+    evidence_ready: bool
     recommendations: List[str] = field(default_factory=list)
 
     def as_dict(self) -> dict:
@@ -246,11 +249,16 @@ class TacticalEngine:
             avg_line_height=mean("line"), avg_pressing=mean("press"),
             avg_surface_area=mean("surface"),
             possession_pct=possession_pct, time_in_att_third_pct=att_pct,
+            observed_players=len(mean_x),
+            evidence_frames=len(a["width"]),
+            evidence_ready=len(mean_x) >= 5 and len(a["width"]) >= 20,
         )
         rep.recommendations = self._recommend(rep)
         return rep
 
     def _recommend(self, r: TeamTacticalReport) -> List[str]:
+        if not r.evidence_ready:
+            return []
         L, W = self.pc.length, self.pc.width
         recs: List[str] = []
         if r.avg_control and r.avg_control < 40:

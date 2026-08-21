@@ -1,5 +1,6 @@
 """Tests for the ESP32 hub → vision fusion bridge (no GPU, no FastAPI server)."""
 
+from soccer_analytics.sensors.hub import relay_envelope_to_packet
 from soccer_analytics.sensors.hub_bridge import sample_to_observation, snapshot_to_sample
 
 
@@ -40,6 +41,41 @@ def test_snapshot_to_sample_converts_units_and_vitals():
 
 def test_empty_offline_snapshot_is_ignored():
     assert snapshot_to_sample({"device": {"connected": False}}, player_id=7) is None
+
+
+def test_invalid_vitals_are_not_forwarded_as_measurements():
+    state = {
+        "device": {"connected": True},
+        "vitals": {
+            "stable_15s": {"valid": False, "bpm": 172.0, "spo2_estimate_pct": 88.0},
+            "rolling": {"valid": False, "bpm": 170.0, "spo2_estimate_pct": 89.0},
+        },
+        "imu": {"valid": False},
+        "gps": {"fix": False},
+    }
+    sample = snapshot_to_sample(state, player_id=7)
+    assert sample is not None
+    assert sample.hr is None
+    assert sample.spo2 is None
+
+
+def test_raw_relay_envelope_becomes_sensor_packet():
+    packet = relay_envelope_to_packet({
+        "relay_seq": 42,
+        "match_id": "trial-01",
+        "player_id": 7,
+        "device_boot_id": "boot-4",
+        "source_seq": 18,
+        "source_timestamp_ns": 1_700_000_000_500_000_000,
+        "relay_received_ns": 1_700_000_000_510_000_000,
+        "sample_type": "ppg",
+        "payload": {"device_us": 900_000, "red": 105_000, "ir": 122_000},
+        "clock": {"valid": True, "method": "sntp_esp_timer_anchor"},
+    })
+    assert packet["t"] == "ppg"
+    assert packet["red"] == 105_000
+    assert packet["source_unix_ns"] == 1_700_000_000_500_000_000
+    assert packet["relay_seq"] == 42
 
 
 if __name__ == "__main__":

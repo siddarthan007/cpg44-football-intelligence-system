@@ -1,0 +1,44 @@
+@startuml
+!pragma layout smetana
+skinparam monochrome true
+skinparam shadowing false
+skinparam margin 8
+skinparam nodesep 28
+skinparam ranksep 34
+top to bottom direction
+
+package "Field Inputs" {
+  [Camera] as Camera
+  [ESP32-S3 Wearables] as Wearables
+}
+
+package "Local Computer" {
+  [Video Decode] as Decode
+  [Detector and ByteTrack] as Tracker
+  [Pitch, Team, Jersey and Ball] as Identity
+  [Sensor Hub and Quality Gates] as Hub
+  [Clock Alignment and Player Binding] as Sync
+  [Fusion Event Store] as Store
+  [Tactical and Workload Analytics] as Analytics
+  [FastAPI and Live WebSocket] as API
+  [React Coaching Dashboard] as UI
+  [Training and Evaluation Pipeline] as Train
+}
+
+[Required VPS Relay\ncpg44.nivaspms.com\n4 MiB memory cache] as Relay
+
+Camera --> Decode
+Decode --> Tracker
+Tracker --> Identity
+Wearables --> Relay : timestamped raw batches
+Relay --> Hub : live stream and replay
+Identity --> Sync
+Hub --> Sync
+Sync --> Store
+Store --> Analytics
+Store --> API
+Analytics --> API
+API --> UI
+Store --> Train : reviewed exports
+Train --> Tracker : versioned model
+@enduml

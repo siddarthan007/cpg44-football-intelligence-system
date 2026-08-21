@@ -1,0 +1,20 @@
+@startuml
+!pragma layout elk
+skinparam monochrome true
+skinparam shadowing false
+skinparam margin 10
+left to right direction
+
+[*] --> Unresolved
+Unresolved --> TeamKnown : stable team evidence
+TeamKnown --> Candidate : jersey or ReID vote
+Candidate --> Confirmed : vote threshold
+Candidate --> TeamKnown : vote expires
+Confirmed --> Ambiguous : evidence conflicts
+Ambiguous --> Confirmed : analyst resolves
+Ambiguous --> TeamKnown : identity removed
+Confirmed --> Lost : track missing
+Lost --> Confirmed : short recovery
+Lost --> Unresolved : recovery expires
+Confirmed --> [*] : session closes
+@enduml

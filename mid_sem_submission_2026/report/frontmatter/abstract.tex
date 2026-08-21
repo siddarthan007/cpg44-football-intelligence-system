@@ -1,0 +1,28 @@
+\begin{center}
+{\Large\textbf{ABSTRACT}}\\
+\vspace{0.5cm}
+\end{center}
+\addcontentsline{toc}{section}{Abstract}
+
+Football video explains player movement and team shape, while a wearable
+explains the physical effort behind that movement. These records are often
+reviewed separately. Our project joins them on one session clock and links each
+wearable to the correct player track.
+
+The system runs its main processing on the project PC. It uses player and ball
+detection, ByteTrack association, team and jersey evidence, pitch mapping, an
+ESP32-S3 wearable, signal-quality checks, a FastAPI service, and a responsive
+React dashboard. Live remote transport uses the required relay at
+\texttt{cpg44.nivaspms.com}. Cloudflare and Caddy route the connection to a
+small service that keeps only a bounded reconnect cache and no match archive.
+
+The dashboard gives coaches live tracks, stream health, player workload,
+physiological trends, team width, team length, compactness, pressure, and
+event-linked review. Injury-related output is shown as a workload concern with
+reasons and data quality. It is not a medical diagnosis. The current work also
+includes repeatable detector training, firmware builds, software tests, and a
+field-validation plan.
+
+\noindent\textbf{Keywords:} football analytics, player tracking, wearable
+sensing, data synchronisation, tactical intelligence, workload monitoring.
+\clearpage

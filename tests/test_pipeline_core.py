@@ -185,6 +185,18 @@ def test_tactical_engine_report():
     assert rep.recommendations
 
 
+def test_tactical_advice_abstains_without_team_evidence():
+    from soccer_analytics.tactical_engine import TacticalEngine
+    pc = PitchConfig()
+    eng = TacticalEngine(pc)
+    for _ in range(30):
+        eng.update({1: {}, 2: {}}, None, 0)
+    report = eng.report(1, 0.0)
+    assert report.evidence_ready is False
+    assert report.observed_players == 0
+    assert report.recommendations == []
+
+
 def test_xg_geometry_and_model():
     from soccer_analytics.shots import shot_geometry, XGModel
     # penalty spot: 11 m central to goal at x=0

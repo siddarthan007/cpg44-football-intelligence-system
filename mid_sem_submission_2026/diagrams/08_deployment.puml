@@ -1,0 +1,29 @@
+@startuml
+!pragma layout smetana
+skinparam monochrome true
+skinparam shadowing false
+skinparam margin 12
+skinparam nodesep 38
+skinparam ranksep 42
+top to bottom direction
+
+[Camera\nCampus field] as Cam
+[ESP32-S3 Wearables\nCampus field] as Esp
+[Vision and Sensor Processes\nProject PC] as Proc
+[Local Session Files\nProject PC] as Files
+[FastAPI\nProject PC] as API
+[Local Coaching Dashboard\nProject PC] as LocalUI
+[Cloudflare DNS and HTTPS Proxy] as CF
+[Caddy\nVPS] as Caddy
+[CPG44 Relay\nVPS, 4 MiB memory cache\nno match storage] as Relay
+
+Cam --> Proc : local video
+Esp --> CF : HTTPS raw sensor batches
+CF --> Caddy : cpg44.nivaspms.com
+Caddy --> Relay : loopback route
+Relay --> Proc : authenticated WSS\nlive and replay
+Proc --> Files : session evidence
+Proc --> API : live and review data
+API --> LocalUI : local WebSocket
+footer <color:white>.</color>
+@enduml

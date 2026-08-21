@@ -55,16 +55,28 @@ class TeamAssigner:
         patch = frame[py1:py2, px1:px2]
         if patch.shape[0] < 3 or patch.shape[1] < 3:
             return None
-        small = cv2.resize(patch, (min(patch.shape[1], 16), min(patch.shape[0], 16)),
+        small = cv2.resize(patch, (min(patch.shape[1], 24), min(patch.shape[0], 24)),
                            interpolation=cv2.INTER_AREA)
-        lab = cv2.cvtColor(small, cv2.COLOR_BGR2LAB).reshape(-1, 3).astype(float)
-        if len(lab) < 4:
+        hsv = cv2.cvtColor(small, cv2.COLOR_BGR2HSV)
+        lab = cv2.cvtColor(small, cv2.COLOR_BGR2LAB)
+
+        # Grass mask: Hue 35-85, Saturation > 35, Value > 30
+        grass_mask = (hsv[:, :, 0] >= 35) & (hsv[:, :, 0] <= 85) & (hsv[:, :, 1] >= 35) & (hsv[:, :, 2] >= 30)
+
+        # If non-grass pixels exist, isolate player kit; otherwise use entire torso
+        non_grass_lab = lab[~grass_mask].astype(float)
+        if len(non_grass_lab) >= 8:
+            pts = non_grass_lab
+        else:
+            pts = lab.reshape(-1, 3).astype(float)
+
+        if len(pts) < 4:
             return None
-        km = KMeans(n_clusters=2, n_init=1, random_state=0).fit(lab[:, 1:3])  # cluster on chroma
+        km = KMeans(n_clusters=2, n_init=1, random_state=0).fit(pts[:, 1:3])  # cluster on chroma
         labels = km.labels_
         n0 = int((labels == 0).sum())
-        jersey = 0 if n0 >= len(labels) - n0 else 1     # larger cluster = jersey
-        return lab[labels == jersey].mean(axis=0)       # mean full-Lab of the jersey cluster
+        jersey = 0 if n0 >= len(labels) - n0 else 1     # dominant cluster = jersey
+        return pts[labels == jersey].mean(axis=0)       # mean full-Lab of the jersey cluster
 
     # ---- team model ----------------------------------------------------- #
     def _team_feat(self, colors) -> np.ndarray:

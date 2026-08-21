@@ -12,6 +12,7 @@ Robustness choices distilled from the reference repos:
 from __future__ import annotations
 
 from typing import Optional
+import warnings
 
 import numpy as np
 import pandas as pd
@@ -32,19 +33,18 @@ class Detector:
         self.ball_conf = ball_conf
         self.remap_goalkeeper = remap_goalkeeper
         self.half = bool(half)
-        if self.half:
-            # silence the cosmetic "'half' is deprecated" ultralytics log; FP16 GPU
-            # inference is ~1.5-2× faster and is what keeps live FPS up on yolov8m.
-            import logging
-            logging.getLogger("ultralytics").setLevel(logging.ERROR)
+
+    def _precision_args(self) -> dict:
+        # Current Ultralytics uses quantize=16 for FP16 inference. Omitting the
+        # option on CPU leaves the model at FP32 without a deprecation warning.
+        return {"quantize": 16} if self.half else {}
 
     def detect(self, frame) -> Detections:
         # predict at the lower of the two thresholds, then filter per-class so the
         # ball can survive a much lower confidence than the people.
         res = self.model.predict(frame, imgsz=self.imgsz, device=self.device,
-                                 half=self.half,
                                  conf=min(self.person_conf, self.ball_conf),
-                                 verbose=False)[0]
+                                 verbose=False, **self._precision_args())[0]
         if res.boxes is None or len(res.boxes) == 0:
             return Detections.empty()
         xyxy = res.boxes.xyxy.cpu().numpy()
@@ -77,8 +77,8 @@ class Detector:
         # fixed input size and crash on any other value.
         try:
             res = self.model.predict(crop, imgsz=self.imgsz,
-                                     device=self.device, half=self.half,
-                                     conf=self.ball_conf, verbose=False)[0]
+                                     device=self.device, conf=self.ball_conf,
+                                     verbose=False, **self._precision_args())[0]
         except Exception:
             return None                       # ROI search is best-effort only
         if res.boxes is None or len(res.boxes) == 0:
@@ -100,23 +100,32 @@ class SoccerTracker:
     and interpolates gaps separately."""
 
     def __init__(self, track_activation_threshold: float = 0.25,
-                 lost_track_buffer: int = 30, frame_rate: int = 25):
-        try:
-            self.bytetrack = sv.ByteTrack(
-                track_activation_threshold=track_activation_threshold,
-                lost_track_buffer=lost_track_buffer,
-                frame_rate=frame_rate,
+                 lost_track_buffer: int = 50, minimum_matching_threshold: float = 0.8,
+                 minimum_consecutive_frames: int = 2, frame_rate: int = 25):
+        # Supervision 0.29 retains ByteTrack while directing future releases to
+        # an external tracker package. requirements.txt bounds this adapter below
+        # 0.30; suppress only that known transition warning, never tracker errors.
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore",
+                message=r"The `ByteTrack` was deprecated.*",
+                category=FutureWarning,
             )
-        except TypeError:
-            # older supervision API used different kwarg names
-            self.bytetrack = sv.ByteTrack(frame_rate=frame_rate)
+            try:
+                self.bytetrack = sv.ByteTrack(
+                    track_activation_threshold=track_activation_threshold,
+                    lost_track_buffer=lost_track_buffer,
+                    minimum_matching_threshold=minimum_matching_threshold,
+                    minimum_consecutive_frames=minimum_consecutive_frames,
+                    frame_rate=frame_rate,
+                )
+            except TypeError:
+                # older supervision API used different kwarg names
+                self.bytetrack = sv.ByteTrack(frame_rate=frame_rate)
 
     def update(self, det: Detections) -> Detections:
         """Track the people in ``det``; returns people-only Detections with ids."""
         people = det.of_class(PLAYER, REFEREE)
-        if len(people) == 0:
-            return Detections(np.zeros((0, 4)), np.zeros((0,), int),
-                              np.zeros((0,), float), np.zeros((0,), int))
         sv_det = sv.Detections(xyxy=people.xyxy.astype(float),
                                confidence=people.confidence.astype(float),
                                class_id=people.class_id.astype(int))

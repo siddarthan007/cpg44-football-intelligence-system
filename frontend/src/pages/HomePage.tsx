@@ -32,7 +32,7 @@ export function HomePage() {
             <h1>Matches</h1>
             <p className="muted small">
               Vision + wearable intelligence for a campus pitch. Inspired by the
-              Football CV dashboard (REST, WebSocket, join-key observations) —
+              Football CV dashboard (REST, WebSocket, join-key observations):
               wired to this WSL pipeline and the ESP32 hub.
             </p>
           </div>

@@ -1,6 +1,6 @@
-"""Substitution prediction (CPG44 Objective 3 — tactical decision module).
+"""Explainable substitution watch (CPG44 Objective 3).
 
-Predicts WHICH player should be substituted and with what urgency, from the
+Ranks players for coach review from the
 time-course of their physical output. Sports-science grounding: the strongest
 on-pitch fatigue signals are DECLINING RATES of high-intensity work — a tiring
 player's total distance keeps rising, but their high-speed-running rate, sprint
@@ -18,11 +18,10 @@ power), turning cumulative counters into fatigue trajectories:
 
     fatigue index  = weighted decline of {HSR rate, work rate, sprint rate,
                      metabolic power} + cardiac drift (wearable, when present)
-    sub priority   = fatigue index blended with injury risk and minutes played
+    review priority = fatigue index blended with the load indicator and minutes played
 
 Every factor is exposed in the output (interpretable — a coach can see WHY).
-Like the injury model, the weighting is a defensible heuristic baseline that can
-be replaced by a model fitted on labelled substitution events (`fit()` hook).
+The weighting is a transparent heuristic baseline and not an outcome probability.
 """
 
 from __future__ import annotations
@@ -41,14 +40,14 @@ class SubAdvice:
     player_id: int
     priority: float                    # 0..1 — substitution urgency
     fatigue: float                     # 0..1 — physical-decline component
-    injury_risk: float                 # 0..1 — from the injury model
+    load_indicator: float              # 0..1 — non-medical review score
     minutes: float
     reasons: List[str] = field(default_factory=list)
     factors: Dict[str, float] = field(default_factory=dict)
 
     def as_dict(self) -> dict:
         return {"player_id": self.player_id, "priority": round(self.priority, 3),
-                "fatigue": round(self.fatigue, 3), "injury_risk": round(self.injury_risk, 3),
+                "fatigue": round(self.fatigue, 3), "load_indicator": round(self.load_indicator, 3),
                 "minutes": round(self.minutes, 1), "reasons": self.reasons,
                 "factors": {k: round(v, 3) for k, v in self.factors.items()}}
 
@@ -88,10 +87,10 @@ class SubstitutionAdvisor:
         return float(np.clip((early - recent) / early, 0.0, 1.0))
 
     # ------------------------------------------------------------------ #
-    def advise(self, injury_risk: Optional[Dict[int, float]] = None
+    def advise(self, load_indicators: Optional[Dict[int, float]] = None
                ) -> List[SubAdvice]:
         """Ranked substitution candidates (highest priority first)."""
-        injury_risk = injury_risk or {}
+        load_indicators = load_indicators or {}
         out: List[SubAdvice] = []
         for pid, snaps in self._snaps.items():
             if len(snaps) < self.min_snapshots:
@@ -123,9 +122,9 @@ class SubstitutionAdvisor:
                 factors["cardiac_drift"] = drift_boost
                 fatigue = float(np.clip(fatigue + drift_boost, 0, 1))
 
-            risk = float(injury_risk.get(pid, 0.0))
+            indicator = float(load_indicators.get(pid, 0.0))
             minutes_norm = float(np.clip(dur_min / 90.0, 0, 1))
-            priority = float(np.clip(0.55 * fatigue + 0.35 * risk + 0.10 * minutes_norm,
+            priority = float(np.clip(0.55 * fatigue + 0.35 * indicator + 0.10 * minutes_norm,
                                      0, 1))
 
             reasons = []
@@ -138,17 +137,17 @@ class SubstitutionAdvisor:
                 reasons.append("sprint frequency dropping")
             if drift_boost > 0.05:
                 reasons.append(f"cardiac drift +{f.hr_drift:.0f} bpm")
-            if risk >= 0.5:
-                reasons.append(f"injury risk {risk:.2f}")
+            if indicator >= 0.5:
+                reasons.append(f"load review score {indicator:.2f}")
             if not reasons:
                 reasons.append("output maintained")
 
-            out.append(SubAdvice(pid, priority, fatigue, risk, dur_min,
+            out.append(SubAdvice(pid, priority, fatigue, indicator, dur_min,
                                  reasons, factors))
         out.sort(key=lambda a: -a.priority)
         return out
 
-    def watchlist(self, injury_risk=None, threshold: float = 0.45,
+    def watchlist(self, load_indicators=None, threshold: float = 0.45,
                   top: int = 3) -> List[SubAdvice]:
         """The players a coach should be considering — priority ≥ threshold."""
-        return [a for a in self.advise(injury_risk)[:top] if a.priority >= threshold]
+        return [a for a in self.advise(load_indicators)[:top] if a.priority >= threshold]

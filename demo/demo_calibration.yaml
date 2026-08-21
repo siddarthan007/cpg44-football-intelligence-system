@@ -3,9 +3,37 @@
 # from frame 1 (1920x1080). Good enough for a PROTOTYPE demo — for real accuracy,
 # calibrate your fixed campus camera with `python -m soccer_analytics.calibrate`.
 points:
-  centre:        [957, 553]
-  half_top:      [960, 322]
+  centre:        [962, 553]
+  half_top:      [962, 315]
   circle_left:   [472, 553]
   circle_right:  [1443, 553]
   circle_top:    [957, 373]
   circle_bottom: [957, 743]
+lines:
+  far_touchline:
+    - [200, 306]
+    - [700, 312]
+    - [1400, 320]
+    - [1800, 324]
+  halfway:
+    - [962, 650]
+    - [963, 800]
+    - [963, 950]
+    - [964, 1070]
+circle:
+  - [981.6, 751.5]
+  - [794.2, 743.7]
+  - [634.6, 711.1]
+  - [527.1, 658.7]
+  - [488.1, 594.4]
+  - [523.5, 528.1]
+  - [627.9, 469.8]
+  - [785.4, 428.4]
+  - [972.1, 410.2]
+  - [1159.5, 418.0]
+  - [1319.1, 450.6]
+  - [1426.6, 503.0]
+  - [1465.6, 567.3]
+  - [1430.2, 633.7]
+  - [1325.8, 692.0]
+  - [1168.2, 733.4]

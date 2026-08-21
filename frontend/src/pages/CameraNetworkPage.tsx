@@ -1,70 +1,45 @@
-import React, { useEffect, useState } from "react";
+import { useEffect, useState } from 'react';
+import { EmptyState, ErrorBanner, PageHeader, StatusBadge } from '../components/common';
+import { api, apiUrl } from '../lib/api';
 
-export const CameraNetworkPage: React.FC = () => {
-  const [cameras, setCameras] = useState<any[]>([]);
+type Camera = { id: string; name: string; type: string; source: string; status: string; frame_age_s?: number | null; calibrated?: boolean };
 
-  useEffect(() => {
-    fetch(`http://${window.location.hostname}:8000/api/v1/cameras`)
-      .then((r) => r.json())
-      .then((d) => setCameras(d))
-      .catch(() => {});
-  }, []);
+export const CameraNetworkPage = () => {
+  const [cameras, setCameras] = useState<Camera[]>([]);
+  const [name, setName] = useState('Pitch camera');
+  const [source, setSource] = useState('');
+  const [type, setType] = useState('rtsp');
+  const [nonce, setNonce] = useState(0);
+  const [error, setError] = useState<string | null>(null);
 
+  const refresh = () => api.cameras().then((body) => { setCameras(body as unknown as Camera[]); setError(null); }).catch((reason: unknown) => setError(reason instanceof Error ? reason.message : 'Camera API unavailable'));
+  useEffect(() => { void refresh(); const timer = window.setInterval(() => { void refresh(); setNonce(Date.now()); }, 1000); return () => window.clearInterval(timer); }, []);
+  const register = async () => {
+    try { await api.registerCamera({ name, source, type }); setSource(''); await refresh(); }
+    catch (reason) { setError(reason instanceof Error ? reason.message : 'Camera was not registered'); }
+  };
+  const phoneUrl = import.meta.env.DEV
+    ? `${window.location.protocol}//${window.location.hostname}:8000/camera?id=phone_1`
+    : `${window.location.origin}/camera?id=phone_1`;
   return (
-    <div style={{ padding: "1.5rem", maxWidth: "1100px", margin: "0 auto" }}>
-      <div style={{ marginBottom: "1.5rem" }}>
-        <h2 style={{ fontSize: "1.3rem", fontWeight: 700, color: "var(--text-main)" }}>
-          Camera Network &amp; Mobile Streaming
-        </h2>
-        <p style={{ color: "var(--text-muted)", fontSize: "0.85rem", marginTop: "0.25rem" }}>
-          Single and multi-camera RTSP/WebRTC feeds and instant smartphone camera ingest.
-        </p>
-      </div>
-
-      <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr", gap: "1.5rem" }}>
-        <div className="card-clean">
-          <h3 style={{ fontSize: "1rem", fontWeight: 700, marginBottom: "1rem" }}>Connected Cameras</h3>
-          <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
-            {cameras.map((c) => (
-              <div
-                key={c.id}
-                style={{
-                  padding: "0.85rem",
-                  borderRadius: "6px",
-                  background: "var(--bg-subtle)",
-                  border: "1px solid var(--border-light)",
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                }}
-              >
-                <div>
-                  <div style={{ fontWeight: 600, fontSize: "0.9rem" }}>{c.name}</div>
-                  <div style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>{c.type} · {c.source}</div>
-                </div>
-                <div style={{ textAlign: "right" }}>
-                  <span style={{ fontSize: "0.75rem", fontWeight: 600, color: "#10b981" }}>ONLINE</span>
-                  <div style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>{c.fps} FPS · {c.latency_ms} ms</div>
-                </div>
-              </div>
-            ))}
+    <div className="page">
+      <PageHeader eyebrow="VIDEO SOURCES" title="Camera gateway" description="Register real sources and inspect their measured health. Browser phones can send preview frames; RTSP sources remain the preferred path for full-rate inference." />
+      <ErrorBanner message={error} />
+      <div className="two-column">
+        <section className="card-clean">
+          <div className="section-heading"><div><span className="eyebrow">REGISTRY</span><h2>Camera sources</h2></div><StatusBadge status={cameras.some((camera) => camera.status === 'online') ? 'online' : 'offline'} /></div>
+          {!cameras.length ? <EmptyState title="No camera has been registered." /> : <div className="camera-list">{cameras.map((camera) => <article key={camera.id}><div><strong>{camera.name}</strong><span>{camera.type} · {camera.source || 'source not supplied'}</span></div><div><StatusBadge status={camera.status} /><span>{camera.frame_age_s == null ? 'no frames' : `${camera.frame_age_s}s old`}</span></div>{camera.type === 'browser_jpeg' && <img src={`${apiUrl(`/api/v1/cameras/${camera.id}/frame`)}?t=${nonce}`} alt={`${camera.name} latest frame`} />}</article>)}</div>}
+        </section>
+        <section className="card-clean">
+          <div className="section-heading"><div><span className="eyebrow">ADD SOURCE</span><h2>Register camera</h2></div></div>
+          <div className="form-grid">
+            <label className="field wide"><span>Name</span><input value={name} onChange={(event) => setName(event.target.value)} /></label>
+            <label className="field"><span>Transport</span><select value={type} onChange={(event) => setType(event.target.value)}><option value="rtsp">RTSP</option><option value="file">Video file</option></select></label>
+            <label className="field wide"><span>Source URL or path</span><input value={source} onChange={(event) => setSource(event.target.value)} placeholder="rtsp://… or /path/video.mp4" /></label>
           </div>
-        </div>
-
-        <div className="card-clean">
-          <h3 style={{ fontSize: "1rem", fontWeight: 700, marginBottom: "0.5rem" }}>Smartphone Camera Ingest</h3>
-          <p style={{ fontSize: "0.8rem", color: "var(--text-muted)", marginBottom: "1rem" }}>
-            Open this URL on any phone browser to stream live video directly to the gateway.
-          </p>
-          <div style={{ background: "var(--bg-subtle)", padding: "1rem", borderRadius: "6px", textAlign: "center", border: "1px solid var(--border-light)" }}>
-            <div style={{ color: "var(--accent-blue)", fontWeight: 700, fontSize: "0.95rem" }}>
-              http://{window.location.hostname}:8000/camera
-            </div>
-            <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginTop: "0.25rem" }}>
-              Direct browser WebRTC/MJPEG streaming
-            </div>
-          </div>
-        </div>
+          <button className="btn-solid" disabled={!name || !source} onClick={register}>Register source</button>
+          <div className="quality-callout neutral camera-phone"><strong>Phone preview ingest</strong><p>Open this URL on a phone connected to the same network:</p><code>{phoneUrl}</code><p>It sends JPEG previews at up to 5 fps. It is not labelled as a full-rate inference stream.</p></div>
+        </section>
       </div>
     </div>
   );

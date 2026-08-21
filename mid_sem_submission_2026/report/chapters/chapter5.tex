@@ -1,0 +1,98 @@
+\section{Conclusions and Future Scope}
+
+\subsection{Work Accomplished}
+Progress is compared with the four approved objectives. Each objective is split
+into five reviewable milestones. Table~\ref{tab:objective_progress} reports
+completed engineering work. The percentages are not accuracy scores.
+
+\begin{table}[H]
+\centering
+\caption{Progress against approved objectives}
+\label{tab:objective_progress}
+\small
+\begin{tabularx}{\textwidth}{p{0.8in}p{0.85in}X}
+\toprule
+\textbf{Objective} & \textbf{Coverage} & \textbf{Evidence and remaining check}\\
+\midrule
+1 & 4 of 5 & Vision, wearable, fusion, API, dashboard, and relay paths are present. Controlled end-to-end sync report remains.\\
+2 & 4 of 5 & ESP32-S3 firmware, sensors, provisioning, and repeatable builds are present. Reference-device field test remains.\\
+3 & 3 of 5 & Feature engine, tactical rules, and training path are present. Reviewed outcome data and model evaluation remain.\\
+4 & 2 of 5 & Public-data training and software tests are present. Locked campus tracking, sensor, sync, and coach tests remain.\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+The milestone coverage is 80, 80, 60, and 40 percent. Current detector logs
+show that the training pipeline runs. The 30-epoch record ends with validation
+precision 0.8435, recall 0.7318, AP$_{50}$ 0.7476, and AP$_{50:95}$ 0.4589 on
+its recorded split. These values are not a campus deployment result.
+
+On August 20, 2026, all 53 project tests, frontend lint, and frontend production
+build passed. The supported \texttt{wearable\_stream} firmware compiled for the
+ESP32-S3 at 31 percent flash and 8 percent dynamic memory. Hardware reference
+tests are still reported separately from compilation and software tests.
+
+\subsection{Conclusions}
+The mid-semester prototype gives a working path from camera and wearable data to
+a live coaching view. The most important design choice is to keep identity,
+time, and quality before calculating analytics. This makes wrong or weak values
+easier to find and correct.
+
+Main processing and evidence stay on the project PC. The required VPS relay
+provides the public domain route for raw wearable telemetry and short
+reconnection replay without storing a match archive. The tested firmware is the
+main field build, and the model-training path is ready for reviewed campus
+labels.
+
+The literature also sets clear limits. Ball tracking and player identity are
+difficult during occlusion. PPG needs movement tests, and workload models need
+many sessions with consistent labels. The project therefore uses visible
+quality states, manual review, component tests, and results linked to the
+original session.
+
+\subsection{Environmental, Economic, and Social Benefits}
+Local video processing avoids sending full recordings to a cloud service. The
+VPS keeps only a small memory cache, which also limits storage use. Replaceable
+sensor modules and straps make repairs easier, while batteries and damaged
+electronics still require proper disposal.
+
+The design uses common components and open-source software. A controlled drill
+can start with one or two wearables before increasing the count. This makes the
+system suitable for a campus team, though time for labelling, fitting, and
+validation remains part of the real cost.
+
+The product can give coaches clearer evidence without requiring a high-budget
+tracking system. Responsible use requires player consent, limited access, and
+careful wording around health. A workload warning should support discussion
+with the player and qualified staff, not label a player as injured.
+
+\subsection{Future Work Plan}
+Table~\ref{tab:future_plan} gives the remaining work and the evidence expected
+from each stage.
+
+\begingroup
+\small
+\begin{longtable}{@{}p{1.0in}p{2.15in}p{2.75in}@{}}
+\caption{Future work plan}\label{tab:future_plan}\\
+\toprule
+\textbf{Period} & \textbf{Work} & \textbf{Acceptance evidence}\\
+\midrule
+\endfirsthead
+\toprule
+\textbf{Period} & \textbf{Work} & \textbf{Acceptance evidence}\\
+\midrule
+\endhead
+Before panel & Add final screens and hardware photograph; rehearse the fixed demo. & Placeholders filled, ten-minute run, clean startup, relay reconnect.\\
+August--September & Run mapping, tap-sync, sensor tests, and campus labelling. & Mapping error, 20 sync events, sensor error, reviewed labels, session split.\\
+October & Train and test detector, ball, jersey, and identity updates. & Per-class AP, HOTA, IDF1, switch count, reviewed error clips.\\
+October--November & Collect workload records and train simple fusion baselines. & Reviewed session labels, data gate, later-session test, Brier score.\\
+Final phase & Run coach-use, failure, and privacy checks; complete the report. & Task notes, stated limits, signed evidence, repeatable build.\\
+\bottomrule
+\end{longtable}
+\endgroup
+
+Later improvements can include more cameras, better identity recovery after long
+gaps, jersey recognition trained on local kits, and a higher-resolution ball
+detector. Tactical work can compare passing options and short changes in team
+shape. Each added result will keep its input quality, visible evidence, and
+confidence.

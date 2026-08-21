@@ -1,7 +1,8 @@
 """Map the ESP32 sensor hub into the vision fusion layer.
 
-The firmware (`firmware/wearable_stream`) streams raw IMU / PPG / GPS over TCP.
-`soccer_analytics.sensors.hub` turns that into processed vitals. This module is
+The firmware (`firmware/wearable_stream`) sends raw IMU / PPG / GPS batches to
+the public relay. `soccer_analytics.sensors.hub` consumes the relay and turns
+that data into processed vitals. This module is
 the last hop: a :class:`SensorSource` the realtime pipeline can drain each frame,
 plus the Capstone join-key (`match_id + global_player_id + timestamp`).
 """
@@ -45,13 +46,13 @@ def snapshot_to_sample(state: Dict[str, Any], player_id: int) -> Optional[Sensor
     imu = state.get("imu") or {}
     gps = state.get("gps") or {}
 
-    hr = spo2 = None
+    hr = spo2 = quality = None
     if stable.get("valid"):
         hr, spo2 = stable.get("bpm"), stable.get("spo2_estimate_pct")
+        quality = stable.get("quality")
     elif rolling.get("valid"):
         hr, spo2 = rolling.get("bpm"), rolling.get("spo2_estimate_pct")
-    else:
-        hr, spo2 = rolling.get("bpm"), rolling.get("spo2_estimate_pct")
+        quality = rolling.get("quality")
 
     accel_g = None
     body = imu.get("accel_body_mps2")
@@ -87,6 +88,7 @@ def snapshot_to_sample(state: Dict[str, Any], player_id: int) -> Optional[Sensor
         altitude=None if gps.get("alt_m") is None else float(gps["alt_m"]),
         gps=gps_ll,
         source="esp32-hub",
+        signal_quality=None if quality is None else float(quality),
     )
 
 
@@ -105,6 +107,7 @@ def sample_to_observation(sample: SensorSample, match_id: str = "live") -> Dict[
             "spo2_pct": sample.spo2,
             "acceleration_g": accel_mag,
             "gps": list(sample.gps) if sample.gps else None,
+            "signal_quality": sample.signal_quality,
             "transport": sample.source,
         },
     }

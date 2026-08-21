@@ -1,0 +1,212 @@
+\section{Introduction}
+
+\subsection{Project Overview}
+Football coaches need to study two sides of a training session. Video shows
+where players and the ball moved. Wearable sensors show the physical effort
+behind that movement. When both records use different clocks and player names,
+it is difficult to connect a hard run or rise in pulse with the event on the
+field.
+
+This project develops \systemname. A fixed camera records a controlled football
+area. The vision pipeline detects players, goalkeepers, referees, and the ball.
+ByteTrack keeps short-term track IDs, while team colour, appearance, jersey
+votes, and manual review help resolve a track to a roster player.
+
+Each selected player can wear an ESP32-S3 unit with an MPU-6050 inertial sensor,
+MAX30102 optical sensor, and NEO-6M GPS receiver. The tested
+\texttt{wearable\_stream} firmware is used as the main field build. It sends a
+device ID, sequence number, source time, raw sensor samples, and status flags
+to the required VPS relay. The local processor reads the relay stream and adds
+quality information before any value is shown to the coach.
+
+The two streams are joined by time and player identity. SNTP gives the wearable
+a UTC time anchor, and its monotonic timer keeps sample order between clock
+updates. Player-device binding states which
+wearable belongs to which visible player. A joined record is created only when
+the time error, packet age, signal quality, and identity confidence pass their
+limits. A failed check gives a clear missing or low-confidence state instead of
+a normal-looking value.
+
+The project PC runs video processing, sensor processing, fusion, analytics,
+local session files, the API, and the dashboard. Live network access is handled
+through the required relay at \texttt{cpg44.nivaspms.com}. Cloudflare resolves
+the domain and Caddy routes it to the CPG44 relay on the VPS. The relay keeps a
+small memory-only replay window for short reconnects and stores no match
+history.
+
+The dashboard is arranged around a coach's work. The live page gives most of
+the screen to a readable pitch view. It shows player tracks, identity state,
+team, jersey label, ball path, possession evidence, and marked tactical areas.
+The selected-player panel shows speed, distance, acceleration load, pulse
+trend, estimated SpO$_2$, GPS state, packet age, and signal quality.
+
+The analysis page links every alert to the same session timeline. Team width,
+length, centroid, compactness, line spacing, pressure events, and high-intensity
+efforts are calculated from pitch positions. Workload change is compared with
+the player's earlier sessions when enough valid data exists. This lets a coach
+inspect the reason behind a result instead of seeing only a score.
+
+The platform separates measurement and interpretation. Detection, tracking,
+pitch mapping, and sensor processing first create checked observations. Simple
+formulas create movement, workload, and team-shape features. Rules and trained
+models use these features only after their inputs pass the data-quality check.
+Injury-related output is a workload warning for review, not a diagnosis
+\cite{leckey2025injury}.
+
+Public datasets support early training. SoccerNet-Tracking provides football
+objects, team information, jersey metadata, and difficult occlusion cases
+\cite{cioppa2022soccernet}. SportsMOT gives further examples of fast movement
+and similar-looking players \cite{cui2023sportsmot}. Campus footage is still
+needed because its camera height, field markings, kits, and lighting are
+different.
+
+At the mid-semester stage, the repository contains the vision and wearable
+paths, fusion services, training scripts, API, live dashboard, relay service,
+and evaluation plans. The tested \texttt{wearable\_stream} firmware compiles in
+the \texttt{soccer} conda environment. Current software tests and detector logs are reported as
+implementation evidence. Final accuracy will be based on the controlled campus
+tests described later in this report.
+
+\subsection{Need Analysis}
+The main users are a coach and a student analyst. They need quick answers to
+practical questions: Which player reaches a press late? When does the team
+become too wide? Does a fall in running output occur with a rise in physical
+load? Is a result weak because the ball, player identity, or sensor signal was
+uncertain?
+
+A camera alone cannot measure the player's body response. A wearable alone
+cannot show team spacing, opponent pressure, or the ball. The proposed system
+brings both views to one timeline and keeps the source evidence. This makes the
+result easier to check during a campus training session.
+
+The work is also useful as an evaluation platform. It records clock offset,
+sequence gaps, mapping error, track identity, signal quality, corrections, and
+feature versions. The team can therefore locate an error and compare changes
+instead of judging the system only from a live screen.
+
+\subsection{Research Gaps}
+The following gaps were found from the literature and the prototype review.
+
+\begin{enumerate}
+  \item \textbf{Tactical and physical data are separated.} Football tracking
+  work usually studies trajectories, while workload work uses GPS or training
+  records. A useful campus system must join both at player and event level
+  \cite{rossi2018injury,honda2022pass}.
+
+  \item \textbf{Small and blocked objects remain difficult.} Ball size, camera
+  motion, occlusion, and similar kits continue to affect football vision
+  systems \cite{zheng2025sportsvision}. Short recovery is useful, but the
+  system should not invent a ball position or player name.
+
+  \item \textbf{Track ID is not the same as player identity.} ByteTrack can
+  recover low-score detections, but it does not identify a football player
+  \cite{zhang2022bytetrack}. Team evidence, jersey votes, appearance, and
+  analyst confirmation are still required.
+
+  \item \textbf{Wearable values can look valid during poor contact.} PPG is
+  affected by motion and sensor placement \cite{pollreisz2022wearable,
+  zhang2021ppg}. Heart rate and SpO$_2$ therefore need motion-aware quality
+  checks and comparison with a reference device.
+
+  \item \textbf{Time alignment is often hidden.} Camera time, microcontroller
+  time, GPS time, and network arrival time are not equal. A joined result needs
+  a measured timing error and visible sequence gaps.
+
+  \item \textbf{Injury models do not transfer directly.} Studies use different
+  players, injury definitions, and prediction windows
+  \cite{pilka2023workload,leckey2025injury}. A local model needs repeated
+  sessions, later-session testing, and clear limits.
+
+  \item \textbf{Many tactical results are hard to explain.} Tactical models
+  can use player relations and event context \cite{tacticai2024,
+  teixeira2025tactical}. Coaches still need the supporting field position,
+  time, input quality, and simple reason.
+\end{enumerate}
+
+Our work builds on these studies by joining the visible action, wearable load,
+identity evidence, and time error in one record. It differs by focusing on a
+complete and testable campus workflow, from data capture to live coach review.
+
+\subsection{Problem Definition and Scope}
+The problem is to build and evaluate a real-time football platform that tracks
+players and the ball, reads wearable sensors, maps all values to one session
+clock, and gives useful tactical and workload information. The system must keep
+uncertain identity, timing, or sensor values visible.
+
+The scope covers controlled football recordings, one calibrated camera,
+ESP32-S3 wearables, local processing, required remote relay transport, live and
+review dashboards, data export, and model training. Medical diagnosis, official
+referee decisions, and clinical SpO$_2$ use are outside the scope.
+
+\subsection{Assumptions and Constraints}
+The camera is assumed to stay fixed after calibration and to show the marked
+test area. Players use known team kits and a prepared roster. Wearables are
+paired before the session and fitted safely.
+
+The project uses one available PC, low-cost sensor modules, campus footage, and
+a limited number of repeated sessions. Ball size, player overlap, network
+jitter, PPG motion noise, and GPS dropout are expected constraints. The relay
+must fit the VPS setup, use the domain name, use only a few megabytes of cache,
+and create no persistent storage.
+
+\subsection{Standards}
+FIFA's Electronic Performance and Tracking Systems guidance separates product
+safety from performance testing \cite{fifaepts}. We follow the same rule. A
+wearable that powers on safely is not called accurate until it is compared with
+reference measurements.
+
+Manufacturer documents guide the sensor setup. The MAX30102 document gives its
+sampling and optical settings \cite{max30102}. The MPU-6050 document gives IMU
+ranges, filtering, and interfaces \cite{mpu6050}. The NEO-6 data sheet gives GPS
+messages and update limits \cite{neo6}. IEEE numeric style is used for
+references.
+
+The live relay uses HTTPS and WebSocket transport, a private token, bounded
+message size, value checks, and a fixed memory cache. No password or relay token
+is kept in tracked firmware source or a frontend bundle.
+
+\subsection{Approved Objectives}
+The objectives approved in the proposal are:
+
+\begin{enumerate}
+  \item To develop an integrated data-processing framework that combines
+  vision-based player tracking with wearable sensor streams for football
+  monitoring.
+  \item To use wearable hardware to collect physiological and spatial data
+  from GPS, accelerometer, pulse-oximeter, and related sensors.
+  \item To design machine-learning models for player and team performance
+  trends, and a tactical module that gives recommendations from the analysed
+  performance.
+  \item To evaluate the system on available datasets and controlled test
+  scenarios.
+\end{enumerate}
+
+\subsection{Methodology}
+The work follows a measured pipeline. First, public and campus footage is
+labelled and split by sequence. The detector, ByteTrack association, player
+identity, ball recovery, and pitch mapping are then tested separately.
+
+In parallel, the wearable sends timestamped IMU, GPS, and raw PPG samples
+through the relay. The project PC checks these samples and estimates BPM and
+SpO$_2$ only from acceptable PPG windows. Time alignment and player-device
+binding create a joined event stream. The dashboard uses this stream for live
+tracking and simple coach-facing analytics. Checked exports are later used for
+model training and evaluation on unseen sessions.
+
+\subsection{Project Outcomes and Deliverables}
+The planned product is a working local football intelligence platform with a
+required memory-only VPS relay. Deliverables include the wearable prototype,
+firmware, vision and tracking pipeline, identity and time-sync services, live
+dashboard, tactical and workload features, training pipeline, test results,
+technical report, and demonstration.
+
+\subsection{Novelty of Work}
+The novelty is in the joined workflow, not in claiming a new sensor or tracker.
+One event can carry player position, team context, ball state, physical load,
+signal quality, identity confidence, and timing error. Coaches can correct an
+identity and see why a tactical or workload warning was raised.
+
+The platform also joins local processing with a storage-free live relay. The
+same timestamped records support the dashboard, field validation, and later
+model training. This gives a practical link between a live coaching tool and a
+repeatable research dataset.

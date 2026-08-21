@@ -1,22 +1,44 @@
-version: "3.8"
+name: cpg44-telemetry
 
 services:
-  cpg44-relay:
+  relay:
     build:
       context: .
       dockerfile: docker/Dockerfile.server
-    container_name: cpg44_sensor_relay
-    restart: always
+    restart: unless-stopped
+    init: true
     ports:
-      - "8081:8081"   # HTTP & WebSocket API
-      - "9000:9000"   # ESP32 Raw TCP Telemetry Stream
-    volumes:
-      - ./data:/app/data
+      - "127.0.0.1:${CPG44_RELAY_PORT:-18081}:8081"
     environment:
-      - PORT=8081
-      - CPG44_DB_PATH=/app/data/hostinger_telemetry.db
+      PORT: "8081"
+      CPG44_RELAY_TOKEN: "${CPG44_RELAY_TOKEN:?Set a private relay token of at least 32 characters}"
+      CPG44_RELAY_CACHE_BYTES: "${CPG44_RELAY_CACHE_BYTES:-4194304}"
+      CPG44_RELAY_MAX_BODY_BYTES: "262144"
+      CPG44_CORS_ORIGINS: "${CPG44_CORS_ORIGINS:-}"
+    read_only: true
+    tmpfs:
+      - /tmp:size=8m,mode=1777,noexec,nosuid,nodev
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 128
+    mem_limit: 128m
+    cpus: 0.50
+    logging:
+      driver: json-file
+      options:
+        max-size: "2m"
+        max-file: "2"
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8081/health"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8081/health', timeout=2).read()"]
       interval: 30s
       timeout: 5s
       retries: 3
+      start_period: 10s
+    networks:
+      - relay_only
+
+networks:
+  relay_only:
+    driver: bridge

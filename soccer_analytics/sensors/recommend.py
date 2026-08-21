@@ -2,7 +2,7 @@
 
 Combines three signals into actionable coaching recommendations:
   * tactical shape (from :mod:`soccer_analytics.tactics`),
-  * per-player injury risk (from :mod:`soccer_analytics.sensors.injury`),
+  * per-player explainable load-review score,
   * per-player performance decline (speed drop-off vs the player's own baseline).
 
 Output categories mirror the report: **substitution**, **load redistribution**,
@@ -47,12 +47,12 @@ class RecommendationEngine:
                 top = ", ".join(f"{k}" for k in risk.factors) or "elevated load"
                 recs.append(Recommendation(
                     "substitution", "high", pid,
-                    f"Player {pid}: HIGH injury risk ({risk.risk:.2f}; {top}). "
-                    f"Consider substitution or reduced minutes."))
+                    f"Player {pid}: high load-review score ({risk.risk:.2f}; {top}). "
+                    f"Review the player and consider reduced minutes."))
             elif risk.level == "moderate":
                 recs.append(Recommendation(
                     "load", "medium", pid,
-                    f"Player {pid}: moderate injury risk ({risk.risk:.2f}). "
+                    f"Player {pid}: moderate load-review score ({risk.risk:.2f}). "
                     f"Monitor and redistribute high-intensity actions."))
 
         # performance decline via top-speed drop vs baseline

@@ -3,7 +3,7 @@ import { ErrorBanner, EmptyState, Panel } from '../components/common';
 
 export function PlayersPage({ matchId }: { matchId: string }) {
   const { data, error } = useLive(matchId);
-  const players = [...(data?.analytics.players ?? [])].sort((a, b) => b.distance_m - a.distance_m);
+  const players = [...(data?.players ?? [])].sort((a, b) => (b.distance_m ?? 0) - (a.distance_m ?? 0));
   return (
     <div>
       <div className="page-head">
@@ -15,7 +15,7 @@ export function PlayersPage({ matchId }: { matchId: string }) {
       <ErrorBanner message={error} />
       <Panel title="Workload table">
         {players.length === 0 ? (
-          <EmptyState title="No stats yet — run bash scripts/demo.sh" />
+          <EmptyState title="No stats yet - run bash scripts/demo.sh" />
         ) : (
           <div className="table-scroll">
             <table>
@@ -36,12 +36,12 @@ export function PlayersPage({ matchId }: { matchId: string }) {
                   <tr key={p.global_player_id}>
                     <td className="mono">{p.global_player_id}</td>
                     <td>{p.team_id}</td>
-                    <td className="num">{p.distance_m.toFixed(1)}</td>
-                    <td className="num">{p.top_speed_mps.toFixed(2)}</td>
-                    <td className="num">{p.hsr_m.toFixed(1)}</td>
-                    <td className="num">{p.sprints}</td>
-                    <td className="num">{p.metabolic_wkg.toFixed(1)}</td>
-                    <td>{p.wearable ? 'yes' : '—'}</td>
+                    <td className="num">{p.distance_m?.toFixed(1) ?? '-'}</td>
+                    <td className="num">{p.top_speed_mps?.toFixed(2) ?? '-'}</td>
+                    <td className="num">{p.hsr_m?.toFixed(1) ?? '-'}</td>
+                    <td className="num">{p.sprints ?? '-'}</td>
+                    <td className="num">{p.metabolic_power?.toFixed(1) ?? '-'}</td>
+                    <td>{p.wearable ? 'yes' : 'no'}</td>
                   </tr>
                 ))}
               </tbody>
