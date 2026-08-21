@@ -43,8 +43,12 @@ def _low_quality_transforms():
         import albumentations as A
     except ImportError:
         return None
+    try:
+        comp = A.ImageCompression(quality_range=(35, 90), p=0.5)
+    except Exception:
+        comp = A.ImageCompression(quality_lower=35, quality_upper=90, p=0.5)
     return [
-        A.ImageCompression(quality_lower=35, quality_upper=90, p=0.5),  # jpeg/stream artefacts
+        comp,                                                           # jpeg/stream artefacts
         A.Blur(blur_limit=5, p=0.3),
         A.MotionBlur(blur_limit=5, p=0.3),                              # camera / player motion
         A.RandomBrightnessContrast(p=0.3),
@@ -208,6 +212,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     f.add_argument("--name", default="custom_finetune")
     f.add_argument("--freeze", type=int, default=10)
     f.add_argument("--lr0", type=float, default=0.005)
+    f.add_argument("--stage1-epochs", type=int, default=0, help="Epochs for stage 1 (0 -> 1/3 of total)")
     f.add_argument("--single-stage", action="store_true", help="Skip the freeze/unfreeze two-stage recipe.")
     f.add_argument("--no-lq-aug", action="store_true", help="Disable low-quality photometric augmentation.")
 
@@ -223,7 +228,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     elif args.cmd == "finetune":
         finetune(args.data, base=args.base, epochs=args.epochs, imgsz=args.imgsz,
                  batch=args.batch, device=args.device, name=args.name, freeze=args.freeze,
-                 lr0=args.lr0, two_stage=not args.single_stage,
+                 lr0=args.lr0, stage1_epochs=args.stage1_epochs, two_stage=not args.single_stage,
                  low_quality_aug=not args.no_lq_aug)
     return 0
 

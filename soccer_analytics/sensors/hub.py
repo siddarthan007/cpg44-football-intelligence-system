@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """
-ESP32-S3 wearable sensor hub.
+ESP32-S3 wearable sensor processor.
 
-- Subscribes to the ESP32 raw TCP NDJSON stream.
-- NTP-style bidirectional clock synchronization maps ESP32 device_us into the
-  host time.perf_counter_ns() timeline for later CV fusion.
+- Subscribes to the authenticated VPS relay. It never opens a LAN connection
+  to an ESP32.
+- Maps the firmware's SNTP-anchored sample time into the host monotonic clock
+  for later CV fusion.
 - Preserves raw packets with acquisition timestamps.
 - Processes MAX30102 PPG on the host using a Python port of the Maxim/SparkFun
   reference algorithm's peak/AC/DC ratio method, with float evaluation of the
@@ -20,12 +21,15 @@ ESP32-S3 wearable sensor hub.
 import argparse
 import asyncio
 import json
+import ipaddress
 import math
+import os
 import time
 from collections import deque
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import urlencode, urlparse, urlunparse
 
 import numpy as np
 from scipy.signal import butter, detrend, find_peaks, sosfiltfilt, welch
@@ -33,6 +37,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse, HTMLResponse
 import uvicorn
+from websockets.asyncio.client import connect
 
 G = 9.80665
 PPG_FS = 25.0
@@ -525,6 +530,7 @@ class TelemetryEngine:
         self.gyro_bias = np.zeros(3, dtype=np.float64)
         self.accel_bias = np.zeros(3, dtype=np.float64)
         self.accel_scale = np.ones(3, dtype=np.float64)
+        self.accel_scale_calibrated = False
         self.auto_gyro_samples = []
         self.auto_gyro_calibrated = False
         self.linear_lp = np.zeros(3, dtype=np.float64)
@@ -541,6 +547,7 @@ class TelemetryEngine:
             self.accel_bias = np.asarray(cfg.get("accel_bias_mps2", [0, 0, 0]), dtype=np.float64)
             self.accel_scale = np.asarray(cfg.get("accel_scale", [1, 1, 1]), dtype=np.float64)
             self.auto_gyro_calibrated = True
+            self.accel_scale_calibrated = "accel_scale" in cfg
 
         self.record_fp = open(record_path, "a", buffering=1) if record_path else None
 
@@ -580,6 +587,20 @@ class TelemetryEngine:
             self.filter.reset()
 
     def map_packet_timestamp(self, packet, rx_mono_ns, rx_unix_ns):
+        source_unix_ns = packet.get("source_unix_ns")
+        if source_unix_ns is not None:
+            source_unix_ns = int(source_unix_ns)
+            mapped_ns = int(rx_mono_ns - (rx_unix_ns - source_unix_ns))
+            packet["rx_host_mono_ns"] = int(rx_mono_ns)
+            packet["rx_host_unix_ns"] = int(rx_unix_ns)
+            packet["host_mono_ns"] = mapped_ns
+            packet["host_unix_ns"] = source_unix_ns
+            packet["clock_synced"] = bool((packet.get("relay_clock") or {}).get("valid"))
+            packet["transport_delay_ms"] = round(
+                (rx_unix_ns - source_unix_ns) / 1e6, 3
+            )
+            return packet
+
         device_us = packet.get("device_us")
         mapped_ns = self.clock.map_ns(int(device_us)) if device_us is not None else None
         packet["rx_host_mono_ns"] = int(rx_mono_ns)
@@ -602,6 +623,12 @@ class TelemetryEngine:
             self.state["device"]["last_packet_mono_ns"] = rx_mono_ns
             if packet.get("boot_id") is not None:
                 self.state["device"]["boot_id"] = packet.get("boot_id")
+            if packet.get("relay_seq") is not None:
+                self.state["device"]["last_relay_seq"] = packet.get("relay_seq")
+            if packet.get("player_id") is not None:
+                self.state["player_id"] = int(packet["player_id"])
+            if packet.get("match_id"):
+                self.state["match_id"] = str(packet["match_id"])
 
             t = packet.get("t")
             if t == "hello":
@@ -613,9 +640,18 @@ class TelemetryEngine:
             elif t == "gps":
                 self._process_gps(packet)
             elif t == "status":
-                self.state["device"].update({"ip": packet.get("ip"), "rssi_dbm": packet.get("rssi_dbm"), "heap": packet.get("heap")})
+                self.state["device"].update({
+                    "rssi_dbm": packet.get("rssi_dbm"),
+                    "heap": packet.get("heap"),
+                    "mpu6050": packet.get("mpu6050"),
+                    "max30102": packet.get("max30102"),
+                    "gps_rx": packet.get("gps_rx"),
+                    "dropped_samples": packet.get("dropped_samples"),
+                    "queued_samples": packet.get("queued_samples"),
+                })
 
-            self.state["clock"] = self.clock.status()
+            relay_clock = packet.get("relay_clock")
+            self.state["clock"] = dict(relay_clock) if isinstance(relay_clock, dict) else self.clock.status()
 
         self._record(packet)
         self.raw_broadcast.publish(packet)
@@ -808,16 +844,19 @@ class TelemetryEngine:
         hr_diff = None if hr is None or spectral_hr is None else abs(float(hr) - spectral_hr)
 
         motion = self._motion_quality(start_ns, end_ns)
-        if motion.get("valid"):
-            motion_ok = motion["dynamic_accel_rms_mps2"] < 1.6 and motion["gyro_rms_rads"] < 1.2
-        else:
-            motion_ok = True
+        motion_ok = bool(
+            motion.get("valid")
+            and motion["dynamic_accel_rms_mps2"] < 1.6
+            and motion["gyro_rms_rads"] < 1.2
+        )
 
         agreement_ok = hr_diff is None or hr_diff <= 25.0
         valid = bool(est.get("valid") and motion_ok and agreement_ok)
 
         reason = est.get("reason") or "ok"
-        if est.get("valid") and not motion_ok:
+        if est.get("valid") and not motion.get("valid"):
+            reason = "imu_quality_unavailable"
+        elif est.get("valid") and not motion_ok:
             reason = "motion_artifact"
         elif est.get("valid") and not agreement_ok:
             reason = "hr_estimators_disagree"
@@ -934,7 +973,7 @@ class TelemetryEngine:
                 "startup": not bool(imu.get("calibrated_gyro_bias")),
                 "accelerometer_ignored": False,
             }
-            imu["accel_scale_calibrated"] = True
+            imu["accel_scale_calibrated"] = self.accel_scale_calibrated
             state["imu"] = imu
         vit = state.get("vitals") or {}
         stable = vit.get("stable_15s") or {}
@@ -969,84 +1008,6 @@ class TelemetryEngine:
         return state
 
 
-# ============================================================================
-# ESP32 connection + clock sync
-# ============================================================================
-
-async def sync_sender(writer, stop_event):
-    sync_id = 0
-    while not stop_event.is_set():
-        try:
-            t1 = time.perf_counter_ns()
-            writer.write(f"SYNC,{sync_id},{t1}\n".encode())
-            await writer.drain()
-            sync_id += 1
-        except Exception:
-            return
-        try:
-            await asyncio.wait_for(stop_event.wait(), timeout=2.0)
-        except asyncio.TimeoutError:
-            pass
-
-
-async def device_reader(engine, host, port):
-    while True:
-        writer = None
-        sync_task = None
-        stop_event = asyncio.Event()
-        try:
-            print(f"Connecting to ESP32 {host}:{port} ...")
-            reader, writer = await asyncio.open_connection(host, port)
-            print("ESP32 stream connected")
-            sync_task = asyncio.create_task(sync_sender(writer, stop_event))
-
-            while True:
-                raw = await reader.readline()
-                t4_mono_ns = time.perf_counter_ns()
-                t4_unix_ns = time.time_ns()
-                if not raw:
-                    raise ConnectionError("ESP32 closed the stream")
-
-                line = raw.decode("utf-8", errors="replace").strip()
-                if not line:
-                    continue
-
-                if line.startswith("SYNC_REPLY,"):
-                    parts = line.split(",")
-                    if len(parts) == 5:
-                        _, _sid, t1, t2, t3 = parts
-                        engine.clock.add_exchange(int(t1), int(t2), int(t3), t4_mono_ns)
-                        async with engine.lock:
-                            engine.state["clock"] = engine.clock.status()
-                    continue
-
-                try:
-                    packet = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-
-                await engine.ingest(packet, t4_mono_ns, t4_unix_ns)
-
-        except asyncio.CancelledError:
-            raise
-        except Exception as exc:
-            print("ESP32 connection:", exc)
-            async with engine.lock:
-                engine.state["device"]["connected"] = False
-            await asyncio.sleep(1.0)
-        finally:
-            stop_event.set()
-            if sync_task:
-                sync_task.cancel()
-                await asyncio.gather(sync_task, return_exceptions=True)
-            if writer:
-                writer.close()
-                try:
-                    await writer.wait_closed()
-                except Exception:
-                    pass
-
-
 async def vitals_loop(engine):
     while True:
         await asyncio.sleep(1.0)
@@ -1054,6 +1015,135 @@ async def vitals_loop(engine):
             await engine.update_vitals()
         except Exception as exc:
             print("Vitals processor:", exc)
+
+
+def relay_envelope_to_packet(envelope):
+    """Convert one validated relay envelope back to the raw sensor packet."""
+    if not isinstance(envelope, dict):
+        return None
+    sample_type = envelope.get("sample_type")
+    payload = envelope.get("payload")
+    if sample_type not in {"imu", "ppg", "gps", "status"} or not isinstance(payload, dict):
+        return None
+    packet = dict(payload)
+    packet.update({
+        "t": sample_type,
+        "boot_id": envelope.get("device_boot_id"),
+        "seq": envelope.get("source_seq"),
+        "source_unix_ns": envelope.get("source_timestamp_ns"),
+        "relay_received_ns": envelope.get("relay_received_ns"),
+        "relay_seq": envelope.get("relay_seq"),
+        "relay_clock": envelope.get("clock") or {"valid": False},
+        "player_id": envelope.get("player_id"),
+        "match_id": envelope.get("match_id"),
+    })
+    return packet
+
+
+def _relay_websocket_url(relay_url, after_seq, match_id, player_id):
+    parsed = urlparse(relay_url)
+    query = urlencode({
+        "after_seq": int(after_seq),
+        "match_id": match_id,
+        "player_id": int(player_id),
+    })
+    return urlunparse(("wss", parsed.netloc, "/ws/sensors", "", query, ""))
+
+
+async def relay_reader(engine, relay_url, token, player_id, match_id):
+    """Consume replay-safe raw telemetry from the public relay."""
+    after_seq = 0
+    relay_instance_id = None
+    backoff = 0.5
+    cache_gaps = 0
+    rejected = 0
+
+    async def process(envelope):
+        nonlocal after_seq, rejected
+        try:
+            sequence = int(envelope.get("relay_seq"))
+        except (AttributeError, TypeError, ValueError):
+            rejected += 1
+            return
+        if sequence <= after_seq:
+            return
+        packet = relay_envelope_to_packet(envelope)
+        after_seq = sequence
+        if packet is None:
+            rejected += 1
+            return
+        rx_mono_ns = time.perf_counter_ns()
+        rx_unix_ns = time.time_ns()
+        await engine.ingest(packet, rx_mono_ns, rx_unix_ns)
+
+    while True:
+        uri = _relay_websocket_url(relay_url, after_seq, match_id, player_id)
+        try:
+            async with connect(
+                uri,
+                additional_headers={"X-Auth": token},
+                open_timeout=8,
+                ping_interval=20,
+                ping_timeout=20,
+                close_timeout=5,
+                max_size=8 * 1024 * 1024,
+            ) as websocket:
+                async with engine.lock:
+                    engine.state["relay"] = {
+                        "configured": True,
+                        "connected": True,
+                        "endpoint": relay_url,
+                        "last_relay_seq": after_seq,
+                        "cache_gaps": cache_gaps,
+                        "rejected": rejected,
+                    }
+                backoff = 0.5
+
+                async for raw_message in websocket:
+                    message = json.loads(raw_message)
+                    message_instance = message.get("relay_instance_id")
+                    if message.get("type") == "replay":
+                        replay = message.get("data") or {}
+                        message_instance = replay.get("relay_instance_id") or message_instance
+                        if relay_instance_id is not None and message_instance != relay_instance_id:
+                            after_seq = 0
+                        relay_instance_id = message_instance
+                        cache_gaps += int(bool(replay.get("cache_gap")))
+                        for envelope in replay.get("items") or []:
+                            await process(envelope)
+                    elif message.get("type") == "wearable_sample":
+                        if relay_instance_id is not None and message_instance != relay_instance_id:
+                            after_seq = 0
+                        relay_instance_id = message_instance
+                        await process(message.get("data") or {})
+
+                    async with engine.lock:
+                        engine.state["relay"] = {
+                            "configured": True,
+                            "connected": True,
+                            "endpoint": relay_url,
+                            "relay_instance_id": relay_instance_id,
+                            "last_relay_seq": after_seq,
+                            "cache_gaps": cache_gaps,
+                            "rejected": rejected,
+                            "last_received_unix_ns": time.time_ns(),
+                        }
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            async with engine.lock:
+                engine.state["relay"] = {
+                    "configured": True,
+                    "connected": False,
+                    "endpoint": relay_url,
+                    "last_relay_seq": after_seq,
+                    "cache_gaps": cache_gaps,
+                    "rejected": rejected,
+                    "reason": str(exc),
+                }
+                engine.state["device"]["connected"] = False
+            await asyncio.sleep(backoff)
+            backoff = min(backoff * 2, 15.0)
 
 
 # ============================================================================
@@ -1066,11 +1156,13 @@ ENGINE = None
 
 @asynccontextmanager
 async def lifespan(app):
-    tasks = [asyncio.create_task(vitals_loop(ENGINE))]
-    if ARGS and ARGS.esp32:
-        tasks.insert(0, asyncio.create_task(device_reader(ENGINE, ARGS.esp32, ARGS.stream_port)))
-    else:
-        print("Hub started without --esp32 (telemetry dashboard only; no device reader)")
+    tasks = [
+        asyncio.create_task(vitals_loop(ENGINE)),
+        asyncio.create_task(relay_reader(
+            ENGINE, ARGS.relay_url, ARGS.relay_token,
+            ARGS.player_id, ARGS.match_id,
+        )),
+    ]
     yield
     for task in tasks:
         task.cancel()
@@ -1079,17 +1171,23 @@ async def lifespan(app):
 
 app = FastAPI(title="Synchronized Wearable Sensor Hub", lifespan=lifespan)
 
-BUILD_ID = "sensor-hub-capstone-2026-08-19-v6"
+BUILD_ID = "sensor-hub-relay-only-2026-08-20-v8"
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        origin.strip()
+        for origin in os.environ.get(
+            "CPG44_HUB_CORS_ORIGINS",
+            "http://localhost:5173,http://127.0.0.1:5173",
+        ).split(",")
+        if origin.strip()
+    ],
     allow_credentials=False,
     allow_methods=["GET", "OPTIONS"],
     allow_headers=["*"],
 )
 
-DASHBOARD_HTML = '<!doctype html>\n<html lang="en">\n<head>\n<meta charset="utf-8">\n<meta name="viewport" content="width=device-width,initial-scale=1">\n<title>Wearable Telemetry</title>\n<style>\n  :root {\n    color-scheme: dark;\n    --bg:#0a0c10; --panel:#11151b; --panel2:#161b22; --line:#252c35;\n    --text:#edf1f5; --muted:#87919d; --good:#5ac47a; --warn:#d8ad59; --bad:#df6b6b;\n  }\n  *{box-sizing:border-box}\n  body{margin:0;background:var(--bg);color:var(--text);font:14px/1.45 Inter,system-ui,-apple-system,"Segoe UI",sans-serif}\n  main{width:min(1400px,calc(100% - 28px));margin:auto;padding:24px 0 48px}\n  header{display:flex;justify-content:space-between;align-items:flex-start;gap:20px;margin-bottom:16px}\n  h1{margin:0;font-size:25px;letter-spacing:-.035em;font-weight:680}.sub{color:var(--muted);margin-top:5px;font-size:13px}\n  .status{display:flex;gap:8px;align-items:center;border:1px solid var(--line);border-radius:999px;padding:8px 11px;color:var(--muted)}\n  .dot{width:8px;height:8px;border-radius:50%;background:var(--bad)}.dot.ok{background:var(--good)}\n  .grid{display:grid;grid-template-columns:repeat(12,1fr);gap:12px}.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px;min-width:0}\n  .s2{grid-column:span 2}.s3{grid-column:span 3}.s4{grid-column:span 4}.s6{grid-column:span 6}.s8{grid-column:span 8}.s12{grid-column:span 12}\n  .label{text-transform:uppercase;letter-spacing:.08em;font-weight:650;color:var(--muted);font-size:10px;margin-bottom:9px}\n  .big{font-size:38px;line-height:1;letter-spacing:-.055em;font-weight:680}.unit{font-size:13px;color:var(--muted);margin-left:3px}\n  .meta{color:var(--muted);font-size:12px;margin-top:8px;min-height:18px}.good{color:var(--good)}.warn{color:var(--warn)}.bad{color:var(--bad)}\n  .rows{display:grid;gap:7px}.row{display:flex;justify-content:space-between;gap:18px;border-bottom:1px solid #20262e;padding-bottom:7px}.row:last-child{border:0;padding-bottom:0}.row span:last-child{text-align:right;font-variant-numeric:tabular-nums}\n  .chips{display:flex;gap:7px;flex-wrap:wrap}.chip{background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:6px 8px;color:var(--muted);font-size:11px}.chip strong{color:var(--text);font-weight:650}\n  canvas{display:block;width:100%;height:150px;margin-top:8px}.chart-title{font-size:11px;color:var(--muted)}\n  pre{margin:0;white-space:pre-wrap;overflow-wrap:anywhere;max-height:340px;overflow:auto;color:#aab2bc;font:11px/1.5 ui-monospace,SFMono-Regular,Consolas,monospace}\n  @media(max-width:1000px){.s2,.s3,.s4{grid-column:span 6}.s6,.s8{grid-column:span 12}}\n  @media(max-width:620px){header{flex-direction:column}.s2,.s3,.s4,.s6,.s8,.s12{grid-column:span 12}.big{font-size:34px}}\n</style>\n</head>\n<body>\n<main>\n<header>\n  <div><h1>Wearable Telemetry</h1><div class="sub">ESP32-S3 · MAX30102 · MPU6050 · NEO-6M · synchronized sensor timeline</div></div>\n  <div class="status"><span id="onlineDot" class="dot"></span><span id="onlineText">Waiting</span></div>\n</header>\n\n<div class="grid">\n  <section class="card s3"><div class="label">Stable heart rate · 15 s</div><span id="stableBpm" class="big">--</span><span class="unit">BPM</span><div id="stableBpmMeta" class="meta">Collecting</div></section>\n  <section class="card s3"><div class="label">Stable blood oxygen · 15 s</div><span id="stableSpo2" class="big">--</span><span class="unit">%</span><div id="stableSpo2Meta" class="meta">Estimate, not medically calibrated</div></section>\n  <section class="card s3"><div class="label">Rolling heart rate</div><span id="rollingBpm" class="big">--</span><span class="unit">BPM</span><div id="rollingMeta" class="meta">--</div></section>\n  <section class="card s3"><div class="label">GPS speed</div><span id="speed" class="big">--</span><span class="unit">m/s</span><div id="speedMeta" class="meta">GPS required; no IMU speed integration</div></section>\n\n  <section class="card s4">\n    <div class="label">PPG / optical quality</div>\n    <div class="rows">\n      <div class="row"><span>Contact</span><span id="contact">--</span></div>\n      <div class="row"><span>IR</span><span id="ir">--</span></div>\n      <div class="row"><span>Red</span><span id="red">--</span></div>\n      <div class="row"><span>PI IR</span><span id="pi">--</span></div>\n      <div class="row"><span>Red/IR correlation</span><span id="corr">--</span></div>\n      <div class="row"><span>Quality</span><span id="quality">--</span></div>\n      <div class="row"><span>Stable reason</span><span id="stableReason">--</span></div>\n    </div>\n  </section>\n\n  <section class="card s4">\n    <div class="label">Motion</div>\n    <div class="rows">\n      <div class="row"><span>Earth accel X/Y/Z</span><span id="earthAccel">--</span></div>\n      <div class="row"><span>Accel magnitude</span><span id="earthMag">--</span></div>\n      <div class="row"><span>Gyro X/Y/Z</span><span id="gyro">--</span></div>\n      <div class="row"><span>Stationary</span><span id="stationary">--</span></div>\n      <div class="row"><span>Roll / Pitch / Yaw*</span><span id="angles">--</span></div>\n      <div class="row"><span>Temperature</span><span id="temperature">--</span></div>\n    </div>\n    <div class="meta">* Yaw is relative: MPU6050 has no magnetometer.</div>\n  </section>\n\n  <section class="card s4">\n    <div class="label">GPS / network</div>\n    <div class="rows">\n      <div class="row"><span>GPS UART</span><span id="gpsRx">--</span></div>\n      <div class="row"><span>Fix</span><span id="gpsFix">--</span></div>\n      <div class="row"><span>Position</span><span id="position">--</span></div>\n      <div class="row"><span>Course</span><span id="course">--</span></div>\n      <div class="row"><span>Satellites</span><span id="sat">--</span></div>\n      <div class="row"><span>HDOP</span><span id="hdop">--</span></div>\n      <div class="row"><span>ESP RSSI</span><span id="rssi">--</span></div>\n      <div class="row"><span>Clock drift</span><span id="drift">--</span></div>\n      <div class="row"><span>Best sync RTT</span><span id="rtt">--</span></div>\n    </div>\n  </section>\n\n  <section class="card s12">\n    <div class="chips">\n      <div class="chip">AHRS startup <strong id="ahrsStartup">--</strong></div>\n      <div class="chip">Accel ignored <strong id="accelIgnored">--</strong></div>\n      <div class="chip">Accel scale calibrated <strong id="accelCal">--</strong></div>\n      <div class="chip">Next stable window <strong id="nextStable">--</strong></div>\n      <div class="chip">Device IP <strong id="deviceIp">--</strong></div>\n    </div>\n  </section>\n\n  <section class="card s6"><div class="chart-title">Raw MAX30102 · IR / Red</div><canvas id="ppgChart"></canvas></section>\n  <section class="card s6"><div class="chart-title">Earth-frame acceleration magnitude</div><canvas id="accelChart"></canvas></section>\n  <section class="card s6"><div class="chart-title">Rolling BPM</div><canvas id="bpmChart"></canvas></section>\n  <section class="card s6"><div class="chart-title">Rolling SpO₂ estimate</div><canvas id="spo2Chart"></canvas></section>\n\n  <section class="card s12"><div class="label">Latest processed JSON</div><pre id="rawJson">Waiting...</pre></section>\n</div>\n</main>\n<script>\nconst $ = id => document.getElementById(id);\nconst histories = {ir:[], red:[], accel:[], bpm:[], spo2:[]};\nconst MAX = {ppg:250, regular:180};\nfunction f(v,d=2){return Number.isFinite(Number(v))?Number(v).toFixed(d):"--"}\nfunction boolText(v){return v===true?"yes":v===false?"no":"--"}\nfunction push(arr,v,max){if(Number.isFinite(Number(v))){arr.push(Number(v));if(arr.length>max)arr.splice(0,arr.length-max)}}\nfunction draw(canvas, series){\n  const dpr=devicePixelRatio||1,w=canvas.clientWidth,h=canvas.clientHeight;canvas.width=w*dpr;canvas.height=h*dpr;\n  const c=canvas.getContext(\'2d\');c.setTransform(dpr,0,0,dpr,0,0);c.clearRect(0,0,w,h);c.strokeStyle=\'#252c35\';c.lineWidth=1;\n  for(let i=1;i<4;i++){const y=h*i/4;c.beginPath();c.moveTo(0,y);c.lineTo(w,y);c.stroke()}\n  const vals=series.flatMap(s=>s.values).filter(Number.isFinite);if(vals.length<2)return;\n  let lo=Math.min(...vals),hi=Math.max(...vals);if(hi===lo){hi+=1;lo-=1}const p=(hi-lo)*.08;lo-=p;hi+=p;\n  series.forEach((s,si)=>{if(s.values.length<2)return;c.strokeStyle=si===0?\'#8da9d8\':\'#d18b77\';c.lineWidth=1.6;c.beginPath();s.values.forEach((v,i)=>{const x=i/(Math.max(2,s.values.length)-1)*w;const y=h-(v-lo)/(hi-lo)*h;i?c.lineTo(x,y):c.moveTo(x,y)});c.stroke()})\n}\nfunction update(s){\n  const dev=s.device||{}, imu=s.imu||{}, gps=s.gps||{}, nav=s.navigation||{}, vit=s.vitals||{}, roll=vit.rolling||{}, stable=vit.stable_15s||{}, ppg=s.ppg||{}, clock=s.clock||{};\n  $(\'onlineDot\').classList.toggle(\'ok\',!!dev.connected);$(\'onlineText\').textContent=dev.connected?\'Live\':\'Offline\';\n  $(\'stableBpm\').textContent=stable.bpm??\'--\'; $(\'stableSpo2\').textContent=stable.spo2_estimate_pct??\'--\';\n  $(\'stableBpmMeta\').textContent=`${stable.valid?\'valid\':\'not valid\'} · quality ${f(stable.quality,2)}`;\n  $(\'stableBpmMeta\').className=\'meta \'+(stable.valid?\'good\':\'warn\');\n  $(\'stableSpo2Meta\').textContent=stable.medical_calibrated?\'calibrated\':\'estimate · not medically calibrated\';\n  $(\'rollingBpm\').textContent=roll.bpm??\'--\'; $(\'rollingMeta\').textContent=`${roll.reason||\'--\'} · Q ${f(roll.quality,2)}`;\n  $(\'speed\').textContent=nav.speed_mps==null?\'--\':f(nav.speed_mps,2); $(\'speedMeta\').textContent=nav.speed_source===\'gps\'?`${f(nav.speed_kmh,1)} km/h · GPS`:\'GPS fix required; IMU speed disabled\';\n  $(\'contact\').textContent=boolText(ppg.contact); $(\'ir\').textContent=ppg.ir??\'--\'; $(\'red\').textContent=ppg.red??\'--\';\n  $(\'pi\').textContent=roll.perfusion_index_ir_pct==null?\'--\':f(roll.perfusion_index_ir_pct,3)+\' %\'; $(\'corr\').textContent=f(roll.red_ir_correlation,3); $(\'quality\').textContent=f(roll.quality,3); $(\'stableReason\').textContent=stable.reason||\'--\';\n  const ea=imu.earth_acceleration_mps2||[]; const gr=imu.gyro_corrected_rads||[]; const ang=imu.orientation_deg||{};\n  $(\'earthAccel\').textContent=ea.length?ea.map(x=>f(x,3)).join(\' / \'):\'--\'; $(\'earthMag\').textContent=imu.earth_acceleration_magnitude_mps2==null?\'--\':f(imu.earth_acceleration_magnitude_mps2,3)+\' m/s²\';\n  $(\'gyro\').textContent=gr.length?gr.map(x=>f(x,3)).join(\' / \'):\'--\'; $(\'stationary\').textContent=boolText(imu.stationary); $(\'angles\').textContent=`${f(ang.roll,1)} / ${f(ang.pitch,1)} / ${f(ang.yaw_relative,1)}°`; $(\'temperature\').textContent=imu.temperature_c==null?\'--\':f(imu.temperature_c,1)+\' °C\';\n  $(\'gpsRx\').textContent=boolText(gps.rx); $(\'gpsFix\').textContent=boolText(gps.fix); $(\'position\').textContent=gps.fix?`${f(gps.lat,6)}, ${f(gps.lon,6)}`:\'--\'; $(\'course\').textContent=gps.course_deg==null?\'--\':f(gps.course_deg,1)+\'°\'; $(\'sat\').textContent=gps.sat??\'--\'; $(\'hdop\').textContent=f(gps.hdop,2);\n  $(\'rssi\').textContent=dev.rssi_dbm==null?\'--\':`${dev.rssi_dbm} dBm`; $(\'drift\').textContent=clock.drift_ppm==null?\'--\':f(clock.drift_ppm,1)+\' ppm\'; $(\'rtt\').textContent=clock.best_rtt_ms==null?\'--\':f(clock.best_rtt_ms,2)+\' ms\';\n  $(\'ahrsStartup\').textContent=boolText(imu.ahrs?.startup); $(\'accelIgnored\').textContent=boolText(imu.ahrs?.accelerometer_ignored); $(\'accelCal\').textContent=boolText(imu.accel_scale_calibrated); $(\'nextStable\').textContent=f(vit.seconds_to_next_stable,1)+\' s\'; $(\'deviceIp\').textContent=dev.ip||\'--\';\n  push(histories.accel,imu.earth_acceleration_magnitude_mps2,MAX.regular); push(histories.bpm,roll.bpm,MAX.regular); push(histories.spo2,roll.spo2_estimate_pct,MAX.regular);\n  draw($(\'accelChart\'),[{values:histories.accel}]); draw($(\'bpmChart\'),[{values:histories.bpm}]); draw($(\'spo2Chart\'),[{values:histories.spo2}]);\n  $(\'rawJson\').textContent=JSON.stringify(s,null,2);\n}\nconst API_BASE = location.protocol === \'file:\' ? \'http://127.0.0.1:8081\' : \'\';\nfunction apiUrl(path){ return API_BASE + path; }\n\nasync function consume(url,onItem){\n  url = apiUrl(url);\n  while(true){\n    try{const r=await fetch(url,{cache:\'no-store\'});if(!r.ok)throw new Error(r.status);const rd=r.body.getReader();const dec=new TextDecoder();let buf=\'\';\n      while(true){const {value,done}=await rd.read();if(done)break;buf+=dec.decode(value,{stream:true});const lines=buf.split(\'\\n\');buf=lines.pop();for(const line of lines){if(!line.trim())continue;try{onItem(JSON.parse(line))}catch{}}}\n    }catch(e){await new Promise(r=>setTimeout(r,700))}\n  }\n}\nconsume(\'/api/stream\',update);\nconsume(\'/api/raw-stream\',p=>{if(p.t!==\'ppg\')return;push(histories.ir,p.ir,MAX.ppg);push(histories.red,p.red,MAX.ppg);draw($(\'ppgChart\'),[{values:histories.ir},{values:histories.red}])});\n</script>\n</body>\n</html>\n'
 
 
 def _dashboard_html() -> str:
@@ -1117,16 +1215,16 @@ async def dashboard_alias():
 async def how_it_works():
     return HTMLResponse(
         """<!doctype html><html><head><meta charset="utf-8"><title>How CPG44 works</title>
-<style>body{font:18px/1.5 system-ui;max-width:720px;margin:40px auto;padding:0 20px;background:#0a0c10;color:#edf1f5}
-a{color:#8da9d8} code{background:#161b22;padding:2px 6px;border-radius:6px}</style></head><body>
+<style>body{font:18px/1.5 system-ui;max-width:720px;margin:40px auto;padding:0 20px;background:#f5f6f2;color:#18231f}
+a{color:#245a46} code{background:#e6e9e4;padding:2px 6px;border-radius:4px}</style></head><body>
 <h1>How this product works</h1>
 <p>Three machines talk to each other:</p>
 <ol>
-<li><b>The vest</b> (ESP32) reads motion, heart, oxygen, GPS and waits for the laptop.</li>
-<li><b>The sensor hub</b> in WSL connects to the vest, lines up clocks, and computes heart rate.</li>
-<li><b>The camera app</b> finds players in video and glues wearable numbers onto the matching player.</li>
+<li><b>The vest</b> reads the sensors and sends timestamped batches to the relay.</li>
+<li><b>The local processor</b> receives the relay stream and checks motion and pulse quality.</li>
+<li><b>The match pipeline</b> links the processed wearable values to the tagged player.</li>
 </ol>
-<p>Open the live wearable page at <a href="/">/</a>. Vision fusion is a second command (see the beginner report).</p>
+<p>Open the live wearable page at <a href="/">/</a>.</p>
 </body></html>""",
         headers={"Cache-Control": "no-store"},
     )
@@ -1152,6 +1250,7 @@ async def health():
         "ok": True,
         "device_connected": s["device"]["connected"],
         "clock_synced": s["clock"]["valid"],
+        "relay_connected": bool((s.get("relay") or {}).get("connected")),
         "build": BUILD_ID,
     }
 
@@ -1215,15 +1314,44 @@ def main():
     global ARGS, ENGINE
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--esp32", default=None, help="ESP32 LAN IP printed by the firmware")
-    parser.add_argument("--stream-port", type=int, default=9000)
     parser.add_argument("--http-port", type=int, default=8081)
     parser.add_argument("--finger-ir-min", type=float, default=20000.0)
     parser.add_argument("--record", default=None, help="Optional synchronized raw NDJSON output file")
     parser.add_argument("--calibration", default=None, help="Optional IMU calibration JSON")
     parser.add_argument("--player-id", type=int, default=7, help="Roster id fused with vision tracks")
     parser.add_argument("--match-id", default="live")
+    parser.add_argument("--relay-url", default=os.environ.get("CPG44_RELAY_URL", ""),
+                        help="Required relay origin: https://cpg44.nivaspms.com")
+    parser.add_argument("--relay-token", default=os.environ.get("CPG44_RELAY_TOKEN", ""),
+                        help="X-Auth token for the VPS relay (prefer environment variable)")
     ARGS = parser.parse_args()
+
+    if not ARGS.relay_url:
+        raise SystemExit("CPG44_RELAY_URL is required and must be https://cpg44.nivaspms.com")
+    if ARGS.relay_url:
+        from urllib.parse import urlparse
+
+        parsed = urlparse(ARGS.relay_url)
+        host = parsed.hostname or ""
+        if parsed.scheme != "https":
+            raise SystemExit("The remote relay URL must use HTTPS")
+        try:
+            ipaddress.ip_address(host)
+        except ValueError:
+            pass
+        else:
+            raise SystemExit("Use the relay DNS hostname, not a direct IP address")
+        if (
+            host.lower() != "cpg44.nivaspms.com"
+            or parsed.port not in (None, 443)
+            or parsed.path not in ("", "/")
+            or parsed.params
+            or parsed.query
+            or parsed.fragment
+        ):
+            raise SystemExit("The relay origin must be exactly https://cpg44.nivaspms.com")
+        if len(ARGS.relay_token) < 32:
+            raise SystemExit("CPG44_RELAY_TOKEN must contain at least 32 characters")
 
     ENGINE = TelemetryEngine(
         finger_ir_min=ARGS.finger_ir_min,

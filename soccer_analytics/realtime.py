@@ -6,7 +6,7 @@ Single forward pass (no look-ahead) so it runs live:
     warmup (fit team colours) → per frame:
         detect(GPU) → track → team → homography → Kalman(pos/vel/accel)
         → possession/passes → Catapult load (metabolic power…) → fuse wearable
-        → injury risk → recommendations → dashboard
+        → explainable load review → recommendations → dashboard
 
 Physical-load / injury analytics require metric mode (a pitch calibration), since
 metabolic power is defined in metres; in pixel mode the system still does
@@ -17,8 +17,12 @@ detection, tracking, teams and possession. Wearable samples arrive async via a
 from __future__ import annotations
 
 import os
+import json
+import threading
 import time
+import urllib.request
 from collections import defaultdict, deque
+from pathlib import Path
 from typing import Dict, Optional, Tuple
 
 import cv2
@@ -44,13 +48,69 @@ from .sensors.schema import InjuryRisk
 from .sensors.source import SensorSource
 
 
+class LiveSnapshotPublisher:
+    """Best-effort, non-blocking publisher for the product dashboard API."""
+
+    def __init__(self, api_base: str):
+        self.url = f"{api_base.rstrip('/')}/api/v1/live" if api_base else ""
+        self._json_inflight = threading.Lock()
+        self._frame_inflight = threading.Lock()
+        self.last_error: Optional[str] = None
+
+    def publish(self, payload: dict) -> None:
+        if not self.url or not self._json_inflight.acquire(blocking=False):
+            return
+        threading.Thread(target=self._send, args=(payload,), daemon=True).start()
+
+    def publish_frame(self, frame) -> None:
+        if not self.url or not self._frame_inflight.acquire(blocking=False):
+            return
+        threading.Thread(target=self._send_frame, args=(frame.copy(),), daemon=True).start()
+
+    def _send(self, payload: dict) -> None:
+        try:
+            request = urllib.request.Request(
+                self.url,
+                data=json.dumps(payload, allow_nan=False).encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with urllib.request.urlopen(request, timeout=0.4) as response:
+                response.read(64)
+            self.last_error = None
+        except Exception as exc:
+            self.last_error = str(exc)
+        finally:
+            self._json_inflight.release()
+
+    def _send_frame(self, frame) -> None:
+        try:
+            ok, encoded = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 84])
+            if not ok:
+                raise RuntimeError("OpenCV could not encode the annotated frame")
+            request = urllib.request.Request(
+                f"{self.url}/frame",
+                data=encoded.tobytes(),
+                headers={"Content-Type": "image/jpeg"},
+                method="POST",
+            )
+            with urllib.request.urlopen(request, timeout=0.5) as response:
+                response.read(64)
+            self.last_error = None
+        except Exception as exc:
+            self.last_error = str(exc)
+        finally:
+            self._frame_inflight.release()
+
+
 class RealtimePipeline:
     def __init__(self, cfg: PipelineConfig, view: ViewTransformer,
                  sensor_source: Optional[SensorSource] = None,
                  roster_map: Optional[Dict[int, int]] = None,
                  roster_numbers: Optional[Dict[int, int]] = None,
                  injury_model=None, warmup: int = 40,
-                 dashboard: bool = True, analytics_every: int = 10):
+                 dashboard: bool = True, analytics_every: int = 10,
+                 product_api: str = ""):
         self.cfg = cfg
         self.view = view
         self.metric = view.is_metric
@@ -77,6 +137,7 @@ class RealtimePipeline:
         self.analytics_every = analytics_every
         self._formation = {1: "", 2: ""}
         self._shots = {1: {"shots": 0, "xg": 0.0}, 2: {"shots": 0, "xg": 0.0}}
+        self.publisher = LiveSnapshotPublisher(product_api)
 
         # LSTM trajectory prediction (optional) — draws each player's predicted path
         self.traj_model, self._traj_K = None, 15
@@ -124,7 +185,7 @@ class RealtimePipeline:
         cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
 
     def run(self, video: str, out_path: Optional[str] = None, max_frames: int = 0,
-            stats_out: Optional[str] = None):
+            stats_out: Optional[str] = None, fused_out: Optional[str] = None):
         cap = cv2.VideoCapture(video)
         if not cap.isOpened():
             raise FileNotFoundError(
@@ -161,16 +222,24 @@ class RealtimePipeline:
         self._warmup(cap)
 
         writer = None   # created lazily once we know the composite size
+        fused_fh = None
+        if fused_out:
+            fused_path = Path(fused_out)
+            fused_path.parent.mkdir(parents=True, exist_ok=True)
+            fused_fh = fused_path.open("a", encoding="utf-8")
+            print(f"[realtime] recording aligned fusion snapshots → {fused_path}")
 
         cum = np.array([0.0, 0.0])
         fi = 0
         last_ball_seen = -999          # frame index the ball was last actually detected
         last_ball_px = None            # last ball image centre (for the ROI zoom search)
         ball_miss = 0
-        # live pacing: when the on-screen demo falls behind the video clock, skip
-        # frames to stay real-time (no slow-motion). Recording-only runs process
-        # every frame for maximum quality.
-        pace_live = self.dash.windows
+        # A prerecorded file shown in either the OpenCV or React live view follows
+        # its source clock. If inference falls behind, frames are skipped instead
+        # of letting the dashboard become an increasingly delayed slow-motion view.
+        file_playback = isinstance(video, str) and Path(video).is_file()
+        self.source_kind = "recorded_file" if file_playback else "live_camera"
+        pace_live = file_playback and (self.dash.windows or bool(self.publisher.url))
         t_start = time.time()
         frames_dropped = 0
         t_prev = time.time()
@@ -182,6 +251,10 @@ class RealtimePipeline:
                 # real-time pacing: if we're behind the video clock, drop frames
                 dropped_now = 0
                 if pace_live:
+                    target_elapsed = fi / fps
+                    elapsed = time.time() - t_start
+                    if elapsed < target_elapsed:
+                        time.sleep(target_elapsed - elapsed)
                     behind = (time.time() - t_start) - fi / fps
                     while behind > 2.0 / fps:
                         if not cap.grab():
@@ -332,6 +405,14 @@ class RealtimePipeline:
                     if self.traj_model is not None:
                         self._predict_paths(W, H, set(teams.keys()),
                                             _xform if self.metric else None)
+                    live_snapshot = self._live_snapshot(
+                        fi, fps, fps_disp, engine, tactic, players_xy, teams,
+                        vision_state, ball_pitch, injuries, recs, bound,
+                    )
+                    self.publisher.publish(live_snapshot)
+                    if fused_fh is not None:
+                        fused_fh.write(json.dumps(live_snapshot, allow_nan=False) + "\n")
+                        fused_fh.flush()
                 if fi % 200 == 0:
                     kbank.prune()
                 if fi % 80 == 0 and fi > 0:
@@ -340,6 +421,8 @@ class RealtimePipeline:
                 for tid, path in self._pred_paths.items():
                     an.draw_prediction(frame, path)
                 an.draw_possession(frame, engine.possession_pct())
+                if fi % 2 == 0:
+                    self.publisher.publish_frame(frame)
                 # radar/heatmap are pitch-metre views → only meaningful with calibration
                 radar = radar_frame(radar_by_team, ball_pitch, self.cfg.pitch,
                                     control_grid=control_grid,
@@ -379,6 +462,8 @@ class RealtimePipeline:
         if writer is not None:
             writer.release()
             print(f"[realtime] wrote dashboard video → {out_path}")
+        if fused_fh is not None:
+            fused_fh.close()
         if self.sensor_source is not None:
             self.sensor_source.stop()
         self.dash.close()
@@ -386,6 +471,128 @@ class RealtimePipeline:
         if stats_out:
             self._write_stats(stats_out, engine, tactic, shot_detector, bound)
         return engine, tactic, self.fusion
+
+    def _live_snapshot(self, frame_index, source_fps, processing_fps, engine, tactic,
+                       players_xy, teams, vision_state, ball_pitch, injuries, recs, bound):
+        """Serialize only measurements produced by the current processing frame."""
+        totals = engine.speed_distance()
+        indicator_of = {int(tid): (float(score), level) for tid, score, level in injuries}
+        load_features = self.fusion.load.all_features() if self.metric else {}
+        def finite(value):
+            try:
+                number = float(value)
+                return number if np.isfinite(number) else None
+            except (TypeError, ValueError):
+                return None
+
+        rows = []
+        for tid, position in players_xy.items():
+            velocity = vision_state.get(tid, ((0.0, 0.0), None))[0]
+            speed = float(np.linalg.norm(velocity)) if velocity is not None and self.metric else None
+            aggregate = totals.get(tid, {})
+            load = load_features.get(tid)
+            wearable_id = bound.get(tid)
+            wearable = self.fusion.sync.latest(wearable_id) if wearable_id is not None else None
+            indicator_score, indicator_level = indicator_of.get(tid, (None, None))
+            rows.append({
+                "global_player_id": f"TRACK_{int(tid)}",
+                "track_id": int(tid),
+                "player_id": int(wearable_id) if wearable_id is not None else None,
+                "team": int(teams.get(tid, 0)),
+                "team_id": f"TEAM_{int(teams.get(tid, 0))}",
+                "x": float(position[0]) if self.metric and np.isfinite(position[0]) else None,
+                "y": float(position[1]) if self.metric and np.isfinite(position[1]) else None,
+                "speed_mps": speed,
+                "top_speed_mps": float(aggregate.get("top_speed", 0.0)) if self.metric else None,
+                "distance_m": float(aggregate.get("distance", 0.0)) if self.metric else None,
+                "wearable": wearable is not None,
+                "wearable_metrics": ({
+                    "hr": wearable.hr,
+                    "spo2": wearable.spo2,
+                    "signal_quality": wearable.signal_quality,
+                    "acceleration_g": (
+                        float(np.linalg.norm(wearable.accel))
+                        if wearable.accel is not None else None
+                    ),
+                    "gps": list(wearable.gps) if wearable.gps is not None else None,
+                    "player_load_imu": (
+                        load.player_load_imu
+                        if load is not None and np.isfinite(load.player_load_imu) else None
+                    ),
+                    "timestamp": wearable.t,
+                } if wearable is not None else None),
+                "load": ({
+                    "hsr_m": finite(load.hsr_distance),
+                    "sprints": load.sprint_count,
+                    "accel_efforts": load.accel_efforts,
+                    "decel_efforts": load.decel_efforts,
+                    "player_load": finite(load.player_load),
+                    "player_load_imu": finite(load.player_load_imu),
+                    "metabolic_power_wkg": finite(load.metabolic_power_avg),
+                    "high_metabolic_distance_m": finite(load.high_metabolic_distance),
+                    "energy_kcal": finite(load.energy_kcal),
+                    "avg_hr": finite(load.avg_hr),
+                    "hr_drift": finite(load.hr_drift),
+                    "min_spo2": finite(load.min_spo2),
+                    "acwr": finite(load.acwr),
+                } if load is not None else None),
+                "load_indicator": {
+                    "score": indicator_score,
+                    "severity": indicator_level,
+                    "model": "heuristic_load_indicator",
+                    "medical_prediction": False,
+                },
+            })
+        possession = engine.possession_pct()
+        passes = {
+            "team1": sum(event.team == 1 for event in engine.passes),
+            "team2": sum(event.team == 2 for event in engine.passes),
+        }
+        tactics = {}
+        if self.metric:
+            for team_id in (1, 2):
+                try:
+                    report = tactic.report(team_id, possession.get(team_id, 0.0))
+                    if report.evidence_ready:
+                        tactics[f"team{team_id}"] = report.as_dict()
+                except Exception:
+                    continue
+        warnings = [] if self.metric else [
+            "Pitch is not calibrated; positions, speed and load are withheld."
+        ]
+        if not rows:
+            warnings.append("No confirmed player tracks are available in this frame.")
+        assigned_per_team = {
+            team_id: sum(row.get("team") == team_id for row in rows)
+            for team_id in (1, 2)
+        }
+        if self.metric and any(count < 5 for count in assigned_per_team.values()):
+            warnings.append(
+                "Tactical recommendations require at least five measured players per team."
+            )
+        return {
+            "timestamp": time.time(),
+            "source_kind": getattr(self, "source_kind", "unknown"),
+            "frame_index": int(frame_index),
+            "source_fps": float(source_fps),
+            "processing_fps": float(processing_fps),
+            "metric": self.metric,
+            "players": rows,
+            "ball": ({"x": float(ball_pitch[0]), "y": float(ball_pitch[1])}
+                     if ball_pitch is not None and self.metric else None),
+            "possession_pct": {str(key): float(value) for key, value in possession.items()},
+            "passes": passes,
+            "shots_xg": self._shots,
+            "tactics": tactics,
+            "recommendations": list(recs),
+            "data_quality": {
+                "status": "usable" if self.metric and not warnings else "review",
+                "metric_calibration": self.metric,
+                "simultaneous_players": len(rows),
+                "ball_observed": ball_pitch is not None,
+                "warnings": warnings,
+            },
+        }
 
     def _write_stats(self, path, engine, tactic, shot_detector, bound):
         import json
@@ -413,7 +620,7 @@ class RealtimePipeline:
         if not self.metric:
             stats["note"] = (
                 "pixel mode (no calibration): distances are pixels, not metres. "
-                "Load / injury / pitch sketch accuracy need a calibration YAML."
+                "Load indicators and pitch geometry need a calibration YAML."
             )
         if self.metric:
             im = self.injury_model
@@ -428,14 +635,25 @@ class RealtimePipeline:
                 r = im.predict(f)
                 injuries[str(tid)] = {"risk": r.risk, "level": r.level, "factors": r.factors}
             stats["players"] = players
-            stats["injury_risk"] = injuries
+            stats["load_indicators"] = {
+                key: {
+                    "score": value["risk"],
+                    "severity": value["level"],
+                    "factors": value["factors"],
+                    "medical_prediction": False,
+                }
+                for key, value in injuries.items()
+            }
             stats["shots_xg"] = shot_detector.summary()
             stats["substitution_watch"] = [
                 a.as_dict() for a in self.subs.advise(
                     {int(t): j["risk"] for t, j in injuries.items()})[:5]]
             try:
-                stats["tactics"] = {f"team{t}": tactic.report(t, poss.get(t, 0.0)).as_dict()
-                                    for t in (1, 2)}
+                reports = [tactic.report(t, poss.get(t, 0.0)) for t in (1, 2)]
+                stats["tactics"] = {
+                    f"team{report.team}": report.as_dict()
+                    for report in reports if report.evidence_ready
+                }
             except Exception:
                 pass
         with open(path, "w", encoding="utf-8") as fh:
@@ -497,8 +715,12 @@ class RealtimePipeline:
                             + "; ".join(a.reasons[:3]))
             poss = engine.possession_pct()
             try:
-                reports = [tactic.report(1, poss.get(1, 0.0)),
-                           tactic.report(2, poss.get(2, 0.0))]
+                reports = [
+                    report for report in (
+                        tactic.report(1, poss.get(1, 0.0)),
+                        tactic.report(2, poss.get(2, 0.0)),
+                    ) if report.evidence_ready
+                ]
                 self._formation = {r.team: r.formation for r in reports}
             except Exception:
                 reports = []
@@ -521,6 +743,9 @@ class RealtimePipeline:
         if self.metric:
             snap = tactic.snapshot
             for t in (1, 2):
+                report = tactic.report(t, poss.get(t, 0.0))
+                if not report.evidence_ready:
+                    continue
                 state.team_stats[t] = {
                     "control": snap.control.get(t, 0.0),
                     "formation": self._formation.get(t, ""),
@@ -552,7 +777,6 @@ class RealtimePipeline:
 # --------------------------------------------------------------------------- #
 def main(argv=None) -> int:
     import argparse
-    from .sensors import SimulatedSensorSource
 
     p = argparse.ArgumentParser(description="Near-real-time soccer analytics dashboard.")
     p.add_argument("--video", required=True)
@@ -560,24 +784,26 @@ def main(argv=None) -> int:
     p.add_argument("--calibration", default=None, help="pitch calibration .yaml (metric mode)")
     p.add_argument("--out", default=None, help="composite dashboard mp4 output path")
     p.add_argument("--stats", default=None, help="write final stats.json to this path")
+    p.add_argument("--fused-out", default=None,
+                   help="append clock-aligned vision/wearable snapshots as NDJSON")
     p.add_argument("--conf", type=float, default=0.3)
     p.add_argument("--imgsz", type=int, default=1280)
     p.add_argument("--device", default="")
     p.add_argument("--max-frames", type=int, default=0)
     p.add_argument("--no-window", action="store_true", help="headless (no GUI windows)")
-    p.add_argument("--simulate-sensors", action="store_true",
-                   help="attach a simulated wearable stream + auto-bind tracks 1..N")
-    p.add_argument("--players", type=int, default=22, help="player count for sensor sim")
-    p.add_argument("--wearable-endpoint", type=int, default=0, metavar="PORT",
-                   help="run an HTTP/WS wearable ingest endpoint on this port")
     p.add_argument("--sensor-hub", default="", metavar="URL",
-                   help="poll the ESP32 sensor hub, e.g. http://127.0.0.1:8081")
-    p.add_argument("--esp32", default="", help="start the hub in-process and connect to this ESP32 IP")
+                   help="poll the local relay-backed sensor processor")
     p.add_argument("--player-id", type=int, default=7, help="wearable roster id (must match --roster)")
     p.add_argument("--roster", default="", metavar="track:player,…",
                    help="manually bind vision track ids to wearable player ids")
     p.add_argument("--roster-numbers", default="", metavar="jersey:player,…",
                    help="jersey number → player id; enables OCR auto-binding of wearers")
+    p.add_argument(
+        "--product-api",
+        default=os.environ.get("CPG44_PRODUCT_API", ""),
+        metavar="URL",
+        help="publish measured snapshots to the dashboard API, e.g. http://127.0.0.1:8000",
+    )
     args = p.parse_args(argv)
 
     cfg = PipelineConfig(weights=args.weights, conf=args.conf, imgsz=args.imgsz,
@@ -596,40 +822,16 @@ def main(argv=None) -> int:
     roster_numbers = _parse_pairs(args.roster_numbers)
 
     source = None
-    if args.esp32 or args.sensor_hub:
+    if args.sensor_hub:
         from .sensors import HubSensorSource
-        hub_url = args.sensor_hub or "http://127.0.0.1:8081"
-        if args.esp32:
-            import threading
-
-            def _run_hub():
-                import sys
-                from .sensors import hub as hubmod
-                sys.argv = [
-                    "soccer_analytics.hub",
-                    "--esp32", args.esp32,
-                    "--http-port", "8081",
-                    "--player-id", str(args.player_id),
-                ]
-                hubmod.main()
-
-            threading.Thread(target=_run_hub, daemon=True).start()
-            print("[realtime] sensor hub starting on http://127.0.0.1:8081/")
-            time.sleep(1.5)
-        source = HubSensorSource(hub_url, player_id=args.player_id)
+        source = HubSensorSource(args.sensor_hub, player_id=args.player_id)
         roster = roster or {args.player_id: args.player_id}
-    elif args.wearable_endpoint:
-        from .sensors import endpoint_source
-        source = endpoint_source(port=args.wearable_endpoint)
-    elif args.simulate_sensors:
-        ids = list(range(1, args.players + 1))
-        source = SimulatedSensorSource(ids, hz=10.0)
-        roster = roster or {i: i for i in ids}
-
     video = int(args.video) if args.video.isdigit() else args.video
     rt = RealtimePipeline(cfg, view, sensor_source=source, roster_map=roster,
-                          roster_numbers=roster_numbers, dashboard=not args.no_window)
-    rt.run(video, out_path=args.out, max_frames=args.max_frames, stats_out=args.stats)
+                          roster_numbers=roster_numbers, dashboard=not args.no_window,
+                          product_api=args.product_api)
+    rt.run(video, out_path=args.out, max_frames=args.max_frames,
+           stats_out=args.stats, fused_out=args.fused_out)
     return 0
 
 

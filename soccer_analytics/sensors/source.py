@@ -9,10 +9,8 @@ subclassing :class:`SensorSource` and yielding samples from :meth:`_produce`.
 from __future__ import annotations
 
 import json
-import math
 import queue
 import threading
-import time
 from typing import Iterable, List, Optional
 
 from .schema import SensorSample
@@ -69,41 +67,6 @@ class SensorSource:
 
     def stop(self):
         self._stop.set()
-
-
-class SimulatedSensorSource(SensorSource):
-    """Generates plausible HR / SpO2 / IMU for a set of players — for development
-    and end-to-end testing before the real wearable exists."""
-
-    def __init__(self, player_ids: List[int], hz: float = 10.0, seed: int = 0,
-                 duration_s: Optional[float] = None):
-        super().__init__()
-        self.player_ids = player_ids
-        self.hz = hz
-        self.duration_s = duration_s
-        import numpy as np
-        self._rng = np.random.default_rng(seed)
-
-    def _produce(self) -> Iterable[SensorSample]:
-        import numpy as np
-        dt = 1.0 / self.hz
-        base_hr = {p: self._rng.uniform(70, 85) for p in self.player_ids}
-        t0 = time.time()
-        while not self._stop.is_set():
-            now = time.time()
-            if self.duration_s and now - t0 > self.duration_s:
-                break
-            elapsed = now - t0
-            for p in self.player_ids:
-                # HR rises with match time + noise (fatigue drift)
-                hr = base_hr[p] + 55 * (1 - math.exp(-elapsed / 900)) + self._rng.normal(0, 3)
-                spo2 = float(np.clip(98 - self._rng.gamma(1.2, 0.8), 90, 100))
-                a = self._rng.normal(0, 1.2, 3)
-                a[2] += 1.0                       # gravity on z
-                yield SensorSample(player_id=p, t=now, hr=round(float(hr), 1),
-                                   spo2=round(spo2, 1), accel=tuple(float(v) for v in a),
-                                   source="sim")
-            time.sleep(dt)
 
 
 class SerialSensorSource(SensorSource):

@@ -1,23 +1,22 @@
 FROM python:3.11-slim
 
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PYTHONPATH=/app/backend/src \
+    PORT=8081
+
 WORKDIR /app
 
-# Install minimal build deps
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl \
-    sqlite3 \
-    && rm -rf /var/lib/apt/lists/*
+RUN pip install --no-cache-dir \
+      "fastapi==0.139.0" \
+      "uvicorn[standard]==0.51.0" \
+      "websockets==16.1" \
+    && groupadd --system relay \
+    && useradd --system --gid relay --no-create-home relay
 
-COPY requirements.txt .
-# Install lightweight server dependencies
-RUN pip install --no-cache-dir fastapi uvicorn[standard] websockets pydantic requests
+COPY --chown=relay:relay backend/src /app/backend/src
 
-COPY backend/src /app/backend/src
-ENV PYTHONPATH=/app/backend/src:$PYTHONPATH
-ENV PORT=8081
-ENV CPG44_DB_PATH=/app/data/hostinger_telemetry.db
-
+USER relay:relay
 EXPOSE 8081
-EXPOSE 9000
 
 CMD ["python", "-m", "cpg44_api.hostinger_sensor_relay"]

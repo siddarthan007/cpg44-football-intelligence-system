@@ -37,13 +37,18 @@
 #include "MAX30105.h"
 #include "spo2_algorithm.h"
 
-// ----------------------- USER CONFIG -----------------------
-const int      PLAYER_ID   = 7;                     // unique per wearable
-const char*    WIFI_SSID   = "YourHotspot";         // phone hotspot / field router
-const char*    WIFI_PASS   = "YourPassword";
-const char*    ENDPOINT    = "http://192.168.1.50:8000/ingest";  // laptop LAN IP or relay URL
-const char*    AUTH_TOKEN  = "";                    // set to match server token, or ""
-const uint32_t SEND_MS     = 100;                   // 10 Hz
+// Provisioning values are generated locally and ignored by git. This sketch is
+// inert when built without a generated header; credentials never live in source.
+#if __has_include("generated_config.h")
+#include "generated_config.h"
+#else
+inline constexpr int PLAYER_ID = 0;
+inline constexpr char WIFI_SSID[] = "";
+inline constexpr char WIFI_PASS[] = "";
+inline constexpr char ENDPOINT[] = "";
+inline constexpr char AUTH_TOKEN[] = "";
+inline constexpr uint32_t SEND_MS = 100;
+#endif
 
 // I2C + UART pins (adjust to your board's silkscreen)
 const int SDA_PIN = 8, SCL_PIN = 9;
@@ -153,6 +158,7 @@ void buildSample(JsonObject j) {
   // MPU6050 default ±2 g full-scale → /16384 = g
   JsonArray a = j.createNestedArray("accel");
   a.add(ax / 16384.0); a.add(ay / 16384.0); a.add(az / 16384.0);
+  j["accel_unit"] = "g";
   JsonArray gyr = j.createNestedArray("gyro");
   gyr.add(gx / 131.0); gyr.add(gy / 131.0); gyr.add(gz / 131.0);   // deg/s (±250)
   if (hasBmp) j["altitude"] = bmp.readAltitude();

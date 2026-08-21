@@ -1,0 +1,33 @@
+@startuml
+!pragma layout smetana
+skinparam monochrome true
+skinparam shadowing false
+skinparam margin 8
+
+participant "ESP32-S3 Wearable" as Device
+participant "Network Time" as NTP
+participant "Memory-only Relay" as Relay
+participant "Local Sensor Processor" as Hub
+participant "Vision Pipeline" as Vision
+participant "Fusion Service" as Fusion
+participant "Dashboard" as UI
+
+Device -> NTP : request current time
+NTP --> Device : UTC time
+Device -> Device : anchor UTC to monotonic timer
+Hub -> Relay : connect with last relay sequence
+Relay --> Hub : cached events after sequence
+
+Device -> Relay : HTTPS raw batch\nsource time, player, boot, sequence
+Relay -> Relay : authenticate, validate, deduplicate\nadd relay sequence, keep bounded cache
+Relay --> Hub : live raw samples in order
+Hub -> Hub : process IMU, PPG and GPS\ncheck signal and motion quality
+Hub -> Fusion : checked wearable reading
+Vision -> Fusion : track at frame time
+Fusion -> Fusion : check player link and time limit
+alt checks pass
+  Fusion -> UI : joined player update with quality
+else check fails
+  Fusion -> UI : partial update with reason
+end
+@enduml

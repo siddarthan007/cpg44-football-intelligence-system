@@ -88,14 +88,15 @@ export const TacticalPitch: React.FC<Props> = ({
       const py = Math.max(12, Math.min(height - 12, p.y * scaleY));
 
       const isTeam1 = p.team === 1;
-      const color = isTeam1 ? "#38bdf8" : "#f43f5e";
+      const color = isTeam1 ? "#24627a" : "#9b4545";
 
-      // Glow effect for wearable players
+      // A plain outer ring marks players with a paired wearable.
       if (p.wearable) {
-        ctx.fillStyle = isTeam1 ? "rgba(56, 189, 248, 0.3)" : "rgba(244, 63, 94, 0.3)";
+        ctx.strokeStyle = "#1f2933";
+        ctx.lineWidth = 2;
         ctx.beginPath();
-        ctx.arc(px, py, 14, 0, 2 * Math.PI);
-        ctx.fill();
+        ctx.arc(px, py, 13, 0, 2 * Math.PI);
+        ctx.stroke();
       }
 
       // Player circle

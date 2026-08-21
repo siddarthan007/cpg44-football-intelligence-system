@@ -1,0 +1,170 @@
+\section{Methodology Adopted}
+
+\subsection{Investigative Techniques}
+Five techniques are used: literature review, code review, component tests,
+public-data experiments, and controlled field tests. Each gives different
+evidence. Papers give accepted methods and known limits. Software tests check
+repeatable behaviour. Field tests measure the complete system in its actual
+setting.
+
+\subsubsection{Literature and Dataset Investigation}
+The literature review covers tracking, football identity, tactical analysis,
+wearable sensing, and workload modelling. SoccerNet-Tracking and SportsMOT show
+common sports-tracking problems \cite{cioppa2022soccernet,cui2023sportsmot}.
+ByteTrack gives the starting association method \cite{zhang2022bytetrack}.
+Tactical and wearable papers help select features and quality checks
+\cite{honda2022pass,teixeira2025tactical,pollreisz2022wearable}.
+
+The current SoccerNet conversion keeps ball, goalkeeper, player, and referee
+classes. Its metadata records 57 training sequences and 49 test sequences from
+the available source layout. A sequence is kept within one split so adjacent
+frames cannot appear in both development and test data. Campus footage will be
+split by recording session for the same reason.
+
+\subsubsection{Code and Component Investigation}
+The repository was checked from firmware to dashboard. The vision path contains
+detection, ByteTrack association, appearance matching, team assignment, jersey
+voting, pitch mapping, trajectory, pass, shot, substitution, and tactical
+modules. The data path contains sensor reading, filtering, timestamp mapping,
+relay ingestion, player-device binding, local API, and training-data export.
+
+Automated tests cover packet parsing, GPS and PPG rules, relay order and replay,
+player-device tags, pipeline state, training data, and API behaviour. Frontend
+lint and production build checks are also used. The tested
+\texttt{wearable\_stream} firmware is compiled with Arduino CLI in the
+\texttt{soccer} conda environment using the official Espressif board package.
+Compilation checks source and libraries;
+physical accuracy is tested separately.
+
+\subsubsection{Accuracy Investigation}
+Accuracy is split into smaller questions. Detection is reported per class with
+precision, recall, AP$_{50}$, and AP$_{50:95}$. Tracking is reported with HOTA,
+IDF1, and identity switches. Team and jersey identity are checked against a
+reviewed roster, while ball tracking also reports gaps and false recovery.
+
+Pitch mapping uses marked reference points and known field distances. The
+report will include point error in metres and repeat tests after camera setup.
+Synchronisation uses visible LED events together with an IMU tap. At least 20
+events will be aligned across video and wearable records, and the median, 95th
+percentile, and largest absolute error will be reported.
+
+BPM and estimated SpO$_2$ will be compared with a reference device during rest,
+walking, and a controlled movement drill. The result will include error,
+coverage, and the number of windows rejected by the signal gate. IMU axes will
+be checked at rest and with known orientation. GPS will be checked on a marked
+route with fix state and dropout time included.
+
+Model evaluation is done only after the dataset gate is met. Player-session
+records are split by time and player group where possible. A simple rule or
+linear model is used as the baseline. Classification results will include
+ROC-AUC, average precision, Brier score, and a reliability plot, with class
+counts reported beside them.
+
+\subsection{Proposed Solution}
+The proposed solution has four working paths: vision, wearable, fusion, and
+delivery. They meet at one typed event format. Each event keeps its session,
+source, entity, source time, mapped time, receive time, sequence, payload, and
+quality state.
+
+\subsubsection{Vision Processing}
+Frames are decoded with a monotonic frame time. The detector returns football
+objects, and ByteTrack joins player detections across frames. A homography maps
+tracks to the pitch. Team colour, appearance, jersey votes, and manual review
+are kept as separate identity evidence. The ball has its own short recovery
+rules because it is smaller and faster than a player.
+
+\subsubsection{Wearable Acquisition}
+The ESP32-S3 reads the MPU-6050, MAX30102, and NEO-6M. The main firmware sends
+timestamped raw batches to the relay with a device ID, boot ID, and source
+sequence. Sampling and HTTPS use separate tasks, with a fixed queue between
+them. Wi-Fi credentials, relay token, CA chain, and device tags are added by the
+provisioning path in an ignored generated header. A sensor failure is reported
+in status events while other valid readings continue.
+
+The host converts units and checks plausible ranges. PPG windows are checked
+for contact, motion, signal size, and peak quality. GPS keeps its fix state and
+age. The IMU keeps raw axes as well as filtered magnitude so workload formulas
+can be checked later.
+
+\subsubsection{Synchronisation and Fusion}
+SNTP anchors the wearable clock to UTC. Each sample keeps source time, relay
+receive time, and sequence. The relay orders accepted events, and a bounded
+window handles a short network loss. A wearable value is joined to a track only
+when the player-device binding is valid and the time error is inside the set
+limit.
+
+The fusion result never removes its source details. An identity correction is
+saved as a new record with operator and time. Earlier features can then be
+calculated again without changing the raw capture.
+
+\subsubsection{Analytics and Delivery}
+Simple features are calculated first: distance, speed, acceleration load,
+high-intensity efforts, team centre, width, length, compactness, line spacing,
+and pressure distance. Event rules point to the positions and time that caused
+them. Later predictive models use reviewed player-session features and keep the
+model version with every result.
+
+FastAPI provides commands and snapshots, while WebSocket carries live events
+to the dashboard. The required VPS relay receives validated raw wearable events
+through \nolinkurl{cpg44.nivaspms.com}. It assigns a relay sequence and receive
+time. The local sensor processor reads the live stream and can request missed
+events from the fixed 4 MiB replay window. The relay has no volume, database,
+video, or session archive.
+
+\subsection{Work Breakdown Structure}
+Table~\ref{tab:wbs} divides the work into products that can be shown and tested.
+Each module gives evidence needed by the next module.
+
+\begin{longtable}{@{}p{0.45in}p{1.2in}p{2.0in}p{2.0in}@{}}
+\caption{Work breakdown structure}\label{tab:wbs}\\
+\toprule
+\textbf{WBS} & \textbf{Module} & \textbf{Main work} & \textbf{Evidence or product}\\
+\midrule
+\endfirsthead
+\toprule
+\textbf{WBS} & \textbf{Module} & \textbf{Main work} & \textbf{Evidence or product}\\
+\midrule
+\endhead
+1.0 & Data & Convert, label, split, review & Dataset note and label report\\
+2.0 & Vision & Detect, track, identify, recover ball & Tracks, metrics, error clips\\
+3.0 & Calibration & Map pitch and check known points & Calibration file and error table\\
+4.0 & Wearable & Wire, sample, provision, transmit & Firmware build and packet capture\\
+5.0 & Sync & Anchor time, reorder, bind player & Tap-test report and fused records\\
+6.0 & Analytics & Movement, workload, team geometry & Feature definitions and event cards\\
+7.0 & Learning & Gate data, train baseline, evaluate & Repeatable run and model report\\
+8.0 & Application & API, dashboard, correction flow & Working live application\\
+9.0 & Relay & Domain route, token, cache, replay & Health and reconnect test\\
+10.0 & Evaluation & Component and field protocols & Checked results and final evidence\\
+\bottomrule
+\end{longtable}
+
+\subsection{Tools and Technology}
+\begin{table}[H]
+\centering
+\caption{Tools used in the project}
+\label{tab:tools}
+\small
+\begin{tabularx}{\textwidth}{p{1.65in}X}
+\toprule
+\textbf{Tool or platform} & \textbf{Use in the project}\\
+\midrule
+Python and conda & Vision, sensor processing, analytics, API, tests, and fixed environment\\
+PyTorch and Ultralytics & Detector training and inference\\
+OpenCV & Video input, pitch geometry, calibration, and review images\\
+ByteTrack & Online multi-object association\\
+FastAPI and WebSocket & Session API and live event transport\\
+React, TypeScript, Vite & Responsive dashboard and production build\\
+ESP32-S3 Arduino core & Wearable firmware, HTTPS, I2C, GPS serial, and timing\\
+Arduino CLI & Repeatable firmware setup and compilation\\
+Cloudflare, Caddy, Docker & Required TLS domain route and memory-only VPS relay\\
+PlantUML & Editable UML and architecture diagrams\\
+LaTeX and Tectonic & Report and 15-slide presentation build\\
+Git & Source history and review\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+These tools fit the available PC and the project skill level. Python and
+TypeScript keep the data format easy to inspect. PlantUML keeps diagrams easy to
+change after mentor feedback, and the same rendered files are used in the
+report and slides.

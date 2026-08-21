@@ -1,0 +1,28 @@
+@startuml
+!pragma layout smetana
+skinparam monochrome true
+skinparam shadowing false
+skinparam margin 8
+
+start
+:Create session and load roster;
+:Check camera and map pitch;
+:Check team colours and player IDs;
+:Fit wearables and pair each device;
+if (All required checks pass?) then (yes)
+  :Start session clock;
+  fork
+    :Update player and ball tracks;
+  fork again
+    :Wearable sends raw batches to relay;
+    :Read relay stream and check sensor quality;
+  end fork
+  :Align time, join player data, add quality;
+  :Update dashboard and event timeline;
+  :Save any identity or event correction;
+  :Close session and export checked data;
+else (no)
+  :Show failed check and fix it;
+endif
+stop
+@enduml

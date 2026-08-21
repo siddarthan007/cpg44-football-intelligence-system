@@ -1,0 +1,75 @@
+@startuml
+!pragma layout smetana
+skinparam monochrome true
+skinparam shadowing false
+skinparam margin 10
+skinparam nodesep 34
+skinparam ranksep 38
+left to right direction
+
+class Session {
+  sessionId
+  startTime
+  configurationHash
+  modelVersion
+}
+
+package "Identity" {
+  class Player {
+    playerId
+    rosterName
+    teamId
+    jerseyNumber
+  }
+  class Track {
+    trackId
+    teamProbability
+    identityConfidence
+  }
+  class Device {
+    deviceId
+    firmwareVersion
+  }
+  class DeviceBinding {
+    validFrom
+    validUntil
+    confirmedBy
+  }
+}
+
+package "Evidence and Analytics" {
+  class Observation {
+    sourceTime
+    sessionTime
+    sequence
+    quality
+  }
+  class Correction {
+    eventTime
+    oldValue
+    newValue
+  }
+  class DerivedFeature {
+    definitionVersion
+    value
+    confidence
+  }
+  class TacticalEvent {
+    eventType
+    startTime
+    endTime
+  }
+}
+
+Session o-- Player
+Session o-- Track
+Session o-- Observation
+Player -- DeviceBinding
+Device -- DeviceBinding
+Track --> Player : resolved player
+Observation --> Track
+Observation --> Device
+Correction --> Observation : corrects
+DerivedFeature --> Observation : uses
+TacticalEvent --> DerivedFeature : uses
+@enduml

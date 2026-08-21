@@ -1,4 +1,28 @@
 import type { ReactNode } from 'react';
+import type { LivePayload } from '../lib/types';
+
+export function PageHeader({
+  eyebrow,
+  title,
+  description,
+  actions,
+}: {
+  eyebrow?: string;
+  title: string;
+  description: string;
+  actions?: ReactNode;
+}) {
+  return (
+    <header className="page-header">
+      <div>
+        {eyebrow && <span className="eyebrow">{eyebrow}</span>}
+        <h1>{title}</h1>
+        <p>{description}</p>
+      </div>
+      {actions && <div className="page-actions">{actions}</div>}
+    </header>
+  );
+}
 
 export function Panel({
   title,
@@ -50,17 +74,39 @@ export function ErrorBanner({ message }: { message?: string | null }) {
 }
 
 export function EmptyState({ title }: { title: string }) {
-  return <div className="empty">{title}</div>;
+  return <div className="empty-state">{title}</div>;
 }
 
 export function StatusBadge({ status }: { status: string }) {
   const tone =
-    status === 'online' || status === 'live' || status === 'ready' || status === 'ok'
+    status === 'online' || status === 'live' || status === 'ready' || status === 'ok' || status === 'usable' || status === 'completed'
       ? 'good'
-      : status === 'paused' || status === 'degraded'
+      : status === 'paused' || status === 'degraded' || status === 'review' || status === 'recorded' || status === 'stale'
         ? 'warn'
-        : status === 'offline' || status === 'error'
+        : status === 'offline' || status === 'error' || status === 'failed' || status === 'unavailable'
           ? 'bad'
           : 'default';
   return <span className={`badge tone-${tone}`}>{status}</span>;
+}
+
+export function ProvenanceBanner({ snapshot }: { snapshot: LivePayload | null }) {
+  if (!snapshot) return null;
+  const p = snapshot.provenance;
+  const source = p.live ? 'Live pipeline' : p.kind === 'recorded_analysis' ? 'Recorded analysis' : 'No source';
+  return (
+    <div className={`provenance ${p.live ? 'is-live' : ''}`}>
+      <div>
+        <strong>{source}</strong>
+        <span>
+          {p.source_file ? ` · ${p.source_file}` : ''}
+          {typeof p.age_s === 'number' ? ` · ${p.age_s.toFixed(p.live ? 1 : 0)}s old` : ''}
+        </span>
+      </div>
+      <StatusBadge status={snapshot.data_quality?.status ?? 'unreported'} />
+    </div>
+  );
+}
+
+export function Value({ value, digits = 1, suffix = '-' }: { value: unknown; digits?: number; suffix?: string }) {
+  return typeof value === 'number' && Number.isFinite(value) ? <>{value.toFixed(digits)}</> : <>{suffix}</>;
 }

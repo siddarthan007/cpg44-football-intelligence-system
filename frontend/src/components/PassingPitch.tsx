@@ -41,15 +41,15 @@ export const PassingPitch: React.FC<Props> = ({
     const width = canvas.width;
     const height = canvas.height;
 
-    // Clear & background
-    ctx.fillStyle = "#ffffff";
+    // Clear & tactile paper pitch background
+    ctx.fillStyle = "#fafbfe";
     ctx.fillRect(0, 0, width, height);
 
-    // Draw Vertical Soccer Pitch Outline (matching reference image)
+    // Draw Vertical Soccer Pitch Outline (FIFA Standard Geometry)
     ctx.strokeStyle = "#cbd5e1";
     ctx.lineWidth = 1.5;
 
-    const pad = 12;
+    const pad = 14;
     const pitchW = width - pad * 2;
     const pitchH = height - pad * 2;
 
@@ -62,20 +62,65 @@ export const PassingPitch: React.FC<Props> = ({
     ctx.lineTo(width - pad, height / 2);
     ctx.stroke();
 
-    // Center Circle
+    // Center Circle (radius = 9.15m -> ~17.5% of pitch width)
     ctx.beginPath();
-    ctx.arc(width / 2, height / 2, pitchW * 0.18, 0, 2 * Math.PI);
+    ctx.arc(width / 2, height / 2, pitchW * 0.175, 0, 2 * Math.PI);
     ctx.stroke();
 
-    // Penalty boxes (top and bottom)
-    const penW = pitchW * 0.55;
-    const penH = pitchH * 0.16;
+    // Center Spot
+    ctx.fillStyle = "#94a3b8";
+    ctx.beginPath();
+    ctx.arc(width / 2, height / 2, 2.5, 0, 2 * Math.PI);
+    ctx.fill();
+
+    // Penalty boxes (16.5m depth -> ~15.7% of pitch length, 40.32m width -> ~59.3% of pitch width)
+    const penW = pitchW * 0.593;
+    const penH = pitchH * 0.157;
     const penX = (width - penW) / 2;
 
-    // Top Goal box
+    // 6-yard Goal boxes (5.5m depth -> ~5.2% length, 18.32m width -> ~26.9% width)
+    const goalW = pitchW * 0.269;
+    const goalH = pitchH * 0.052;
+    const goalX = (width - goalW) / 2;
+
+    // Top Penalty & Goal Box
     ctx.strokeRect(penX, pad, penW, penH);
-    // Bottom Goal box
+    ctx.strokeRect(goalX, pad, goalW, goalH);
+    // Top Penalty Spot (11m)
+    ctx.beginPath();
+    ctx.arc(width / 2, pad + pitchH * 0.105, 2, 0, 2 * Math.PI);
+    ctx.fill();
+    // Top Penalty Arc (D-Box)
+    ctx.beginPath();
+    ctx.arc(width / 2, pad + pitchH * 0.105, pitchW * 0.175, 0.65, Math.PI - 0.65);
+    ctx.stroke();
+
+    // Bottom Penalty & Goal Box
     ctx.strokeRect(penX, height - pad - penH, penW, penH);
+    ctx.strokeRect(goalX, height - pad - goalH, goalW, goalH);
+    // Bottom Penalty Spot
+    ctx.beginPath();
+    ctx.arc(width / 2, height - pad - pitchH * 0.105, 2, 0, 2 * Math.PI);
+    ctx.fill();
+    // Bottom Penalty Arc
+    ctx.beginPath();
+    ctx.arc(width / 2, height - pad - pitchH * 0.105, pitchW * 0.175, Math.PI + 0.65, 2 * Math.PI - 0.65);
+    ctx.stroke();
+
+    // Corner Arcs
+    const cRad = 6;
+    ctx.beginPath();
+    ctx.arc(pad, pad, cRad, 0, Math.PI / 2);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(width - pad, pad, cRad, Math.PI / 2, Math.PI);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(pad, height - pad, cRad, 1.5 * Math.PI, 2 * Math.PI);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(width - pad, height - pad, cRad, Math.PI, 1.5 * Math.PI);
+    ctx.stroke();
 
     // Coordinate mapping: Pitch X (0-105m) -> Canvas Y, Pitch Y (0-68m) -> Canvas X
     const mapPos = (x: number, y: number) => {
@@ -95,7 +140,7 @@ export const PassingPitch: React.FC<Props> = ({
         const p2 = mapPos(tNode.x, tNode.y);
 
         ctx.strokeStyle = l.weight > 15 ? "#0f172a" : "#94a3b8";
-        ctx.lineWidth = Math.min(7, Math.max(1.5, l.weight * 0.3));
+        ctx.lineWidth = Math.min(6, Math.max(1.5, l.weight * 0.28));
         ctx.beginPath();
         ctx.moveTo(p1.cx, p1.cy);
         ctx.lineTo(p2.cx, p2.cy);
@@ -119,22 +164,23 @@ export const PassingPitch: React.FC<Props> = ({
       });
     }
 
-    // Draw Player Nodes (Royal Blue circles with white jersey numbers, matching reference image)
+    // Draw Player Nodes (FIFA Style High-Contrast Tokens with white jersey numbers)
     nodes.forEach((n) => {
       const p = mapPos(n.x, n.y);
       const isSelected = selectedPlayerId === n.id;
-      const radius = isSelected ? 16 : Math.max(10, Math.min(15, n.size * 0.42));
+      const radius = isSelected ? 15 : Math.max(10, Math.min(14, n.size * 0.42));
 
-      // Glow for selected
+      // A simple outline marks the selected player.
       if (isSelected) {
-        ctx.fillStyle = "rgba(37, 99, 235, 0.25)";
+        ctx.strokeStyle = "#1f2933";
+        ctx.lineWidth = 2;
         ctx.beginPath();
         ctx.arc(p.cx, p.cy, radius + 6, 0, 2 * Math.PI);
-        ctx.fill();
+        ctx.stroke();
       }
 
       // Outer circle
-      ctx.fillStyle = isSelected || n.id === 27 ? "#2563eb" : "#3b82f6";
+      ctx.fillStyle = isSelected ? "#1d4ed8" : "#2563eb";
       ctx.beginPath();
       ctx.arc(p.cx, p.cy, radius, 0, 2 * Math.PI);
       ctx.fill();
@@ -145,15 +191,15 @@ export const PassingPitch: React.FC<Props> = ({
 
       // Jersey number text
       ctx.fillStyle = "#ffffff";
-      ctx.font = "bold 10px sans-serif";
+      ctx.font = "bold 10px -apple-system, BlinkMacSystemFont, sans-serif";
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
       ctx.fillText(String(n.id), p.cx, p.cy);
 
       // Name label under main node
-      if (n.id === 27 || isSelected) {
-        ctx.fillStyle = "#334155";
-        ctx.font = "600 9px sans-serif";
+      if (isSelected) {
+        ctx.fillStyle = "#1e293b";
+        ctx.font = "600 9px -apple-system, BlinkMacSystemFont, sans-serif";
         ctx.fillText(n.name, p.cx, p.cy + radius + 10);
       }
     });
@@ -181,8 +227,8 @@ export const PassingPitch: React.FC<Props> = ({
         const cy = clickY * scaleY;
 
         nodes.forEach((n) => {
-          const nx = 12 + (n.y / 68) * (290 - 24);
-          const ny = 12 + ((105 - n.x) / 105) * (460 - 24);
+          const nx = 14 + (n.y / 68) * (290 - 28);
+          const ny = 14 + ((105 - n.x) / 105) * (460 - 28);
           const dist = Math.hypot(cx - nx, cy - ny);
           if (dist < 18 && onSelectPlayer) {
             onSelectPlayer(n.id);

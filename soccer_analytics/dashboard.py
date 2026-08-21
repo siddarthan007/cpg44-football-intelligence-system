@@ -5,7 +5,7 @@ Windows (separate concerns):
     "Radar"      top-down minimap + Voronoi pitch-control shading
     "Heatmap"    live-accumulating team occupancy
     "Analytics"  rich panel: possession, team performance, player performance
-                 table, injury risk, tactical recommendations, FPS
+                 table, load-review score, tactical recommendations, FPS
 
 All drawn with NumPy/OpenCV so it stays fast enough for live use. Under WSL the
 windows need WSLg (built into Windows 11); pass ``windows=False`` for headless.
@@ -94,7 +94,7 @@ def _team_perf(img, y, team_stats):
 def _player_table(img, y, players, metric):
     _text(img, "PLAYER PERFORMANCE", (18, y), 0.66, _HDR)
     _text(img, "cyan=wearable", (PANEL_W - 168, y), 0.5, (255, 255, 0)); y += 24
-    hdr = "ID     dist   v.max  metP  risk" if metric else "ID       dist(px)   v.max"
+    hdr = "ID     dist   v.max  metP  review" if metric else "ID       dist(px)   v.max"
     _text(img, hdr, (44, y), 0.5, (150, 150, 158)); y += 22
     for p in players[:9]:
         cv2.circle(img, (24, y - 6), 7, TEAM_BGR.get(p.get("team", 0), (180, 180, 180)), -1)

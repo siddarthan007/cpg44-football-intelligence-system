@@ -1,52 +1,50 @@
-# CPG44 report ↔ implementation alignment
+# Capstone report to implementation alignment
 
-How the built system maps to the report's objectives, research gaps, and cited
-literature (`CPG44_Report.pdf`). "Following the paper" concretely.
+The proposal identifies three practical gaps: vision and wearable systems are
+usually isolated, commercial platforms are expensive and closed, and useful
+near-real-time decision support is limited. The implementation addresses those
+gaps with local, inspectable processing and a required memory-only relay.
 
-## Objectives → modules
-| Report objective | Implementation |
-|---|---|
-| O1 Integrated vision + wearable data framework | `pipeline.py`, `realtime.py`, `sensors/` (fusion, sync, endpoint) |
-| O2 Wearable HW (GPS/accel/pulse-ox) | `firmware/wearable_stream/` (ESP32-S3 TCP stream) + `sensors/hub.py` receiver, `HARDWARE.md` |
-| O3 ML for performance trends + tactical decisions | `trajectory.py` (LSTM), `pass_prediction.py`, `catapult.py`, `sensors/injury.py`, `tactical_engine.py`, `sensors/recommend.py`, `shots.py` |
-| O4 Evaluation on public datasets | SoccerNet converter + train/eval; trajectory ADE/FDE; detector mAP |
-
-## Research gaps (report §4) → how addressed
-- **"Very limited multimodal fusion (vision *or* wearable, not both)."** → `sensors/fusion.py` fuses vision external load (di Prampero metabolic power, speed zones, HSR, sprints, accel/decel) with wearable internal load (HR/SpO2/IMU), time-aligned per frame. Vision computes load for *all* players; wearable augments the tagged ones.
-- **"Commercial platforms (Genius, Catapult) expensive/proprietary."** → open pipeline: Catapult-style PlayerLoad + metabolic power from vision alone (`catapult.py`), a €-cheap ESP32 wearable, all local.
-- **"Insights only post-match; near-real-time decision support underdeveloped."** → `realtime.py` runs ~16–21 FPS with a live 4-window dashboard, wearable stream time-synced (wall-clock ±0.5 s), on-the-fly injury/tactical recommendations.
-
-## Literature review (report references) → coverage
-| Ref | Cited method | Implemented |
+| Report objective | Current implementation | Evidence still required |
 |---|---|---|
-| [1] YOLO (Redmon 2016) | real-time detection | `tracker.py` YOLOv8, `train.py` (SoccerNet + 2-stage finetune) |
-| [2] ByteTrack (Zhang 2022) | MOT by associating every box | `tracker.py` `sv.ByteTrack`, GK→player remap, ball-from-raw |
-| [3] Yousef 2025 | YOLO possession; poor ball (36%) | possession (`metrics.py`); ball handled with conf=0.1 + Kalman + interpolation + staleness guard (the cited weakness) |
-| [4] Zheng 2025 | CV-for-football review (occlusion, small-object) | Kalman occlusion-coast (`filters.py`), imgsz 1280 for the ~12 px ball, camera-motion comp (`view.py`) |
-| [5] Pilka 2023 | GPS + **XGBoost** on **ACWR/HSR** injury | `sensors/injury.py` (XGBoost/RF), `catapult.py` (ACWR, HSR, player load) |
-| [6] Leckey 2025 | tree-based (RF/XGBoost) injury risk | `sensors/injury.py` (`InjuryRiskModel`) + heuristic baseline |
-| [7] Teixeira 2025 | AI for tactical/collective dynamics (CNN/LSTM, space-control, formation, centrality) | `tactical_engine.py`: Voronoi **space control**, **formation**, centroid, width/depth, **stretch index**, **surface area** (convex hull), pressing, thirds, phases |
-| [8] Honda 2022 | **pass-receiver prediction** from video + **LSTM trajectories** | `trajectory.py` (**LSTM trajectory prediction**, trained on SoccerNet: ADE 14 px / FDE 26 px), `pass_prediction.py` (receiver likelihood: openness, lane clearness, progressiveness) |
-| [9] SoccerNet (Giancola 2018) | dataset | `soccernet_to_yolo.py` converter; trajectory + detector training |
+| Integrate vision and wearable data | source timestamps, relay replay order, roster/jersey binding, frame-time fusion and aligned NDJSON | campus synchronization error distribution |
+| Build a wearable with GPS, acceleration and pulse oximetry | tested ESP32 raw-stream sketch plus host PPG/IMU/GPS processing | per-unit reference validation and field reliability |
+| Track players and ball | YOLO detector, ByteTrack, ReID layer, ball low-confidence recovery and stale-coast guard | held-out campus AP, HOTA/IDF1 and ball recall |
+| Convert footage into tactical information | pitch homography, possession, passes, width/depth/centroid, line height, space control, shots/xG | event labels and coach-review agreement |
+| Support performance and prevention decisions | load features, work-rate trend and explained substitution watch | prospective outcome labels; calibrated model evaluation |
+| Evaluate public and local data | SoccerNet conversion/training tools and campus upload/training paths | frozen test split and published result table |
 
-Extra (beyond the cited baselines): **xG / shot model** (`shots.py`), **jersey-OCR
-auto-binding** (`jersey_ocr.py`), and a **Lab-space team assigner** (`team_assign.py`)
-that fixes the green-jersey-on-grass failure all the referenced repos share.
+## Claims boundary
 
-## Honest limitations (matching the report's own framing)
-- **Ball detection** is the weak link (ref [3]: ~36 % ball AP) — small/fast object;
-  a full-dataset detector + tiling helps but it remains hard.
-- **Homography accuracy** gates all metric analytics; a fixed calibrated camera is
-  required. A per-frame **pitch-keypoint** model (planned) would remove this.
-- **Pass/injury/xG models** are geometry/heuristic-grounded and *trainable* — they
-  need labelled event/injury data to reach the accuracy of the cited DL models
-  (Honda's 3D-CNN+LSTM+Transformer; Pilka's clinically-validated XGBoost).
-- Optical HR/SpO2 (MAX30102) is unreliable under running motion — rest/recovery use.
+- YOLO, ByteTrack and the sensor processing paths execute real code. Their
+  accuracy is not assumed from architecture names; it must be measured on the
+  held-out footage.
+- Physical metrics require a valid pitch calibration. Pixel-mode output is not
+  labelled as metres.
+- Team/jersey assignment includes an abstention path. Coverage must be reported
+  beside identity accuracy.
+- MAX30102 SpO2 is an uncalibrated estimate and optical readings are motion
+  sensitive. Invalid windows remain unavailable.
+- The current load warning is a heuristic coaching indicator. Supervised strain
+  training is locked until sufficient independent outcome labels exist.
+- ACWR can be a feature but is not treated as a diagnosis or a universal safe
+  zone.
 
-## Trainable models delivered
-| Model | Data | Metric |
-|---|---|---|
-| YOLOv8 detector | SoccerNet→YOLO | player mAP50 (train in progress) |
-| Trajectory LSTM | SoccerNet gt tracklets (88 k windows) | ADE 14 px, FDE 26 px |
-| Injury (XGBoost/RF) | `WorkloadFeatures`→label (bootstrap now; real later) | holdout acc ~0.69 |
-| xG (logistic) | shot geometry (calibratable) | monotonic, penalty-plausible |
+## Novel product contribution
+
+The capstone's useful contribution is not a new detector name. It is the
+evidence-preserving link from player track to synchronized body signal and from
+that link to an explainable coaching view:
+
+1. Tracklets persist across short occlusions and can be bound to a roster by
+   manual confirmation or multi-frame jersey evidence.
+2. The wearable uses an SNTP anchor, and the relay preserves each source time for the local video timeline.
+3. External-load geometry and internal-load readings are kept with provenance,
+   freshness and validity rather than merged into an unexplained score.
+4. Coach prompts describe observed tactical/load changes and why they were
+   raised; a missing sensor or calibration reduces the available claims.
+5. Raw and fused session logs are retained so every dashboard statement can be
+   replayed and evaluated later.
+
+The evaluation design and acceptance measurements are defined in
+`docs/CAPSTONE_ACCURACY_PROTOCOL.md`.

@@ -12,8 +12,8 @@
 # torch / torchvision installed separately (cu128) — see note above.
 
 # vision + tracking
-ultralytics>=8.3.0        # YOLOv8/v11 detection + built-in ByteTrack
-supervision>=0.25.0       # ByteTrack, Detections utils, annotators
+ultralytics>=8.4.123,<8.5 # current quantize=16 inference API
+supervision>=0.29,<0.30   # bounded while sv.ByteTrack adapter remains available
 opencv-python>=4.9.0      # video I/O, homography, optical flow, GUI windows
 
 # ML / analytics
@@ -24,12 +24,12 @@ xgboost>=2.0             # injury-risk model (report's approach)
 pandas>=2.1              # ball interpolation, metric tables
 matplotlib>=3.8          # heatmap figures
 
-# wearable ingestion (hardware plugs in later; all optional at runtime)
-pyserial>=3.5            # ESP32 / microcontroller over USB
-# fastapi + uvicorn + websockets: optional live dashboard / sensor HTTP bridge
+# wearable processing and local services
+pyserial>=3.5            # retained for bench diagnostics; live data uses the relay
+# fastapi + uvicorn + websockets: local API, sensor processor, and relay client
 fastapi>=0.110
 uvicorn[standard]>=0.29
-websockets>=12.0
+websockets>=16,<17
 
 tqdm>=4.66
 pyyaml>=6.0

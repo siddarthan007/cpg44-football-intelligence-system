@@ -8,6 +8,7 @@ import { CameraNetworkPage } from "./pages/CameraNetworkPage";
 import { PlayerMappingPage } from "./pages/PlayerMappingPage";
 import { HardwareFlasherPage } from "./pages/HardwareFlasherPage";
 import { PlayerTaggingPage } from "./pages/PlayerTaggingPage";
+import { AnalyticsPage } from "./pages/AnalyticsPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import {
   IconRecordings,
@@ -17,67 +18,43 @@ import {
   IconWearable,
   IconModelHub,
   IconTagPanels,
+  IconDownload,
   IconSettings,
 } from "./components/Icons";
 
 export const App: React.FC = () => {
+  const items = [
+    { to: "/recordings", label: "Live match", icon: <IconRecordings size={18} /> },
+    { to: "/biometrics", label: "Wearables", icon: <IconWearable size={18} /> },
+    { to: "/ingest", label: "Video ingest", icon: <IconClips size={18} /> },
+    { to: "/tagging", label: "Tagging", icon: <IconTagPanels size={18} /> },
+    { to: "/analytics", label: "Analytics", icon: <IconDownload size={18} /> },
+    { to: "/training", label: "Training", icon: <IconModelHub size={18} /> },
+    { to: "/cameras", label: "Cameras", icon: <IconDataExplorer size={18} /> },
+    { to: "/flasher", label: "ESP32 setup", icon: <IconCalendar size={18} /> },
+    { to: "/settings", label: "System", icon: <IconSettings size={18} /> },
+  ];
   return (
     <BrowserRouter>
       <div className="app-shell">
-        {/* Left Sidebar */}
         <aside className="sidebar">
           <div>
             <div className="sidebar-logo">
-              <div className="logo-circle">S</div>
-              <div className="logo-text">CPG44</div>
+              <div className="logo-mark">44</div>
+              <div><div className="logo-text">CPG44</div><span className="logo-caption">Field intelligence</span></div>
             </div>
 
             <nav className="nav-menu">
-              <NavLink to="/recordings" className={({ isActive }) => `nav-item ${isActive ? "active" : ""}`}>
-                <IconRecordings size={18} />
-                <span>Recordings</span>
-              </NavLink>
-              <NavLink to="/biometrics" className={({ isActive }) => `nav-item ${isActive ? "active" : ""}`}>
-                <IconWearable size={18} />
-                <span>Biometrics</span>
-              </NavLink>
-              <NavLink to="/flasher" className={({ isActive }) => `nav-item ${isActive ? "active" : ""}`}>
-                <IconCalendar size={18} />
-                <span>ESP32 Flasher</span>
-              </NavLink>
-              <NavLink to="/training" className={({ isActive }) => `nav-item ${isActive ? "active" : ""}`}>
-                <IconModelHub size={18} />
-                <span>Training Hub</span>
-              </NavLink>
-              <NavLink to="/ingest" className={({ isActive }) => `nav-item ${isActive ? "active" : ""}`}>
-                <IconClips size={18} />
-                <span>Video Ingest</span>
-              </NavLink>
-              <NavLink to="/cameras" className={({ isActive }) => `nav-item ${isActive ? "active" : ""}`}>
-                <IconDataExplorer size={18} />
-                <span>Cameras</span>
-              </NavLink>
-              <NavLink to="/tagging" className={({ isActive }) => `nav-item ${isActive ? "active" : ""}`}>
-                <IconTagPanels size={18} />
-                <span>Tag Panels</span>
-              </NavLink>
-              <NavLink to="/settings" className={({ isActive }) => `nav-item ${isActive ? "active" : ""}`}>
-                <IconSettings size={18} />
-                <span>Settings</span>
-              </NavLink>
+              {items.map((item) => <NavLink key={item.to} to={item.to} className={({ isActive }) => `nav-item ${isActive ? "active" : ""}`}>{item.icon}<span>{item.label}</span></NavLink>)}
             </nav>
           </div>
 
-          <div className="user-profile">
-            <div className="avatar">SN</div>
-            <div>
-              <div style={{ fontSize: "0.8rem", fontWeight: 700 }}>Siddartha</div>
-              <div style={{ fontSize: "0.7rem", color: "var(--text-muted)" }}>Analyst</div>
-            </div>
+          <div className="workstation-note">
+            <span className="workstation-dot" />
+            <div><strong>Local workstation</strong><span>Vision and fusion run here</span></div>
           </div>
         </aside>
 
-        {/* Main Content Area */}
         <main className="main-viewport">
           <Routes>
             <Route path="/" element={<Navigate to="/recordings" replace />} />
@@ -89,6 +66,7 @@ export const App: React.FC = () => {
             <Route path="/cameras" element={<CameraNetworkPage />} />
             <Route path="/tagging" element={<PlayerTaggingPage />} />
             <Route path="/roster" element={<PlayerMappingPage />} />
+            <Route path="/analytics" element={<AnalyticsPage />} />
             <Route path="/settings" element={<SettingsPage />} />
           </Routes>
         </main>

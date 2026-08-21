@@ -54,8 +54,9 @@ WINDOWARG=""; [ -n "$HEADLESS" ] && WINDOWARG="--no-window"
 
 python -m soccer_analytics.realtime \
   --video "$CLIP" --weights "$WEIGHTS" $CALARG \
-  --imgsz "${IMGSZ:-960}" $WINDOWARG --simulate-sensors --players 6 \
-  --out "$OUT/dashboard.mp4" --stats "$OUT/stats.json"
+  --imgsz "${IMGSZ:-960}" $WINDOWARG \
+  --out "$OUT/dashboard.mp4" --stats "$OUT/stats.json" \
+  --fused-out "$OUT/fused_snapshots.ndjson"
 
 echo ""
 echo "[demo] DONE ($SEQ) →  $OUT/dashboard.mp4  (recording) + $OUT/stats.json"

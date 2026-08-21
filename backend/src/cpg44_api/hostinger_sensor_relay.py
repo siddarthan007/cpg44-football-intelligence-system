@@ -1,398 +1,606 @@
 #!/usr/bin/env python3
-"""
-Hostinger KVM 2 Sensor Relay & Cloud Telemetry Daemon (CPG44).
-Optimized for 2 vCPU / 8 GB RAM Linux VPS.
+"""Stateless, authenticated CPG44 telemetry relay.
 
-Features:
-- Dual-mode TCP listener (ESP32 connects to VPS on port 9000, or VPS connects out).
-- UDP listener on port 9001 for high-frequency low-overhead telemetry.
-- WebSocket broadcaster (/ws/sensors) for real-time dashboard and GPU worker updates.
-- Microsecond clock synchronization engine mapping wearable timestamps to host time.
-- In-memory ring buffer (5,000 samples/player) + SQLite persistent logging.
-- Internal load metrics: Heart Rate (BPM), SpO2 (%), IMU PlayerLoad, and 3D impacts.
-- Health monitoring and low-memory footprint (<150 MB RAM, <5% CPU).
+The field PC remains the authority for sensor processing and clock mapping. This
+service preserves the source timestamp, adds a relay receive timestamp and a
+monotonic relay sequence, and holds only a bounded in-memory replay window. It
+has no database, filesystem volume, Redis, MinIO or Postgres dependency.
 """
 
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import hmac
 import json
-import logging
 import math
 import os
-import sqlite3
+import re
+import secrets
+import threading
 import time
 from collections import deque
-from contextlib import asynccontextmanager
 from dataclasses import asdict, dataclass
-from pathlib import Path
-from typing import Any, Deque, Dict, List, Optional, Set
+from typing import Any, Deque, Dict, List, Optional, Tuple
 
-from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
+from fastapi import Body, FastAPI, Header, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
 import uvicorn
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] [HostingerRelay] %(message)s",
-)
-logger = logging.getLogger("HostingerRelay")
 
-DB_PATH = Path(os.environ.get("CPG44_DB_PATH", "data/hostinger_telemetry.db"))
-DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+RELAY_TOKEN = os.environ.get("CPG44_RELAY_TOKEN", "").strip()
+MAX_CACHE_BYTES = max(
+    1_048_576,
+    min(int(os.environ.get("CPG44_RELAY_CACHE_BYTES", 4_194_304)), 16_777_216),
+)
+MAX_BODY_BYTES = max(
+    65_536,
+    min(int(os.environ.get("CPG44_RELAY_MAX_BODY_BYTES", 262_144)), 1_048_576),
+)
+MATCH_PATTERN = re.compile(r"^[A-Za-z0-9._:-]{1,64}$")
+SOURCE_VALUES = {"synchronized_local_hub", "wearable"}
+RAW_SAMPLE_TYPES = {"imu", "ppg", "gps", "status"}
+RELAY_INSTANCE_ID = secrets.token_hex(8)
+
+
+def _float(value: Any, minimum: float, maximum: float) -> Optional[float]:
+    if value is None:
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(number) or not minimum <= number <= maximum:
+        return None
+    return number
+
+
+def _vector(value: Any, length: int, limit: float) -> Optional[List[float]]:
+    if not isinstance(value, list) or len(value) != length:
+        return None
+    try:
+        result = [float(item) for item in value]
+    except (TypeError, ValueError):
+        return None
+    if not all(math.isfinite(item) and abs(item) <= limit for item in result):
+        return None
+    return result
+
+
+def _integer(value: Any, minimum: int, maximum: int) -> Optional[int]:
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        return None
+    if isinstance(value, bool) or not minimum <= number <= maximum:
+        return None
+    return number
+
+
+def _raw_payload(sample_type: Optional[str], value: Any) -> Optional[Dict[str, Any]]:
+    """Return the small, validated raw sample needed by the field processor."""
+    if sample_type is None:
+        return None
+    if sample_type not in RAW_SAMPLE_TYPES or not isinstance(value, dict):
+        return None
+    device_us = _integer(value.get("device_us"), 0, 9_000_000_000_000_000)
+    if device_us is None:
+        return None
+    clean: Dict[str, Any] = {"device_us": device_us}
+
+    if sample_type == "imu":
+        accel = _vector(value.get("a"), 3, 320.0)
+        gyro = _vector(value.get("g"), 3, 80.0)
+        if accel is None or gyro is None:
+            return None
+        clean.update({"a": accel, "g": gyro})
+        temperature = _float(value.get("temp_c"), -50.0, 125.0)
+        if temperature is not None:
+            clean["temp_c"] = temperature
+        return clean
+
+    if sample_type == "ppg":
+        red = _integer(value.get("red"), 0, 262_143)
+        infrared = _integer(value.get("ir"), 0, 262_143)
+        if red is None or infrared is None:
+            return None
+        clean.update({"red": red, "ir": infrared})
+        return clean
+
+    if sample_type == "gps":
+        clean.update({
+            "rx": bool(value.get("rx")),
+            "fix": bool(value.get("fix")),
+            "sat": _integer(value.get("sat"), 0, 128) or 0,
+            "chars": _integer(value.get("chars"), 0, 4_294_967_295) or 0,
+        })
+        if clean["fix"]:
+            latitude = _float(value.get("lat"), -90.0, 90.0)
+            longitude = _float(value.get("lon"), -180.0, 180.0)
+            if latitude is None or longitude is None:
+                return None
+            clean.update({"lat": latitude, "lon": longitude})
+            for key, low, high in (
+                ("speed_mps", 0.0, 150.0),
+                ("course_deg", 0.0, 360.0),
+                ("alt_m", -500.0, 20_000.0),
+                ("hdop", 0.0, 99.99),
+            ):
+                number = _float(value.get(key), low, high)
+                if number is not None:
+                    clean[key] = number
+        return clean
+
+    rssi = _integer(value.get("rssi_dbm"), -127, 20)
+    heap = _integer(value.get("heap"), 0, 64_000_000)
+    if rssi is None or heap is None:
+        return None
+    clean.update({
+        "rssi_dbm": rssi,
+        "heap": heap,
+        "mpu6050": bool(value.get("mpu6050")),
+        "max30102": bool(value.get("max30102")),
+        "gps_rx": bool(value.get("gps_rx")),
+        "dropped_samples": _integer(value.get("dropped_samples"), 0, 4_294_967_295) or 0,
+        "queued_samples": _integer(value.get("queued_samples"), 0, 100_000) or 0,
+    })
+    return clean
+
+
+def _source_timestamp_ns(raw: dict) -> Optional[int]:
+    direct = raw.get("source_timestamp_ns")
+    if direct is not None:
+        try:
+            value = int(direct)
+        except (TypeError, ValueError):
+            return None
+    else:
+        seconds = _float(raw.get("timestamp", raw.get("t")), 1_577_836_800.0, 4_102_444_800.0)
+        if seconds is None:
+            return None
+        value = int(seconds * 1_000_000_000)
+    # Allow delayed reconnection while rejecting accidental monotonic/device clocks.
+    if abs(value - time.time_ns()) > 7 * 24 * 60 * 60 * 1_000_000_000:
+        return None
+    return value
 
 
 @dataclass
-class WearableSample:
+class RelayEnvelope:
+    relay_seq: int
+    event_id: str
+    match_id: str
     player_id: int
-    device_us: int
-    host_timestamp: float
-    hr: Optional[float] = None
-    spo2: Optional[float] = None
-    accel: Optional[List[float]] = None
-    gyro: Optional[List[float]] = None
-    gps: Optional[List[float]] = None
-    player_load: float = 0.0
-    impact_g: float = 0.0
-    signal_quality: float = 1.0
+    source: str
+    source_seq: Optional[int]
+    source_timestamp_ns: int
+    relay_received_ns: int
+    relay_delay_ms: float
+    device_boot_id: Optional[str]
+    sample_type: Optional[str]
+    payload: Optional[Dict[str, Any]]
+    hr: Optional[float]
+    spo2: Optional[float]
+    accel: Optional[List[float]]
+    accel_unit: Optional[str]
+    gyro: Optional[List[float]]
+    gps: Optional[List[float]]
+    player_load: Optional[float]
+    signal_quality: float
+    clock: Dict[str, Any]
+    tags: Dict[str, Any]
 
 
-class TelemetryDatabase:
-    def __init__(self, path: Path):
-        self.path = path
-        self._init_db()
+class MemoryRelay:
+    """Byte-bounded replay cache with idempotent event IDs."""
 
-    def _get_conn(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(str(self.path), timeout=10.0)
-        conn.row_factory = sqlite3.Row
-        return conn
+    def __init__(self, max_bytes: int = MAX_CACHE_BYTES):
+        self.max_bytes = int(max_bytes)
+        self.history: Deque[Tuple[RelayEnvelope, int]] = deque()
+        self.history_bytes = 0
+        self.latest: Dict[Tuple[str, int], RelayEnvelope] = {}
+        self.event_sequences: Dict[str, int] = {}
+        self.sequence = 0
+        self.accepted_count = 0
+        self.duplicate_count = 0
+        self.rejected_count = 0
+        self.started_at = time.time()
+        self.ws_clients: Dict[WebSocket, Tuple[asyncio.Queue, Optional[str], Optional[int]]] = {}
+        self._lock = threading.RLock()
 
-    def _init_db(self):
-        with self._get_conn() as conn:
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS sensor_telemetry (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    player_id INTEGER NOT NULL,
-                    device_us INTEGER NOT NULL,
-                    host_timestamp REAL NOT NULL,
-                    hr REAL,
-                    spo2 REAL,
-                    accel_x REAL,
-                    accel_y REAL,
-                    accel_z REAL,
-                    player_load REAL,
-                    impact_g REAL,
-                    gps_lat REAL,
-                    gps_lon REAL,
-                    created_at REAL NOT NULL
-                )
-            """)
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_player_time ON sensor_telemetry (player_id, host_timestamp)")
-            conn.commit()
-
-    def insert_sample(self, sample: WearableSample):
-        try:
-            with self._get_conn() as conn:
-                ax, ay, az = sample.accel if sample.accel and len(sample.accel) == 3 else (0.0, 0.0, 0.0)
-                lat, lon = sample.gps if sample.gps and len(sample.gps) >= 2 else (None, None)
-                conn.execute(
-                    """
-                    INSERT INTO sensor_telemetry 
-                    (player_id, device_us, host_timestamp, hr, spo2, accel_x, accel_y, accel_z, player_load, impact_g, gps_lat, gps_lon, created_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    (
-                        sample.player_id,
-                        sample.device_us,
-                        sample.host_timestamp,
-                        sample.hr,
-                        sample.spo2,
-                        ax, ay, az,
-                        sample.player_load,
-                        sample.impact_g,
-                        lat, lon,
-                        time.time()
-                    )
-                )
-                conn.commit()
-        except Exception as e:
-            logger.error("DB insert error: %s", e)
-
-    def query_recent(self, player_id: Optional[int] = None, limit: int = 100) -> List[dict]:
-        with self._get_conn() as conn:
-            if player_id is not None:
-                cursor = conn.execute(
-                    "SELECT * FROM sensor_telemetry WHERE player_id = ? ORDER BY host_timestamp DESC LIMIT ?",
-                    (player_id, limit),
-                )
-            else:
-                cursor = conn.execute(
-                    "SELECT * FROM sensor_telemetry ORDER BY host_timestamp DESC LIMIT ?",
-                    (limit,),
-                )
-            return [dict(row) for row in cursor.fetchall()]
-
-
-class SensorRelayHub:
-    def __init__(self):
-        self.db = TelemetryDatabase(DB_PATH)
-        self.active_players: Dict[int, Deque[WearableSample]] = {}
-        self.latest_vitals: Dict[int, dict] = {}
-        self.ws_clients: Set[WebSocket] = set()
-        self.clock_offsets: Dict[int, float] = {}
-        self.start_time = time.time()
-        self.packet_count = 0
-        self.bytes_received = 0
-
-    def register_sample(self, raw_data: dict) -> Optional[WearableSample]:
-        self.packet_count += 1
-        pid = int(raw_data.get("player_id", raw_data.get("id", 1)))
-        device_us = int(raw_data.get("device_us", raw_data.get("t_us", time.time() * 1e6)))
-
-        host_now = time.time()
-        if pid not in self.clock_offsets:
-            self.clock_offsets[pid] = host_now - (device_us / 1e6)
-        aligned_timestamp = (device_us / 1e6) + self.clock_offsets[pid]
-
-        accel = raw_data.get("accel") or [0.0, 0.0, 9.81]
-        hr = float(raw_data["hr"]) if "hr" in raw_data and raw_data["hr"] is not None else None
-        spo2 = float(raw_data["spo2"]) if "spo2" in raw_data and raw_data["spo2"] is not None else None
-        gps = raw_data.get("gps")
-
-        mag = math.sqrt(accel[0]**2 + accel[1]**2 + accel[2]**2) if len(accel) == 3 else 9.81
-        impact_g = max(0.0, (mag - 9.81) / 9.81)
-        player_load = impact_g * 0.1
-
-        sample = WearableSample(
-            player_id=pid,
-            device_us=device_us,
-            host_timestamp=aligned_timestamp,
-            hr=hr,
-            spo2=spo2,
-            accel=accel,
-            gyro=raw_data.get("gyro"),
-            gps=gps,
-            player_load=player_load,
-            impact_g=impact_g,
+    def _event_id(self, raw: dict, match_id: str, player_id: int,
+                  source_timestamp_ns: int, source_seq: Optional[int]) -> str:
+        supplied = str(raw.get("event_id") or "").strip()
+        if supplied and len(supplied) <= 160 and all(31 < ord(char) < 127 for char in supplied):
+            return supplied
+        material = (
+            f"{match_id}|{player_id}|{raw.get('sample_type')}|"
+            f"{source_timestamp_ns}|{source_seq}"
         )
+        return hashlib.sha256(material.encode("utf-8")).hexdigest()[:32]
 
-        if pid not in self.active_players:
-            self.active_players[pid] = deque(maxlen=5000)
-        self.active_players[pid].append(sample)
-
-        self.latest_vitals[pid] = {
-            "player_id": pid,
-            "timestamp": aligned_timestamp,
-            "hr": hr or (self.latest_vitals.get(pid, {}).get("hr", 75.0)),
-            "spo2": spo2 or (self.latest_vitals.get(pid, {}).get("spo2", 98.0)),
-            "accel": accel,
-            "gps": gps,
-            "player_load_accum": sum(s.player_load for s in list(self.active_players[pid])[-100:]),
-            "impact_g": impact_g,
-            "online": True,
-            "last_seen": host_now,
+    @staticmethod
+    def _clock(raw: dict) -> Dict[str, Any]:
+        value = raw.get("clock")
+        if not isinstance(value, dict):
+            return {"valid": False}
+        return {
+            "valid": bool(value.get("valid")),
+            "method": str(value.get("method") or "unspecified")[:64],
+            "drift_ppm": _float(value.get("drift_ppm"), -5000.0, 5000.0),
+            "best_rtt_ms": _float(value.get("best_rtt_ms"), 0.0, 60_000.0),
+            "samples": int(value.get("samples") or 0),
         }
 
-        self.db.insert_sample(sample)
-        return sample
+    @staticmethod
+    def _tags(raw: dict, match_id: str, player_id: int,
+              device_boot_id: Optional[str]) -> Dict[str, Any]:
+        supplied = raw.get("tags") if isinstance(raw.get("tags"), dict) else {}
+        tags: Dict[str, Any] = {}
+        for key in ("session_id", "device_id", "jersey", "squad", "role"):
+            value = supplied.get(key)
+            if isinstance(value, (str, int, float, bool)) and len(str(value)) <= 64:
+                tags[key] = value
+        tags.update({"match_id": match_id, "player_id": player_id})
+        if device_boot_id is not None:
+            tags["device_boot_id"] = device_boot_id
+        return tags
 
-    async def broadcast(self, payload: dict):
-        dead_clients = set()
-        for client in self.ws_clients:
-            try:
-                await client.send_json(payload)
-            except Exception:
-                dead_clients.add(client)
-        self.ws_clients.difference_update(dead_clients)
-
-
-RELAY = SensorRelayHub()
-
-
-class ESP32TcpServer:
-    def __init__(self, host: str = "0.0.0.0", port: int = 9000):
-        self.host = host
-        self.port = port
-        self.server: Optional[asyncio.Server] = None
-
-    async def handle_client(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
-        peer = writer.get_extra_info("peername")
-        logger.info("ESP32 client connected from %s", peer)
-        buffer = ""
+    def register(self, raw: Any) -> Tuple[Optional[RelayEnvelope], bool]:
+        if not isinstance(raw, dict):
+            self.rejected_count += 1
+            return None, False
         try:
-            while True:
-                data = await reader.read(2048)
-                if not data:
-                    break
-                RELAY.bytes_received += len(data)
-                buffer += data.decode("utf-8", errors="ignore")
-                while "
-" in buffer:
-                    line, buffer = buffer.split("
-", 1)
-                    line = line.strip()
-                    if not line:
-                        continue
-                    if line.startswith("SYNC"):
-                        parts = line.split(",")
-                        if len(parts) >= 2:
-                            sync_id = parts[1]
-                            reply = f"SYNC_ACK,{sync_id},{time.time_ns()}
-"
-                            writer.write(reply.encode("utf-8"))
-                            await writer.drain()
-                        continue
-                    try:
-                        parsed = json.loads(line)
-                        sample = RELAY.register_sample(parsed)
-                        if sample:
-                            await RELAY.broadcast({
-                                "type": "wearable_sample",
-                                "data": asdict(sample),
-                            })
-                    except json.JSONDecodeError:
-                        pass
-        except Exception as e:
-            logger.warning("ESP32 connection error (%s): %s", peer, e)
-        finally:
-            writer.close()
-            await writer.wait_closed()
-            logger.info("ESP32 client disconnected: %s", peer)
+            player_id = int(raw.get("player_id"))
+        except (TypeError, ValueError):
+            self.rejected_count += 1
+            return None, False
+        match_id = str(raw.get("match_id") or "").strip()
+        source = str(raw.get("source") or "").strip()
+        source_timestamp_ns = _source_timestamp_ns(raw)
+        if (
+            not 1 <= player_id <= 9999
+            or not MATCH_PATTERN.fullmatch(match_id)
+            or source not in SOURCE_VALUES
+            or source_timestamp_ns is None
+        ):
+            self.rejected_count += 1
+            return None, False
 
-    async def start(self):
-        self.server = await asyncio.start_server(self.handle_client, self.host, self.port)
-        logger.info("ESP32 TCP Server listening on %s:%d", self.host, self.port)
+        source_seq = raw.get("source_seq")
+        try:
+            source_seq = int(source_seq) if source_seq is not None else None
+        except (TypeError, ValueError):
+            self.rejected_count += 1
+            return None, False
+        if source_seq is not None and source_seq < 0:
+            self.rejected_count += 1
+            return None, False
 
-    async def stop(self):
-        if self.server:
-            self.server.close()
-            await self.server.wait_closed()
+        device_boot_id = raw.get("device_boot_id")
+        if device_boot_id is not None:
+            device_boot_id = str(device_boot_id)[:64]
+        event_id = self._event_id(raw, match_id, player_id, source_timestamp_ns, source_seq)
+        sample_type_value = raw.get("sample_type")
+        sample_type = str(sample_type_value).strip() if sample_type_value is not None else None
+        payload = _raw_payload(sample_type, raw.get("payload"))
+        if sample_type is not None and payload is None:
+            self.rejected_count += 1
+            return None, False
+
+        with self._lock:
+            existing_seq = self.event_sequences.get(event_id)
+            if existing_seq is not None:
+                self.duplicate_count += 1
+                for envelope, _ in reversed(self.history):
+                    if envelope.relay_seq == existing_seq:
+                        return envelope, True
+
+            accel_unit = raw.get("accel_unit") if raw.get("accel_unit") in {"g", "m/s2"} else None
+            accel_limit = 32.0 if accel_unit == "g" else 320.0
+            gps = raw.get("gps")
+            gps = _vector(gps, len(gps), 100_000.0) if isinstance(gps, list) and len(gps) in (2, 3) else None
+            if gps and (not -90 <= gps[0] <= 90 or not -180 <= gps[1] <= 180):
+                gps = None
+
+            received_ns = time.time_ns()
+            self.sequence += 1
+            envelope = RelayEnvelope(
+                relay_seq=self.sequence,
+                event_id=event_id,
+                match_id=match_id,
+                player_id=player_id,
+                source=source,
+                source_seq=source_seq,
+                source_timestamp_ns=source_timestamp_ns,
+                relay_received_ns=received_ns,
+                relay_delay_ms=round((received_ns - source_timestamp_ns) / 1_000_000.0, 3),
+                device_boot_id=device_boot_id,
+                sample_type=sample_type,
+                payload=payload,
+                hr=_float(raw.get("hr"), 25.0, 240.0),
+                spo2=_float(raw.get("spo2"), 50.0, 100.0),
+                accel=_vector(raw.get("accel"), 3, accel_limit),
+                accel_unit=accel_unit,
+                gyro=_vector(raw.get("gyro"), 3, 4000.0),
+                gps=gps,
+                player_load=_float(raw.get("player_load"), 0.0, 1_000_000.0),
+                signal_quality=_float(raw.get("signal_quality"), 0.0, 1.0) or 0.0,
+                clock=self._clock(raw),
+                tags=self._tags(raw, match_id, player_id, device_boot_id),
+            )
+            encoded_size = len(json.dumps(asdict(envelope), separators=(",", ":")))
+            self.history.append((envelope, encoded_size))
+            self.history_bytes += encoded_size
+            self.latest[(match_id, player_id)] = envelope
+            self.event_sequences[event_id] = envelope.relay_seq
+            self.accepted_count += 1
+
+            while self.history and self.history_bytes > self.max_bytes:
+                old, old_size = self.history.popleft()
+                self.history_bytes -= old_size
+                self.event_sequences.pop(old.event_id, None)
+                if self.latest.get((old.match_id, old.player_id)) is old:
+                    self.latest.pop((old.match_id, old.player_id), None)
+            return envelope, False
+
+    def replay(self, after_seq: int = 0, limit: int = 1000,
+               match_id: Optional[str] = None, player_id: Optional[int] = None) -> dict:
+        with self._lock:
+            items = [
+                asdict(envelope)
+                for envelope, _ in self.history
+                if envelope.relay_seq > after_seq
+                and (match_id is None or envelope.match_id == match_id)
+                and (player_id is None or envelope.player_id == player_id)
+            ][:limit]
+            oldest = self.history[0][0].relay_seq if self.history else self.sequence + 1
+            latest = self.sequence
+        return {
+            "relay_instance_id": RELAY_INSTANCE_ID,
+            "items": items,
+            "oldest_seq": oldest,
+            "latest_seq": latest,
+            "next_seq": items[-1]["relay_seq"] if items else after_seq,
+            "cache_gap": bool(after_seq and after_seq < oldest - 1),
+        }
+
+    def latest_payload(self, match_id: Optional[str] = None) -> dict:
+        with self._lock:
+            streams = [
+                asdict(value) for (match, _), value in self.latest.items()
+                if match_id is None or match == match_id
+            ]
+        streams.sort(key=lambda item: (item["match_id"], item["player_id"]))
+        players: Dict[str, dict] = {}
+        for item in streams:
+            key = str(item["player_id"])
+            if key not in players or item["relay_seq"] > players[key]["relay_seq"]:
+                players[key] = item
+        return {
+            "relay_instance_id": RELAY_INSTANCE_ID,
+            "relay_timestamp_ns": time.time_ns(),
+            "players": players,
+            "streams": streams,
+            "cache": self.cache_status(),
+        }
+
+    def cache_status(self) -> dict:
+        with self._lock:
+            return {
+                "storage": "memory_only",
+                "items": len(self.history),
+                "bytes": self.history_bytes,
+                "max_bytes": self.max_bytes,
+                "oldest_seq": self.history[0][0].relay_seq if self.history else None,
+                "latest_seq": self.sequence,
+            }
+
+    def subscribe(
+        self,
+        ws: WebSocket,
+        after_seq: int,
+        match_id: Optional[str],
+        player_id: Optional[int],
+    ) -> Tuple[asyncio.Queue, dict]:
+        queue: asyncio.Queue = asyncio.Queue(maxsize=2048)
+        with self._lock:
+            replay = self.replay(after_seq, 5000, match_id, player_id)
+            self.ws_clients[ws] = (queue, match_id, player_id)
+        return queue, replay
+
+    def unsubscribe(self, ws: WebSocket) -> None:
+        with self._lock:
+            self.ws_clients.pop(ws, None)
+
+    async def broadcast(self, envelope: RelayEnvelope) -> None:
+        payload = {
+            "type": "wearable_sample",
+            "relay_instance_id": RELAY_INSTANCE_ID,
+            "data": asdict(envelope),
+        }
+        with self._lock:
+            subscribers = list(self.ws_clients.values())
+        for queue, match_id, player_id in subscribers:
+            if match_id is not None and envelope.match_id != match_id:
+                continue
+            if player_id is not None and envelope.player_id != player_id:
+                continue
+            if queue.full():
+                try:
+                    queue.get_nowait()
+                except asyncio.QueueEmpty:
+                    pass
+            try:
+                queue.put_nowait(payload)
+            except asyncio.QueueFull:
+                pass
 
 
-TCP_SERVER = ESP32TcpServer()
+RELAY = MemoryRelay()
 
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    tcp_task = asyncio.create_task(TCP_SERVER.start())
-    yield
-    await TCP_SERVER.stop()
-    tcp_task.cancel()
+def _authorized(token: Optional[str]) -> bool:
+    return bool(RELAY_TOKEN and token and hmac.compare_digest(token, RELAY_TOKEN))
 
 
 app = FastAPI(
-    title="CPG44 Hostinger KVM 2 Sensor Relay",
-    version="1.0.0",
-    description="High-performance lightweight cloud telemetry relay for football intelligence.",
-    lifespan=lifespan,
+    title="CPG44 stateless telemetry relay",
+    version="3.0.0",
+    description="Authenticated in-memory replay relay for raw and processed wearable observations.",
 )
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        origin.strip()
+        for origin in os.environ.get("CPG44_CORS_ORIGINS", "").split(",")
+        if origin.strip()
+    ],
     allow_credentials=False,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST"],
+    allow_headers=["Content-Type", "X-Auth"],
 )
 
 
+@app.middleware("http")
+async def body_limit(request: Request, call_next):
+    length = request.headers.get("content-length")
+    if length:
+        try:
+            if int(length) > MAX_BODY_BYTES:
+                return JSONResponse(
+                    {"detail": "request body too large"},
+                    status_code=413,
+                    headers={"Cache-Control": "no-store"},
+                )
+        except ValueError:
+            return JSONResponse(
+                {"detail": "invalid content-length"},
+                status_code=400,
+                headers={"Cache-Control": "no-store"},
+            )
+    response = await call_next(request)
+    response.headers["Cache-Control"] = "no-store, max-age=0"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    return response
+
+
 @app.get("/health")
-def health():
+async def health():
     return {
         "status": "healthy",
-        "service": "hostinger-sensor-relay",
-        "uptime_sec": round(time.time() - RELAY.start_time, 1),
-        "packets_processed": RELAY.packet_count,
-        "bytes_received": RELAY.bytes_received,
-        "active_players": list(RELAY.active_players.keys()),
-        "connected_ws_clients": len(RELAY.ws_clients),
+        "service": "cpg44-stateless-relay",
+        "relay_instance_id": RELAY_INSTANCE_ID,
+        "uptime_s": round(time.time() - RELAY.started_at, 1),
+        "accepted": RELAY.accepted_count,
+        "duplicates": RELAY.duplicate_count,
+        "rejected": RELAY.rejected_count,
+        "websocket_clients": len(RELAY.ws_clients),
+        "auth_required": True,
+        "cache": RELAY.cache_status(),
+    }
+
+
+@app.post("/api/v1/sensors/ingest")
+async def ingest(
+    body: Any = Body(...),
+    x_auth: Optional[str] = Header(None, alias="X-Auth"),
+):
+    if not _authorized(x_auth):
+        raise HTTPException(status_code=401, detail="invalid relay token")
+    rows = body if isinstance(body, list) else [body]
+    if not 1 <= len(rows) <= 100:
+        raise HTTPException(status_code=422, detail="send 1 to 100 observations")
+    accepted: List[RelayEnvelope] = []
+    duplicates = 0
+    for row in rows:
+        envelope, duplicate = RELAY.register(row)
+        if envelope is None:
+            continue
+        accepted.append(envelope)
+        duplicates += int(duplicate)
+        if not duplicate:
+            await RELAY.broadcast(envelope)
+    if not accepted:
+        raise HTTPException(status_code=422, detail="no valid timestamped observations")
+    return {
+        "status": "ok",
+        "accepted": len(accepted),
+        "duplicates": duplicates,
+        "last_relay_seq": accepted[-1].relay_seq,
+        "event_ids": [item.event_id for item in accepted],
     }
 
 
 @app.get("/api/v1/sensors/latest")
-def get_latest_sensors():
-    return {
-        "timestamp": time.time(),
-        "players": RELAY.latest_vitals,
-    }
+async def latest(
+    match_id: Optional[str] = Query(None),
+    x_auth: Optional[str] = Header(None, alias="X-Auth"),
+):
+    if not _authorized(x_auth):
+        raise HTTPException(status_code=401, detail="invalid relay token")
+    return RELAY.latest_payload(match_id)
 
 
 @app.get("/api/v1/sensors/history")
-def get_sensor_history(player_id: Optional[int] = Query(None), limit: int = Query(200, le=1000)):
-    return RELAY.db.query_recent(player_id=player_id, limit=limit)
-
-
-@app.post("/api/v1/sensors/ingest")
-async def ingest_sensor_post(body: dict):
-    sample = RELAY.register_sample(body)
-    if sample:
-        await RELAY.broadcast({
-            "type": "wearable_sample",
-            "data": asdict(sample),
-        })
-        return {"status": "ok", "player_id": sample.player_id, "timestamp": sample.host_timestamp}
-    raise HTTPException(status_code=400, detail="Invalid telemetry format")
+async def history(
+    after_seq: int = Query(0, ge=0),
+    limit: int = Query(1000, ge=1, le=5000),
+    match_id: Optional[str] = Query(None),
+    player_id: Optional[int] = Query(None, ge=1, le=9999),
+    x_auth: Optional[str] = Header(None, alias="X-Auth"),
+):
+    if not _authorized(x_auth):
+        raise HTTPException(status_code=401, detail="invalid relay token")
+    return RELAY.replay(after_seq, limit, match_id, player_id)
 
 
 @app.websocket("/ws/sensors")
-async def websocket_sensors(ws: WebSocket):
+async def websocket_sensors(
+    ws: WebSocket,
+    after_seq: int = Query(0, ge=0),
+    match_id: Optional[str] = Query(None),
+    player_id: Optional[int] = Query(None, ge=1, le=9999),
+):
+    if not _authorized(ws.headers.get("x-auth")):
+        await ws.close(code=1008, reason="invalid relay token")
+        return
     await ws.accept()
-    RELAY.ws_clients.add(ws)
+    queue, replay = RELAY.subscribe(ws, after_seq, match_id, player_id)
     try:
-        await ws.send_json({
-            "type": "initial_state",
-            "players": RELAY.latest_vitals,
-        })
+        await ws.send_json({"type": "replay", "data": replay})
         while True:
-            data = await ws.receive_text()
-            if data == "ping":
-                await ws.send_text("pong")
+            await ws.send_json(await queue.get())
     except WebSocketDisconnect:
         pass
     finally:
-        RELAY.ws_clients.discard(ws)
+        RELAY.unsubscribe(ws)
 
 
-@app.get("/", response_class=HTMLResponse)
-def index_status_page():
-    return f"""
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <title>CPG44 Hostinger Sensor Relay</title>
-        <meta charset="utf-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1">
-        <style>
-            body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0b0f19; color: #f3f4f6; padding: 2rem; }}
-            .card {{ background: #111827; border: 1px solid #374151; border-radius: 8px; padding: 1.5rem; max-width: 700px; margin: 0 auto; }}
-            h1 {{ color: #10b981; margin-top: 0; }}
-            .badge {{ display: inline-block; padding: 0.25rem 0.75rem; border-radius: 9999px; background: #064e3b; color: #34d399; font-size: 0.875rem; font-weight: 600; }}
-            pre {{ background: #1f2937; padding: 1rem; border-radius: 6px; overflow-x: auto; color: #93c5fd; }}
-            .stat {{ display: flex; justify-content: space-between; padding: 0.5rem 0; border-bottom: 1px solid #1f2937; }}
-        </style>
-    </head>
-    <body>
-        <div class="card">
-            <h1>CPG44 Sensor Relay — Hostinger KVM 2</h1>
-            <span class="badge">● Online &amp; Streaming</span>
-            <p>Active cloud ingestion hub for ESP32 Wearable Telemetry (TCP :9000) &amp; WebSocket Broadcast (/ws/sensors).</p>
-            <div class="stat"><span>Uptime:</span> <span>{round(time.time() - RELAY.start_time, 1)} seconds</span></div>
-            <div class="stat"><span>Packets Processed:</span> <span>{RELAY.packet_count}</span></div>
-            <div class="stat"><span>Active Wearables:</span> <span>{len(RELAY.active_players)}</span></div>
-            <div class="stat"><span>Connected WebSocket Viewers:</span> <span>{len(RELAY.ws_clients)}</span></div>
-            <h3>REST Endpoints</h3>
-            <pre>GET /health
-GET /api/v1/sensors/latest
-GET /api/v1/sensors/history?player_id=7&amp;limit=100
-POST /api/v1/sensors/ingest
-WS  /ws/sensors</pre>
-        </div>
-    </body>
-    </html>
-    """
+@app.get("/", response_class=HTMLResponse, include_in_schema=False)
+async def status_page():
+    cache = RELAY.cache_status()
+    return f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>CPG44 telemetry relay</title><style>
+    body{{margin:0;background:#f4f5f1;color:#17211d;font:16px/1.5 system-ui;padding:32px}}
+    main{{max-width:720px;margin:auto;background:white;border:1px solid #d8ded9;border-radius:8px;padding:28px}}
+    h1{{font:600 32px Georgia,serif;margin:0 0 8px}}dl{{display:grid;grid-template-columns:1fr 1fr;gap:8px}}
+    dt,dd{{margin:0;padding:8px 0;border-bottom:1px solid #e7ebe8}}dd{{text-align:right;font-variant-numeric:tabular-nums}}
+    code{{background:#edf0ed;padding:2px 5px;border-radius:3px}}</style></head><body><main>
+    <h1>CPG44 telemetry relay</h1>
+    <p>Authenticated, memory-only replay service. Sensor processing remains on the field PC.</p>
+    <dl><dt>Cached observations</dt><dd>{cache['items']}</dd>
+    <dt>Cache used</dt><dd>{cache['bytes']} / {cache['max_bytes']} bytes</dd>
+    <dt>Latest relay sequence</dt><dd>{cache['latest_seq']}</dd>
+    <dt>Connected subscribers</dt><dd>{len(RELAY.ws_clients)}</dd></dl>
+    <p>Public status: <code>/health</code>. Measurement routes require <code>X-Auth</code>.</p>
+    </main></body></html>"""
 
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 8081))
-    uvicorn.run(app, host="0.0.0.0", port=port)
+    if len(RELAY_TOKEN) < 32:
+        raise SystemExit("CPG44_RELAY_TOKEN must contain at least 32 characters")
+    uvicorn.run(app, host="0.0.0.0", port=int(os.environ.get("PORT", 8081)))

@@ -1,7 +1,10 @@
 #include <Arduino.h>
 #include <Wire.h>
 #include <WiFi.h>
-#include <Network.h>
+#include <HTTPClient.h>
+#include <NetworkClientSecure.h>
+#include <ArduinoJson.h>
+#include <sys/time.h>
 #include "esp_timer.h"
 #include "esp_system.h"
 
@@ -10,70 +13,97 @@
 #include "MAX30105.h"
 #include <TinyGPSPlus.h>
 
-// ============================================================================
-// USER CONFIG  — working wearable_stream board (I2C 4/5, GPS 16/17)
-// ============================================================================
-const char *WIFI_SSID = "EACCESS-M1";
-const char *WIFI_PASS = "hostelnet";
+// The dashboard creates this ignored file while flashing. A build without it
+// contains no Wi-Fi or relay secret and deliberately stays offline.
+#if __has_include("generated_config.h")
+#include "generated_config.h"
+#else
+inline constexpr int PLAYER_ID = 0;
+inline constexpr char MATCH_ID[] = "live";
+inline constexpr char WIFI_SSID[] = "";
+inline constexpr char WIFI_PASS[] = "";
+inline constexpr char RELAY_ENDPOINT[] = "https://cpg44.nivaspms.com/api/v1/sensors/ingest";
+inline constexpr char RELAY_TOKEN[] = "";
+inline constexpr char RELAY_CA_PEM[] = "";
+#endif
 
 #define I2C_SDA 4
 #define I2C_SCL 5
-#define GPS_RX 16                     // ESP32 RX <- NEO-6M TX
-#define GPS_TX 17                     // optional
+#define GPS_RX 16
+#define GPS_TX 17
 #define GPS_BAUD 9600
 
-constexpr uint16_t STREAM_PORT = 9000;
-constexpr uint32_t I2C_HZ = 100000;   // proven stable on this device
-
-// MPU6050: DLPF enabled + divisor 9 => ~100 Hz register update.
-constexpr uint32_t IMU_PERIOD_US = 10000;
-
-// MAX30102 configuration.
-// 100 ADC samples/s with FIFO averaging=4 => 25 FIFO samples/s.
-constexpr uint32_t PPG_PERIOD_US = 40000;
+constexpr uint32_t I2C_HZ = 100000;       // stable on the tested board
+constexpr uint32_t IMU_PERIOD_US = 10000; // 100 Hz
+constexpr uint32_t PPG_PERIOD_US = 40000; // 25 Hz after FIFO averaging
 constexpr float PPG_HZ = 25.0f;
 
-// IR mean around 245k sat near the 18-bit ceiling (262143) at 4096 nA.
-// 8192 nA preserves waveform headroom for SpO2.
+// MAX30102 settings used by the tested raw stream. The host still calculates
+// HR and SpO2, where motion and optical quality can be checked together.
 constexpr byte PPG_LED_AMPLITUDE = 60;
 constexpr byte PPG_SAMPLE_AVERAGE = 4;
-constexpr byte PPG_LED_MODE = 2;      // Red + IR
+constexpr byte PPG_LED_MODE = 2;
 constexpr int PPG_ADC_SAMPLE_RATE = 100;
 constexpr int PPG_PULSE_WIDTH_US = 411;
 constexpr int PPG_ADC_RANGE_NA = 8192;
+
+constexpr size_t RELAY_QUEUE_CAPACITY = 512;
+constexpr size_t RELAY_BATCH_CAPACITY = 96;
+constexpr uint32_t RELAY_BATCH_WINDOW_MS = 500;
+
+enum class SampleType : uint8_t { Imu, Ppg, Gps, Status };
+
+struct SampleRecord {
+  SampleType type;
+  uint64_t sequence;
+  uint64_t deviceUS;
+  float accel[3];
+  float gyro[3];
+  float temperatureC;
+  uint32_t red;
+  uint32_t ir;
+  bool gpsRx;
+  bool gpsFix;
+  double latitude;
+  double longitude;
+  float speedMps;
+  float courseDeg;
+  float altitudeM;
+  float hdop;
+  uint16_t satellites;
+  uint32_t gpsChars;
+  int16_t rssiDbm;
+  uint32_t freeHeap;
+  bool gpsReceiving;
+};
 
 Adafruit_MPU6050 mpu;
 MAX30105 max30102;
 TinyGPSPlus gps;
 HardwareSerial gpsSerial(1);
 
-NetworkServer streamServer(STREAM_PORT);
-NetworkClient streamClient;
-
 bool mpuOK = false;
 bool maxOK = false;
-
 uint32_t bootId = 0;
 uint64_t imuSeq = 0;
 uint64_t ppgSeq = 0;
 uint64_t gpsSeq = 0;
+uint64_t statusSeq = 0;
 uint64_t lastIMUScheduleUS = 0;
 uint32_t lastGPSPacketMS = 0;
 uint32_t lastGPSByteMS = 0;
 uint32_t lastStatusMS = 0;
 
+QueueHandle_t relayQueue = nullptr;
+SampleRecord relayBatch[RELAY_BATCH_CAPACITY];
+size_t relayBatchCount = 0;
+portMUX_TYPE stateMux = portMUX_INITIALIZER_UNLOCKED;
+int64_t epochOffsetUS = 0;
+bool clockReady = false;
+uint32_t droppedSamples = 0;
+
 static inline uint64_t deviceTimeUS() {
-  return (uint64_t)esp_timer_get_time();
-}
-
-bool clientConnected() {
-  return streamClient && streamClient.connected();
-}
-
-void sendLine(const char *line) {
-  if (!clientConnected()) return;
-  streamClient.print(line);
-  streamClient.print('\n');
+  return static_cast<uint64_t>(esp_timer_get_time());
 }
 
 bool probeI2C(uint8_t address) {
@@ -81,114 +111,227 @@ bool probeI2C(uint8_t address) {
   return Wire.endTransmission() == 0;
 }
 
-void jsonDouble(char *out, size_t n, double value, int digits) {
-  if (!isfinite(value)) snprintf(out, n, "null");
-  else snprintf(out, n, "%.*f", digits, value);
-}
-
-// SparkFun MAX30105::begin() calls Wire.begin() with no pins. On ESP32-S3 that
-// often switches the bus to the default SDA/SCL (8/9) and the MAX30102 on 4/5
-// goes silent. Always re-bind to the board pins after library init.
+// SparkFun MAX30105::begin() calls Wire.begin() without the board pins. Rebind
+// after library setup so the sensors remain on the tested ESP32-S3 pins 4/5.
 void bindI2C() {
   Wire.begin(I2C_SDA, I2C_SCL, I2C_HZ);
 }
 
-char commandBuffer[128];
-size_t commandLength = 0;
-
-void handleCommand(const char *line, uint64_t t2US) {
-  unsigned long syncId = 0;
-  unsigned long long t1NS = 0;
-
-  if (sscanf(line, "SYNC,%lu,%llu", &syncId, &t1NS) == 2) {
-    const uint64_t t3US = deviceTimeUS();
-    char reply[160];
-    snprintf(
-      reply, sizeof(reply),
-      "SYNC_REPLY,%lu,%llu,%llu,%llu",
-      syncId, t1NS,
-      (unsigned long long)t2US,
-      (unsigned long long)t3US
-    );
-    sendLine(reply);
-  }
+void enqueueSample(const SampleRecord &sample) {
+  if (relayQueue != nullptr && xQueueSend(relayQueue, &sample, 0) == pdTRUE) return;
+  portENTER_CRITICAL(&stateMux);
+  ++droppedSamples;
+  portEXIT_CRITICAL(&stateMux);
 }
 
-void serviceClientInput() {
-  if (!clientConnected()) return;
+uint64_t sourceTimestampNS(uint64_t deviceUS) {
+  portENTER_CRITICAL(&stateMux);
+  const int64_t offset = epochOffsetUS;
+  portEXIT_CRITICAL(&stateMux);
+  return static_cast<uint64_t>(offset + static_cast<int64_t>(deviceUS)) * 1000ULL;
+}
 
-  while (streamClient.available()) {
-    const char c = (char)streamClient.read();
+bool refreshClockAnchor() {
+  timeval tv{};
+  gettimeofday(&tv, nullptr);
+  if (tv.tv_sec < 1577836800) return false;
+  const int64_t unixUS = static_cast<int64_t>(tv.tv_sec) * 1000000LL + tv.tv_usec;
+  const int64_t nextOffset = unixUS - static_cast<int64_t>(deviceTimeUS());
+  portENTER_CRITICAL(&stateMux);
+  epochOffsetUS = nextOffset;
+  clockReady = true;
+  portEXIT_CRITICAL(&stateMux);
+  return true;
+}
 
-    if (c == '\n') {
-      const uint64_t t2US = deviceTimeUS();
-      commandBuffer[commandLength] = '\0';
-      if (commandLength) handleCommand(commandBuffer, t2US);
-      commandLength = 0;
+bool isClockReady() {
+  portENTER_CRITICAL(&stateMux);
+  const bool ready = clockReady;
+  portEXIT_CRITICAL(&stateMux);
+  return ready;
+}
+
+const char *sampleTypeName(SampleType type) {
+  switch (type) {
+    case SampleType::Imu: return "imu";
+    case SampleType::Ppg: return "ppg";
+    case SampleType::Gps: return "gps";
+    case SampleType::Status: return "status";
+  }
+  return "unknown";
+}
+
+void addCommonFields(JsonObject event, const SampleRecord &sample) {
+  const char *kind = sampleTypeName(sample.type);
+  char eventId[160];
+  snprintf(
+    eventId, sizeof(eventId), "%s:%d:%08lx:%s:%llu",
+    MATCH_ID, PLAYER_ID, static_cast<unsigned long>(bootId), kind,
+    static_cast<unsigned long long>(sample.sequence)
+  );
+  event["event_id"] = eventId;
+  event["match_id"] = MATCH_ID;
+  event["player_id"] = PLAYER_ID;
+  event["source"] = "wearable";
+  event["source_seq"] = sample.sequence;
+  event["source_timestamp_ns"] = sourceTimestampNS(sample.deviceUS);
+  event["device_boot_id"] = bootId;
+  event["sample_type"] = kind;
+
+  JsonObject clock = event["clock"].to<JsonObject>();
+  clock["valid"] = true;
+  clock["method"] = "sntp_esp_timer_anchor";
+
+  JsonObject tags = event["tags"].to<JsonObject>();
+  tags["session_id"] = MATCH_ID;
+  char deviceId[48];
+  snprintf(deviceId, sizeof(deviceId), "wearable-%d", PLAYER_ID);
+  tags["device_id"] = deviceId;
+}
+
+void addPayload(JsonObject event, const SampleRecord &sample) {
+  JsonObject payload = event["payload"].to<JsonObject>();
+  payload["device_us"] = sample.deviceUS;
+
+  if (sample.type == SampleType::Imu) {
+    JsonArray accel = payload["a"].to<JsonArray>();
+    JsonArray gyro = payload["g"].to<JsonArray>();
+    for (int i = 0; i < 3; ++i) {
+      accel.add(sample.accel[i]);
+      gyro.add(sample.gyro[i]);
+    }
+    payload["temp_c"] = sample.temperatureC;
+    return;
+  }
+
+  if (sample.type == SampleType::Ppg) {
+    payload["red"] = sample.red;
+    payload["ir"] = sample.ir;
+    return;
+  }
+
+  if (sample.type == SampleType::Gps) {
+    payload["rx"] = sample.gpsRx;
+    payload["fix"] = sample.gpsFix;
+    payload["sat"] = sample.satellites;
+    payload["chars"] = sample.gpsChars;
+    if (sample.gpsFix) {
+      payload["lat"] = sample.latitude;
+      payload["lon"] = sample.longitude;
+      if (isfinite(sample.speedMps)) payload["speed_mps"] = sample.speedMps;
+      if (isfinite(sample.courseDeg)) payload["course_deg"] = sample.courseDeg;
+      if (isfinite(sample.altitudeM)) payload["alt_m"] = sample.altitudeM;
+      if (isfinite(sample.hdop)) payload["hdop"] = sample.hdop;
+    }
+    return;
+  }
+
+  payload["rssi_dbm"] = sample.rssiDbm;
+  payload["heap"] = sample.freeHeap;
+  payload["mpu6050"] = mpuOK;
+  payload["max30102"] = maxOK;
+  payload["gps_rx"] = sample.gpsReceiving;
+  portENTER_CRITICAL(&stateMux);
+  payload["dropped_samples"] = droppedSamples;
+  portEXIT_CRITICAL(&stateMux);
+  payload["queued_samples"] = uxQueueMessagesWaiting(relayQueue) + relayBatchCount;
+}
+
+bool postRelayBatch() {
+  if (!relayBatchCount || !isClockReady() || WiFi.status() != WL_CONNECTED) return false;
+
+  JsonDocument document;
+  JsonArray events = document.to<JsonArray>();
+  for (size_t i = 0; i < relayBatchCount; ++i) {
+    JsonObject event = events.add<JsonObject>();
+    addCommonFields(event, relayBatch[i]);
+    addPayload(event, relayBatch[i]);
+  }
+
+  String body;
+  body.reserve(measureJson(document) + 1);
+  serializeJson(document, body);
+
+  NetworkClientSecure tls;
+  tls.setCACert(RELAY_CA_PEM);
+  tls.setHandshakeTimeout(10);
+  HTTPClient http;
+  http.setConnectTimeout(6000);
+  http.setTimeout(8000);
+  if (!http.begin(tls, RELAY_ENDPOINT)) {
+    Serial.println("Relay HTTPS setup failed");
+    return false;
+  }
+  http.addHeader("Content-Type", "application/json");
+  http.addHeader("Accept", "application/json");
+  http.addHeader("X-Auth", RELAY_TOKEN);
+  const int code = http.POST(body);
+  http.end();
+  tls.stop();
+
+  if (code >= 200 && code < 300) {
+    Serial.printf("Relay accepted %u samples; local queue %u\n",
+                  static_cast<unsigned>(relayBatchCount),
+                  static_cast<unsigned>(uxQueueMessagesWaiting(relayQueue)));
+    relayBatchCount = 0;
+    return true;
+  }
+  Serial.printf("Relay POST failed: HTTP %d; retaining %u samples\n",
+                code, static_cast<unsigned>(relayBatchCount));
+  return false;
+}
+
+void relayTask(void *) {
+  uint32_t retryMS = 500;
+  uint32_t lastClockRefreshMS = 0;
+
+  for (;;) {
+    if (WiFi.status() != WL_CONNECTED) {
+      WiFi.reconnect();
+      vTaskDelay(pdMS_TO_TICKS(1000));
       continue;
     }
 
-    if (c == '\r') continue;
+    if (!isClockReady() || millis() - lastClockRefreshMS >= 60000) {
+      if (refreshClockAnchor()) {
+        lastClockRefreshMS = millis();
+      } else {
+        vTaskDelay(pdMS_TO_TICKS(200));
+        continue;
+      }
+    }
 
-    if (commandLength < sizeof(commandBuffer) - 1) {
-      commandBuffer[commandLength++] = c;
+    if (!relayBatchCount) {
+      if (xQueueReceive(relayQueue, &relayBatch[0], pdMS_TO_TICKS(500)) != pdTRUE) continue;
+      relayBatchCount = 1;
+    }
+
+    const uint32_t batchStartedMS = millis();
+    while (relayBatchCount < RELAY_BATCH_CAPACITY) {
+      const uint32_t elapsed = millis() - batchStartedMS;
+      if (elapsed >= RELAY_BATCH_WINDOW_MS) break;
+      const TickType_t wait = pdMS_TO_TICKS(RELAY_BATCH_WINDOW_MS - elapsed);
+      if (xQueueReceive(relayQueue, &relayBatch[relayBatchCount], wait) == pdTRUE) {
+        ++relayBatchCount;
+      }
+    }
+
+    if (postRelayBatch()) {
+      retryMS = 500;
     } else {
-      commandLength = 0;
+      vTaskDelay(pdMS_TO_TICKS(retryMS));
+      retryMS = min<uint32_t>(retryMS * 2, 15000);
     }
   }
-}
-
-void sendHello() {
-  IPAddress ip = WiFi.localIP();
-  char packet[440];
-
-  snprintf(
-    packet, sizeof(packet),
-    "{\"t\":\"hello\",\"boot_id\":%lu,\"device\":\"esp32-s3-wearable\"," \
-    "\"ip\":\"%u.%u.%u.%u\",\"imu_hz\":100,\"ppg_hz\":%.1f," \
-    "\"ppg_timestamp\":\"fifo-reconstructed\",\"ppg_led\":%u," \
-    "\"ppg_average\":%u,\"ppg_adc_sample_rate\":%d,\"ppg_adc_range_na\":%d," \
-    "\"mpu6050\":%d,\"max30102\":%d,\"gps_baud\":%u}",
-    (unsigned long)bootId,
-    ip[0], ip[1], ip[2], ip[3],
-    PPG_HZ,
-    PPG_LED_AMPLITUDE,
-    PPG_SAMPLE_AVERAGE,
-    PPG_ADC_SAMPLE_RATE,
-    PPG_ADC_RANGE_NA,
-    mpuOK, maxOK, GPS_BAUD
-  );
-
-  sendLine(packet);
-}
-
-void serviceClient() {
-  if (clientConnected()) return;
-
-  if (streamClient) streamClient.stop();
-
-  NetworkClient candidate = streamServer.accept();
-  if (!candidate) return;
-
-  streamClient = candidate;
-  streamClient.setNoDelay(true);
-  commandLength = 0;
-
-  Serial.print("Subscriber connected: ");
-  Serial.println(streamClient.remoteIP());
-  sendHello();
 }
 
 void serviceIMU() {
   if (!mpuOK) return;
-
   const uint64_t nowUS = deviceTimeUS();
   if (nowUS - lastIMUScheduleUS < IMU_PERIOD_US) return;
 
   lastIMUScheduleUS += IMU_PERIOD_US;
-  if (nowUS - lastIMUScheduleUS > 5ULL * IMU_PERIOD_US) {
-    lastIMUScheduleUS = nowUS;
-  }
+  if (nowUS - lastIMUScheduleUS > 5ULL * IMU_PERIOD_US) lastIMUScheduleUS = nowUS;
 
   sensors_event_t a, g, temp;
   const uint64_t t0 = deviceTimeUS();
@@ -196,65 +339,50 @@ void serviceIMU() {
   const uint64_t t1 = deviceTimeUS();
   if (!ok) return;
 
-  const uint64_t sampleUS = t0 + (t1 - t0) / 2ULL;
-
-  char packet[380];
-  snprintf(
-    packet, sizeof(packet),
-    "{\"t\":\"imu\",\"boot_id\":%lu,\"seq\":%llu,\"device_us\":%llu," \
-    "\"a\":[%.6f,%.6f,%.6f],\"g\":[%.6f,%.6f,%.6f],\"temp_c\":%.3f}",
-    (unsigned long)bootId,
-    (unsigned long long)imuSeq++,
-    (unsigned long long)sampleUS,
-    a.acceleration.x, a.acceleration.y, a.acceleration.z,
-    g.gyro.x, g.gyro.y, g.gyro.z,
-    temp.temperature
-  );
-
-  sendLine(packet);
+  SampleRecord sample{};
+  sample.type = SampleType::Imu;
+  sample.sequence = imuSeq++;
+  sample.deviceUS = t0 + (t1 - t0) / 2ULL;
+  sample.accel[0] = a.acceleration.x;
+  sample.accel[1] = a.acceleration.y;
+  sample.accel[2] = a.acceleration.z;
+  sample.gyro[0] = g.gyro.x;
+  sample.gyro[1] = g.gyro.y;
+  sample.gyro[2] = g.gyro.z;
+  sample.temperatureC = temp.temperature;
+  enqueueSample(sample);
 }
 
 void servicePPG() {
   if (!maxOK) return;
-
   max30102.check();
 
-  constexpr int MAX_BATCH = 32;
-  uint32_t redBatch[MAX_BATCH];
-  uint32_t irBatch[MAX_BATCH];
-  int n = 0;
-
-  while (max30102.available() && n < MAX_BATCH) {
-    redBatch[n] = max30102.getFIFORed();
-    irBatch[n] = max30102.getFIFOIR();
+  constexpr int MAX_FIFO_BATCH = 32;
+  uint32_t redBatch[MAX_FIFO_BATCH];
+  uint32_t irBatch[MAX_FIFO_BATCH];
+  int count = 0;
+  while (max30102.available() && count < MAX_FIFO_BATCH) {
+    redBatch[count] = max30102.getFIFORed();
+    irBatch[count] = max30102.getFIFOIR();
     max30102.nextSample();
-    ++n;
+    ++count;
   }
-
-  if (!n) return;
+  if (!count) return;
 
   const uint64_t newestUS = deviceTimeUS();
-
-  for (int i = 0; i < n; ++i) {
-    const uint64_t ageUS = (uint64_t)(n - 1 - i) * PPG_PERIOD_US;
-    const uint64_t sampleUS = newestUS > ageUS ? newestUS - ageUS : newestUS;
-
-    char packet[240];
-    snprintf(
-      packet, sizeof(packet),
-      "{\"t\":\"ppg\",\"boot_id\":%lu,\"seq\":%llu,\"device_us\":%llu," \
-      "\"red\":%lu,\"ir\":%lu}",
-      (unsigned long)bootId,
-      (unsigned long long)ppgSeq++,
-      (unsigned long long)sampleUS,
-      (unsigned long)redBatch[i],
-      (unsigned long)irBatch[i]
-    );
-    sendLine(packet);
+  for (int i = 0; i < count; ++i) {
+    const uint64_t ageUS = static_cast<uint64_t>(count - 1 - i) * PPG_PERIOD_US;
+    SampleRecord sample{};
+    sample.type = SampleType::Ppg;
+    sample.sequence = ppgSeq++;
+    sample.deviceUS = newestUS > ageUS ? newestUS - ageUS : newestUS;
+    sample.red = redBatch[i];
+    sample.ir = irBatch[i];
+    enqueueSample(sample);
   }
 }
 
-bool gpsReceiving() {
+bool gpsReceivingNow() {
   return lastGPSByteMS != 0 && millis() - lastGPSByteMS < 3000;
 }
 
@@ -268,70 +396,30 @@ void serviceGPS() {
   if (nowMS - lastGPSPacketMS < 1000) return;
   lastGPSPacketMS = nowMS;
 
-  const uint64_t nowUS = deviceTimeUS();
-  const bool fix = gps.location.isValid() && gps.location.age() < 3000;
+  SampleRecord sample{};
+  sample.type = SampleType::Gps;
+  sample.sequence = gpsSeq++;
+  sample.deviceUS = deviceTimeUS();
+  sample.gpsRx = gpsReceivingNow();
+  sample.gpsFix = gps.location.isValid() && gps.location.age() < 3000;
+  sample.satellites = gps.satellites.isValid() ? gps.satellites.value() : 0;
+  sample.gpsChars = gps.charsProcessed();
+  sample.speedMps = NAN;
+  sample.courseDeg = NAN;
+  sample.altitudeM = NAN;
+  sample.hdop = NAN;
 
-  char packet[680];
-
-  if (!fix) {
-    snprintf(
-      packet, sizeof(packet),
-      "{\"t\":\"gps\",\"boot_id\":%lu,\"seq\":%llu,\"device_us\":%llu," \
-      "\"rx\":%d,\"fix\":0,\"chars\":%lu,\"sat\":%lu}",
-      (unsigned long)bootId,
-      (unsigned long long)gpsSeq++,
-      (unsigned long long)nowUS,
-      gpsReceiving(),
-      (unsigned long)gps.charsProcessed(),
-      (unsigned long)(gps.satellites.isValid() ? gps.satellites.value() : 0)
-    );
-    sendLine(packet);
-    return;
+  if (sample.gpsFix) {
+    const uint64_t ageUS = static_cast<uint64_t>(gps.location.age()) * 1000ULL;
+    if (sample.deviceUS > ageUS) sample.deviceUS -= ageUS;
+    sample.latitude = gps.location.lat();
+    sample.longitude = gps.location.lng();
+    if (gps.speed.isValid() && gps.speed.age() < 3000) sample.speedMps = gps.speed.mps();
+    if (gps.course.isValid() && gps.course.age() < 3000) sample.courseDeg = gps.course.deg();
+    if (gps.altitude.isValid() && gps.altitude.age() < 5000) sample.altitudeM = gps.altitude.meters();
+    if (gps.hdop.isValid()) sample.hdop = gps.hdop.hdop();
   }
-
-  uint64_t fixUS = nowUS;
-  const uint32_t locationAgeMS = gps.location.age();
-  const uint64_t ageUS = (uint64_t)locationAgeMS * 1000ULL;
-  if (fixUS > ageUS) fixUS -= ageUS;
-
-  char speed[24], course[24], altitude[24], hdop[24];
-  jsonDouble(speed, sizeof(speed),
-             gps.speed.isValid() && gps.speed.age() < 3000 ? gps.speed.mps() : NAN, 4);
-  jsonDouble(course, sizeof(course),
-             gps.course.isValid() && gps.course.age() < 3000 ? gps.course.deg() : NAN, 3);
-  jsonDouble(altitude, sizeof(altitude),
-             gps.altitude.isValid() && gps.altitude.age() < 5000 ? gps.altitude.meters() : NAN, 3);
-  jsonDouble(hdop, sizeof(hdop), gps.hdop.isValid() ? gps.hdop.hdop() : NAN, 3);
-
-  char utc[48] = "null";
-  if (gps.date.isValid() && gps.time.isValid()) {
-    snprintf(
-      utc, sizeof(utc),
-      "\"%04d-%02d-%02dT%02d:%02d:%02d.%02dZ\"",
-      gps.date.year(), gps.date.month(), gps.date.day(),
-      gps.time.hour(), gps.time.minute(), gps.time.second(), gps.time.centisecond()
-    );
-  }
-
-  snprintf(
-    packet, sizeof(packet),
-    "{\"t\":\"gps\",\"boot_id\":%lu,\"seq\":%llu,\"device_us\":%llu," \
-    "\"rx\":1,\"fix\":1,\"lat\":%.7f,\"lon\":%.7f,\"speed_mps\":%s," \
-    "\"course_deg\":%s,\"alt_m\":%s,\"sat\":%lu,\"hdop\":%s," \
-    "\"location_age_ms\":%lu,\"utc\":%s,\"chars\":%lu}",
-    (unsigned long)bootId,
-    (unsigned long long)gpsSeq++,
-    (unsigned long long)fixUS,
-    gps.location.lat(), gps.location.lng(),
-    speed, course, altitude,
-    (unsigned long)(gps.satellites.isValid() ? gps.satellites.value() : 0),
-    hdop,
-    (unsigned long)locationAgeMS,
-    utc,
-    (unsigned long)gps.charsProcessed()
-  );
-
-  sendLine(packet);
+  enqueueSample(sample);
 }
 
 void serviceStatus() {
@@ -339,45 +427,36 @@ void serviceStatus() {
   if (nowMS - lastStatusMS < 2000) return;
   lastStatusMS = nowMS;
 
-  if (!clientConnected() || WiFi.status() != WL_CONNECTED) return;
-
-  IPAddress ip = WiFi.localIP();
-  char packet[360];
-  snprintf(
-    packet, sizeof(packet),
-    "{\"t\":\"status\",\"boot_id\":%lu,\"device_us\":%llu," \
-    "\"ip\":\"%u.%u.%u.%u\",\"rssi_dbm\":%d,\"heap\":%u," \
-    "\"mpu6050\":%d,\"max30102\":%d,\"gps_rx\":%d}",
-    (unsigned long)bootId,
-    (unsigned long long)deviceTimeUS(),
-    ip[0], ip[1], ip[2], ip[3],
-    WiFi.RSSI(), ESP.getFreeHeap(),
-    mpuOK, maxOK, gpsReceiving()
-  );
-  sendLine(packet);
-}
-
-void serviceWiFi() {
-  static uint32_t lastRetryMS = 0;
-  if (WiFi.status() == WL_CONNECTED) return;
-
-  const uint32_t nowMS = millis();
-  if (nowMS - lastRetryMS < 5000) return;
-  lastRetryMS = nowMS;
-  WiFi.reconnect();
+  SampleRecord sample{};
+  sample.type = SampleType::Status;
+  sample.sequence = statusSeq++;
+  sample.deviceUS = deviceTimeUS();
+  sample.rssiDbm = WiFi.status() == WL_CONNECTED ? WiFi.RSSI() : -127;
+  sample.freeHeap = ESP.getFreeHeap();
+  sample.gpsReceiving = gpsReceivingNow();
+  enqueueSample(sample);
 }
 
 void setup() {
   Serial.begin(115200);
   delay(1000);
-
   bootId = esp_random();
 
   Serial.println();
-  Serial.println("=== ESP32-S3 RAW SENSOR STREAM V2 ===");
+  Serial.println("=== CPG44 ESP32-S3 RELAY WEARABLE V3 ===");
+  if (PLAYER_ID <= 0 || WIFI_SSID[0] == '\0' || strlen(RELAY_TOKEN) < 32 ||
+      strlen(RELAY_CA_PEM) < 100 || strcmp(RELAY_ENDPOINT, "https://cpg44.nivaspms.com/api/v1/sensors/ingest") != 0) {
+    Serial.println("Provisioning required. Flash player, Wi-Fi, relay token and relay CA from the dashboard.");
+    while (true) delay(1000);
+  }
+
+  relayQueue = xQueueCreate(RELAY_QUEUE_CAPACITY, sizeof(SampleRecord));
+  if (relayQueue == nullptr) {
+    Serial.println("Could not allocate the bounded relay queue.");
+    while (true) delay(1000);
+  }
 
   bindI2C();
-
   Serial.print("MAX30102 0x57: ");
   Serial.println(probeI2C(0x57) ? "FOUND" : "MISSING");
   Serial.print("MPU6050  0x68: ");
@@ -388,15 +467,8 @@ void setup() {
   if (maxOK) {
     Serial.print("MAX30102 Part ID: 0x");
     Serial.println(max30102.readPartID(), HEX);
-
-    max30102.setup(
-      PPG_LED_AMPLITUDE,
-      PPG_SAMPLE_AVERAGE,
-      PPG_LED_MODE,
-      PPG_ADC_SAMPLE_RATE,
-      PPG_PULSE_WIDTH_US,
-      PPG_ADC_RANGE_NA
-    );
+    max30102.setup(PPG_LED_AMPLITUDE, PPG_SAMPLE_AVERAGE, PPG_LED_MODE,
+                   PPG_ADC_SAMPLE_RATE, PPG_PULSE_WIDTH_US, PPG_ADC_RANGE_NA);
     bindI2C();
     max30102.setPulseAmplitudeRed(PPG_LED_AMPLITUDE);
     max30102.setPulseAmplitudeIR(PPG_LED_AMPLITUDE);
@@ -407,7 +479,6 @@ void setup() {
   }
 
   bindI2C();
-
   mpuOK = mpu.begin(0x68, &Wire);
   bindI2C();
   if (mpuOK) {
@@ -421,7 +492,6 @@ void setup() {
   }
 
   bindI2C();
-
   gpsSerial.begin(GPS_BAUD, SERIAL_8N1, GPS_RX, GPS_TX);
   Serial.println("NEO-6M UART started");
 
@@ -430,38 +500,23 @@ void setup() {
   WiFi.setSleep(false);
   WiFi.setAutoReconnect(true);
   WiFi.begin(WIFI_SSID, WIFI_PASS);
-
-  Serial.print("Connecting Wi-Fi");
-  while (WiFi.status() != WL_CONNECTED) {
-    servicePPG();
-    serviceGPS();
-    Serial.print('.');
-    delay(50);
-  }
-  Serial.println();
-
-  IPAddress ip = WiFi.localIP();
-  Serial.print("ESP32 IP: ");
-  Serial.println(ip);
-
-  streamServer.setNoDelay(true);
-  streamServer.begin();
-
-  Serial.print("RAW STREAM: tcp://");
-  Serial.print(ip);
-  Serial.print(':');
-  Serial.println(STREAM_PORT);
+  configTime(0, 0, "time.cloudflare.com", "pool.ntp.org", "time.google.com");
 
   lastIMUScheduleUS = deviceTimeUS();
+  xTaskCreatePinnedToCore(relayTask, "cpg44-relay", 16384, nullptr, 1, nullptr, 0);
+
+  Serial.print("Relay: ");
+  Serial.println(RELAY_ENDPOINT);
+  Serial.print("Match/player: ");
+  Serial.print(MATCH_ID);
+  Serial.print('/');
+  Serial.println(PLAYER_ID);
 }
 
 void loop() {
-  serviceClient();
-  serviceClientInput();
   servicePPG();
   serviceIMU();
   serviceGPS();
   serviceStatus();
-  serviceWiFi();
   delay(1);
 }

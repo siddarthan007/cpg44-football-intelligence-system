@@ -1,0 +1,126 @@
+\documentclass[12pt,a4paper]{article}
+
+\renewcommand{\baselinestretch}{1.5}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+
+\usepackage{amsmath}
+\usepackage{amsfonts}
+\usepackage{amssymb}
+\usepackage{graphicx}
+\usepackage{geometry}
+\usepackage{tabulary}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage[table]{xcolor}
+\usepackage{xcolor}
+\usepackage{dirtytalk}
+\usepackage{bm}
+\usepackage{longtable}
+\usepackage{comment}
+
+\graphicspath{{../figures/}}
+
+\usepackage[hyphens]{url}
+
+\geometry{
+	left=2.5cm,
+	right=2.5cm,
+	top=2.5cm,
+	bottom=3cm
+}
+
+\usepackage{titlesec}
+
+\setcounter{secnumdepth}{4}
+\setcounter{tocdepth}{4}
+
+\titleformat{\paragraph}
+{\normalfont\normalsize\bfseries}{\theparagraph}{1em}{}
+
+\titlespacing*{\paragraph}
+{0pt}{3.25ex plus 1ex minus .2ex}{1.5ex plus .2ex}
+
+\newenvironment{conditions}
+{\par\vspace{\abovedisplayskip}\noindent
+\begin{tabular}{>{$}l<{$} @{${}={}$} l}}
+{\end{tabular}\par\vspace{\belowdisplayskip}}
+
+% Extra packages required by the mid-semester tables and fixed figures.
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{array}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage[hidelinks]{hyperref}
+
+\renewcommand{\arraystretch}{1.15}
+\emergencystretch=2em
+
+\newcommand{\projecttitle}{Predictive and Tactical Intelligence System for Athlete Performance Using Vision-Based Tracking and Wearable Data Analytics}
+\newcommand{\systemname}{CPG44 Football Intelligence Platform}
+\newcommand{\evidenceplaceholder}[3]{%
+  \begin{figure}[H]
+    \centering
+    \fbox{\begin{minipage}[c][1.25in][c]{0.80\textwidth}
+      \centering\bfseries #1\\[0.45em]
+      \normalfont\small #2
+    \end{minipage}}
+    \caption{#1}
+    \label{fig:#3}
+  \end{figure}%
+}
+
+\begin{document}
+
+\pagenumbering{gobble}
+\input{frontmatter/titlepage}
+\input{frontmatter/approval}
+\input{frontmatter/declaration}
+
+\clearpage
+\pagenumbering{roman}
+\setcounter{page}{1}
+\input{frontmatter/abstract}
+\input{frontmatter/acknowledgement}
+\renewcommand*\contentsname{Table of Contents}
+\tableofcontents
+\clearpage
+\addcontentsline{toc}{section}{List of Figures}
+\listoffigures
+\clearpage
+\addcontentsline{toc}{section}{List of Tables}
+\begingroup
+\small
+\listoftables
+\input{frontmatter/abbreviations}
+\endgroup
+
+\clearpage
+\pagenumbering{arabic}
+\setcounter{page}{1}
+\input{chapters/chapter1}
+\input{chapters/chapter2}
+\input{chapters/chapter3}
+\input{chapters/chapter4}
+\input{chapters/chapter5}
+
+\clearpage
+\renewcommand{\refname}{APPENDIX A: REFERENCES}
+\addcontentsline{toc}{section}{Appendix A: References}
+\bibliographystyle{IEEEtran}
+\bibliography{references}
+
+\clearpage
+\section*{APPENDIX B: PLAGIARISM REPORT}
+\addcontentsline{toc}{section}{Appendix B: Plagiarism Report}
+\begin{center}
+\vspace{1.25in}
+\fbox{\begin{minipage}[c][3.8in][c]{0.78\textwidth}
+\centering
+\textbf{PLAGIARISM REPORT PLACEHOLDER}
+\end{minipage}}
+\end{center}
+
+\end{document}

@@ -29,6 +29,7 @@ class SensorSample:
     altitude: Optional[float] = None                     # m (BMP180)
     gps: Optional[Tuple[float, float]] = None            # lat, lon (NEO-6M)
     source: str = "unknown"
+    signal_quality: Optional[float] = None               # 0..1 after source gating
 
     @classmethod
     def from_json(cls, d: dict) -> "SensorSample":
@@ -40,6 +41,7 @@ class SensorSample:
             accel=tup(d.get("accel")), gyro=tup(d.get("gyro")), mag=tup(d.get("mag")),
             altitude=d.get("altitude"), gps=tup(d.get("gps")),
             source=d.get("source", "json"),
+            signal_quality=d.get("signal_quality"),
         )
 
 

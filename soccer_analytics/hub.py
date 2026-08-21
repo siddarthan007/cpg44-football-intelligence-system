@@ -1,4 +1,4 @@
-"""CLI: python -m soccer_analytics.hub --esp32 192.168.x.x"""
+"""CLI entry point for the relay-backed wearable processor."""
 
 from soccer_analytics.sensors.hub import main
 

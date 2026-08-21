@@ -1,110 +1,76 @@
-import React, { useState } from "react";
+import { useEffect, useState } from 'react';
+import { EmptyState, ErrorBanner, PageHeader, StatusBadge } from '../components/common';
+import { IconClips } from '../components/Icons';
+import { api } from '../lib/api';
 
-export const MatchUploadPage: React.FC = () => {
+type Job = { match_id: string; status: string; progress_pct?: number | null; current_frame?: number; total_frames?: number; fps?: number | null; error_message?: string | null; output_video?: string | null; output_stats?: string | null; log_path?: string | null };
+
+export const MatchUploadPage = () => {
   const [file, setFile] = useState<File | null>(null);
-  const [matchName, setMatchName] = useState("College Championship Match");
+  const [calibration, setCalibration] = useState<File | null>(null);
+  const [name, setName] = useState('Campus match');
+  const [job, setJob] = useState<Job | null>(null);
   const [uploading, setUploading] = useState(false);
-  const [progress, setProgress] = useState<number | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-  const handleUpload = async () => {
+  useEffect(() => {
+    if (!job || ['completed', 'failed'].includes(job.status)) return;
+    let cancelled = false;
+    const timer = window.setInterval(() => api.progress(job.match_id).then((body) => {
+      if (!cancelled) setJob(body as unknown as Job);
+    }).catch((reason: unknown) => { if (!cancelled) setError(reason instanceof Error ? reason.message : 'Progress endpoint unavailable'); }), 1500);
+    return () => { cancelled = true; window.clearInterval(timer); };
+  }, [job?.match_id, job?.status]);
+
+  const upload = async () => {
     if (!file) return;
-    setUploading(true);
-    setProgress(15);
-
-    const formData = new FormData();
-    formData.append("file", file);
-    formData.append("match_name", matchName);
-
+    setUploading(true); setError(null); setJob(null);
+    const form = new FormData();
+    form.append('file', file);
+    form.append('match_name', name);
+    if (calibration) form.append('calibration', calibration);
     try {
-      await fetch(`http://${window.location.hostname}:8000/api/v1/matches/upload`, {
-        method: "POST",
-        body: formData,
-      });
-      setProgress(100);
-    } catch (e) {
-      alert("Upload failed. Ensure backend is running.");
-    } finally {
-      setUploading(false);
-    }
+      const response = await api.uploadMatch(form);
+      setJob({ match_id: response.match_id, status: response.status, progress_pct: 0 });
+    } catch (reason) { setError(reason instanceof Error ? reason.message : 'Upload failed'); }
+    finally { setUploading(false); }
   };
 
   return (
-    <div style={{ padding: "1.5rem", maxWidth: "1100px", margin: "0 auto" }}>
-      <div style={{ marginBottom: "1.5rem" }}>
-        <h2 style={{ fontSize: "1.3rem", fontWeight: 700, color: "var(--text-main)" }}>
-          Video Ingest &amp; Pitch Calibration
-        </h2>
-        <p style={{ color: "var(--text-muted)", fontSize: "0.85rem", marginTop: "0.25rem" }}>
-          Upload match footage, calibrate camera landmarks, and run GPU inference without terminal commands.
-        </p>
+    <div className="page">
+      <PageHeader eyebrow="VIDEO PIPELINE" title="Ingest match footage" description="Upload a real clip and follow the detector, ByteTrack, Re-ID and analytics subprocess through to its artifacts." actions={job && <StatusBadge status={job.status} />} />
+      <ErrorBanner message={error ?? job?.error_message} />
+      <div className="two-column">
+        <section className="card-clean">
+          <div className="section-heading"><div><span className="eyebrow">SOURCE</span><h2>Video file</h2></div></div>
+          <label className="field"><span>Session name</span><input value={name} onChange={(event) => setName(event.target.value)} /></label>
+          <label className="drop-zone">
+            <input type="file" accept="video/mp4,video/quicktime,video/x-matroska,video/webm" onChange={(event) => setFile(event.target.files?.[0] ?? null)} />
+            <IconClips size={30} />
+            <strong>{file?.name ?? 'Choose match footage'}</strong>
+            <span>{file ? `${(file.size / 1024 / 1024).toFixed(1)} MB` : 'MP4, MOV, MKV or WebM'}</span>
+          </label>
+          <button className="btn-solid" disabled={!file || uploading || Boolean(job && !['completed', 'failed'].includes(job.status))} onClick={upload}>{uploading ? 'Uploading…' : 'Upload and start analysis'}</button>
+        </section>
+        <section className="card-clean">
+          <div className="section-heading"><div><span className="eyebrow">CALIBRATION</span><h2>Metric geometry</h2></div></div>
+          <div className="quality-callout neutral"><strong>Camera-specific evidence</strong><p>Create and review a landmark file, then attach it to this job:</p><code>python -m soccer_analytics.calibrate --video footage.mp4 --out camera.yaml</code></div>
+          <label className="field"><span>Calibration YAML (optional)</span><input type="file" accept=".yaml,.yml,application/yaml" onChange={(event) => setCalibration(event.target.files?.[0] ?? null)} /></label>
+          <p className="form-help">Selected: {calibration?.name ?? 'none. Analysis will stay in pixel mode'}. A calibration must match this camera view.</p>
+        </section>
       </div>
-
-      <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr", gap: "1.5rem" }}>
-        <div className="card-clean">
-          <h3 style={{ fontSize: "1rem", fontWeight: 700, marginBottom: "1rem" }}>Upload Video Clip</h3>
-
-          <div style={{ marginBottom: "1rem" }}>
-            <label style={{ display: "block", fontSize: "0.75rem", color: "var(--text-muted)", marginBottom: "0.25rem" }}>
-              Match Name
-            </label>
-            <input
-              type="text"
-              className="select-input"
-              style={{ width: "100%" }}
-              value={matchName}
-              onChange={(e) => setMatchName(e.target.value)}
-            />
+      <section className="card-clean">
+        <div className="section-heading"><div><span className="eyebrow">PROCESS</span><h2>Analysis job</h2></div>{job && <StatusBadge status={job.status} />}</div>
+        {!job ? <EmptyState title="No upload job in this browser session." /> : (
+          <div className="job-card">
+            <div className="progress"><span style={{ width: `${job.progress_pct ?? 0}%` }} /></div>
+            <div className="compact-metrics"><span>Progress <strong>{job.progress_pct == null ? 'starting' : `${job.progress_pct.toFixed(1)}%`}</strong></span><span>Frames <strong>{job.current_frame ?? 0} / {job.total_frames || '-'}</strong></span><span>Throughput <strong>{job.fps ? `${job.fps.toFixed(2)} fps` : '-'}</strong></span></div>
+            {job.output_stats && <p className="artifact-path"><strong>Stats:</strong> {job.output_stats}</p>}
+            {job.output_video && <p className="artifact-path"><strong>Video:</strong> {job.output_video}</p>}
+            {job.log_path && <p className="artifact-path"><strong>Log:</strong> {job.log_path}</p>}
           </div>
-
-          <div
-            style={{
-              border: "2px dashed var(--border-light)",
-              borderRadius: "6px",
-              padding: "2rem",
-              textAlign: "center",
-              background: "var(--bg-subtle)",
-              marginBottom: "1.25rem",
-              cursor: "pointer",
-            }}
-            onClick={() => document.getElementById("vid-upload")?.click()}
-          >
-            <input
-              id="vid-upload"
-              type="file"
-              accept="video/*"
-              style={{ display: "none" }}
-              onChange={(e) => setFile(e.target.files?.[0] || null)}
-            />
-            <div style={{ fontSize: "1.8rem", color: "var(--accent-blue)", marginBottom: "0.5rem" }}>📁</div>
-            <div style={{ fontWeight: 600, fontSize: "0.9rem" }}>
-              {file ? file.name : "Select or drag match video (.mp4, .mov)"}
-            </div>
-            <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginTop: "0.25rem" }}>
-              {file ? `${(file.size / (1024 * 1024)).toFixed(1)} MB` : "720p / 1080p footage"}
-            </div>
-          </div>
-
-          <button className="btn-solid" style={{ width: "100%" }} disabled={!file || uploading} onClick={handleUpload}>
-            {uploading ? "Processing Match Video..." : "Start Video Processing"}
-          </button>
-        </div>
-
-        <div className="card-clean">
-          <h3 style={{ fontSize: "1rem", fontWeight: 700, marginBottom: "0.5rem" }}>Pitch Calibration</h3>
-          <p style={{ fontSize: "0.8rem", color: "var(--text-muted)", marginBottom: "1rem" }}>
-            4 anchor points mapping pixels to standard 105m × 68m coordinates.
-          </p>
-
-          <div style={{ height: "200px", background: "var(--bg-subtle)", border: "1px solid var(--border-light)", borderRadius: "6px", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-muted)", fontSize: "0.85rem" }}>
-            Homography Matrix: Calibrated (SNMOT-060)
-          </div>
-
-          <div style={{ display: "flex", gap: "0.75rem", marginTop: "1rem" }}>
-            <button className="btn-outline" style={{ flex: 1 }}>Auto-Detect</button>
-            <button className="btn-outline" style={{ flex: 1 }}>Reset Anchors</button>
-          </div>
-        </div>
-      </div>
+        )}
+      </section>
     </div>
   );
 };

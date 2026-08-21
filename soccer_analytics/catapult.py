@@ -1,11 +1,10 @@
-"""Catapult-style physical-load engine — accurate, real-world soccer metrics
-derived from **vision** (and augmented by IMU/HR when the wearable is worn).
+"""Transparent football physical-load features from calibrated vision and IMU.
 
 The centrepiece is **metabolic power** (di Prampero 2005 / Osgnach 2010): the
 energy cost of accelerated running on grass is estimated from instantaneous
-speed and acceleration, giving a physiological load measure equivalent to what a
-Catapult GPS unit reports — without any wearable. This is what lets the system do
-real predictive/load analysis today, vision-only.
+speed and acceleration, giving an external-load estimate. It supports
+within-system comparisons after camera validation; it is not claimed to
+reproduce a commercial device.
 
 Inputs come from the Kalman filter (:mod:`soccer_analytics.filters`), which
 supplies smooth velocity and acceleration — essential, because metabolic power is
@@ -16,7 +15,7 @@ Metrics produced per player:
   * high-speed-running distance, sprint efforts
   * high acceleration / deceleration efforts
   * metabolic power (avg / peak), high-metabolic-power distance, energy (kcal)
-  * vision PlayerLoad proxy (accel-based) and, if worn, true IMU PlayerLoad
+  * vision acceleration-load proxy and, if worn, tri-axial IMU PlayerLoad
   * HR average / drift, min SpO2, and cross-session ACWR
 
 Pure NumPy — unit-testable.
@@ -167,7 +166,7 @@ class LoadEngine:
             a.pl_vision += math.hypot(ax - a._last_a[0], ay - a._last_a[1]) / 100.0
         a._last_a = (ax, ay)
 
-        # true Catapult PlayerLoad from tri-axial IMU (if worn)
+        # Tri-axial IMU PlayerLoad-style accumulation (if worn).
         if imu_accel is not None:
             if a._last_imu is not None:
                 a.pl_imu += math.sqrt(sum((imu_accel[i] - a._last_imu[i]) ** 2

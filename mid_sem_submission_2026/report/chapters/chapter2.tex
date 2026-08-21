@@ -1,0 +1,278 @@
+\section{Requirement Analysis}
+
+\subsection{Literature Survey}
+
+\subsubsection{Theory Associated with the Problem Area}
+Multi-object tracking first detects objects and then keeps an ID across frames.
+ByteTrack checks high-score boxes and also uses lower-score detections in a
+second matching step \cite{zhang2022bytetrack}. This helps during short
+occlusion. It does not identify the actual player, so team colour, jersey
+evidence, appearance, and manual review are added in our design.
+
+Pitch calibration converts an image point to a field point. The bottom centre
+of a player's box is treated as the contact point. A homography matrix $H$ maps
+the image point $p=(u,v,1)^T$ to $q$:
+\begin{equation}
+q \sim Hp, \qquad (x,y)=\left(\frac{q_1}{q_3},\frac{q_2}{q_3}\right).
+\end{equation}
+Distance, speed, zones, team width, and team length are calculated only after
+the mapping error is checked against known field points.
+
+The wearable signals have different rates and errors. The IMU measures rapid
+movement, while GPS updates more slowly. PPG measures light changes at the
+skin, but football movement can hide the pulse signal \cite{zhang2021ppg}. The
+system checks contact, red and infrared signal range, motion, peak consistency,
+and sample age before showing BPM or estimated SpO$_2$.
+
+Clock alignment does not use packet arrival order. SNTP anchors the ESP32 UTC
+clock to its monotonic timer with
+\begin{equation}
+t_s = t_d + b,
+\end{equation}
+where $t_d$ is the monotonic device time, $b$ is the current UTC offset, and
+$t_s$ is source time. Source time, relay receive time, local receive time, and
+sequence are kept. The remaining alignment error is saved in the joined record.
+
+Team shape uses positions on the field. The centroid gives the team centre,
+width and length give the spans on both axes, and compactness gives the spread
+around the centre. These measures are common in tactical movement studies
+\cite{goncalves2017tactical} and are easy to check on a pitch view.
+
+Workload prediction needs repeated sessions rather than one sensor value.
+Inputs can include high-intensity distance, acceleration count, session load,
+recovery time, change from personal baseline, and data quality. A prediction
+model is tested on later sessions. Its probability quality can be checked with
+the Brier score
+\begin{equation}
+\mathrm{BS}=\frac{1}{N}\sum_{i=1}^{N}(p_i-y_i)^2.
+\end{equation}
+
+\subsubsection{Existing Systems and Solutions}
+SoccerNet-Tracking is a football benchmark with players, goalkeepers,
+referees, the ball, team labels, and jersey data \cite{cioppa2022soccernet}.
+SportsMOT adds many examples of fast movement and similar-looking players
+across sports \cite{cui2023sportsmot}. They are useful for detector and tracker
+work, but they do not contain our wearable data or campus camera view.
+
+Honda et al. combine video and player trajectories for pass-receiver prediction
+\cite{honda2022pass}. TacticAI studies player relations in corner kicks
+\cite{tacticai2024}. These projects show that tactical context matters, but
+their task and data are different from a live campus training platform.
+
+Workload studies use GPS and training data for injury-risk modelling. Rossi et
+al. use an interpretable decision-tree approach \cite{rossi2018injury}, while
+Pi{\l}ka et al. study XGBoost with wearable load data \cite{pilka2023workload}.
+Their reported scores cannot be treated as our score. A review by Leckey et al.
+also shows large differences in labels, groups, and testing methods
+\cite{leckey2025injury}.
+
+Table~\ref{tab:literature_comparison} compares the main work used in our design.
+The contribution column describes the cited work, not a result from this
+project.
+
+\begin{longtable}{@{}p{0.95in}p{1.2in}p{1.65in}p{1.75in}@{}}
+\caption{Comparison of related work}\label{tab:literature_comparison}\\
+\toprule
+\textbf{Work} & \textbf{Input} & \textbf{Main contribution} & \textbf{Gap for this project}\\
+\midrule
+\endfirsthead
+\toprule
+\textbf{Work} & \textbf{Input} & \textbf{Main contribution} & \textbf{Gap for this project}\\
+\midrule
+\endhead
+ByteTrack \cite{zhang2022bytetrack} & Detections & Matches high- and low-score boxes & No football roster or wearable link\\
+SoccerNet-Tracking \cite{cioppa2022soccernet} & Football video & Football MOT dataset and benchmark & No physiological stream\\
+SportsMOT \cite{cui2023sportsmot} & Multi-sport video & Sports tracking benchmark & No jersey-device binding\\
+Honda et al. \cite{honda2022pass} & Video and trajectories & Pass-receiver prediction & One tactical task, no wearable context\\
+TacticAI \cite{tacticai2024} & Corner-kick data & Player-relation prediction and suggestions & Not a full live acquisition system\\
+Rossi et al. \cite{rossi2018injury} & GPS training load & Interpretable injury forecasting & Study labels do not transfer directly\\
+Pi{\l}ka et al. \cite{pilka2023workload} & Wearable load & XGBoost injury-risk study & No synchronised tactical view\\
+Leckey et al. \cite{leckey2025injury} & Published studies & Review of injury-risk methods & Shows need for careful local testing\\
+Teixeira et al. \cite{teixeira2025tactical} & Tactical studies & Review of football tactical analysis & Notes data access and explanation gaps\\
+\bottomrule
+\end{longtable}
+
+\subsubsection{Research Findings from Existing Literature}
+The review gives five design rules. Weak detections can help tracking, but they
+still need identity checks. Public football data helps early training, but
+campus footage needs its own labels. Tactical values must use player relations.
+Wearable values need movement-aware quality checks. Workload models must be
+tested on later sessions and explained in simple terms.
+
+Our work builds on these findings through one session pipeline. It links a
+wearable to a visible player, preserves time and quality during fusion, and
+shows the supporting event to the coach. The aim is a testable campus product,
+not a replacement for the systems reported in the papers.
+
+\subsubsection{Problem Identified}
+The reviewed work does not provide one solution for live player and ball
+tracking, jersey support, low-cost wearables, measured time alignment, player
+correction, tactical analysis, workload review, and a storage-free relay. The
+main problem is correct joining. A good heart-rate reading given to the wrong
+player or wrong second is still a wrong result.
+
+\subsubsection{Survey of Tools and Technologies Used}
+Python is used for vision, sensor processing, analytics, and the API.
+Ultralytics provides the detector interface, ByteTrack provides association,
+and OpenCV handles video and pitch mapping. FastAPI and WebSocket provide live
+updates. React, TypeScript, and Vite provide the responsive dashboard.
+
+The wearable uses an Espressif ESP32-S3. Arduino CLI and the official
+Espressif board package are installed in the \texttt{soccer} conda environment.
+The required live relay runs in Docker behind Cloudflare and Caddy at
+\texttt{cpg44.nivaspms.com}. PlantUML source is used for diagrams and LaTeX is
+used for the report and presentation.
+
+\subsection{Software Requirement Specification}
+
+\subsubsection{Introduction}
+
+\paragraph{Purpose}
+The SRS gives requirements that can be checked during the prototype and final
+evaluation. It covers capture, synchronisation, analytics, relay transport,
+dashboard use, review, and data export.
+
+\paragraph{Intended Audience and Reading Suggestions}
+The intended readers are the mentor, panel members, project team, testers, and
+future student maintainers. Readers can use this section for requirements and
+Section~\ref{sec:design_specifications} for their design.
+
+\paragraph{Project Scope}
+The product starts with camera frames and wearable samples. It ends with live
+views, reviewed events, session evidence, and training data. Medical diagnosis
+and official match decisions are outside the scope.
+
+\subsubsection{Overall Description}
+
+\paragraph{Product Perspective}
+The platform is a web application whose main processing and session storage run
+on the project PC. The VPS relay is a required deployed component for the public
+domain route. It forwards recent authenticated events and keeps no database or
+match archive.
+
+\paragraph{Product Features}
+Main features are session setup, camera calibration, roster and team setup,
+wearable pairing, live player and ball tracking, telemetry quality, tactical
+events, workload review, identity correction, replay, and checked export.
+
+\begin{longtable}{@{}p{0.65in}p{4.55in}p{0.65in}@{}}
+\caption{Functional requirements}\label{tab:functional_requirements}\\
+\toprule
+\textbf{ID} & \textbf{Requirement} & \textbf{Priority}\\
+\midrule
+\endfirsthead
+\toprule
+\textbf{ID} & \textbf{Requirement} & \textbf{Priority}\\
+\midrule
+\endhead
+FR-01 & Create, start, pause, resume, and close one timestamped session. & Must\\
+FR-02 & Calibrate the pitch and report mapping error. & Must\\
+FR-03 & Detect and track players, goalkeepers, referees, and the ball. & Must\\
+FR-04 & Keep team, jersey, appearance, and manual identity evidence. & Must\\
+FR-05 & Read wearable packets with device time, receive time, and sequence. & Must\\
+FR-06 & Bind a wearable to a player and keep binding corrections. & Must\\
+FR-07 & Align both streams and report the remaining timing error. & Must\\
+FR-08 & Show a large live pitch, player data, quality, and stream health. & Must\\
+FR-09 & Calculate tactical geometry, movement load, and event summaries. & Must\\
+FR-10 & Export reviewed observations, labels, features, and source details. & Must\\
+FR-11 & Relay live events only through \texttt{cpg44.nivaspms.com}. & Must\\
+FR-12 & Replay a bounded sequence window after a short disconnection. & Must\\
+\bottomrule
+\end{longtable}
+
+\subsubsection{External Interface Requirements}
+
+\paragraph{User Interfaces}
+The dashboard shall support keyboard and pointer use and remain readable on
+laptop, projector, and tablet widths. Status shall use text along with colour.
+The pitch and live markings shall remain the largest part of the live page.
+
+\paragraph{Hardware Interfaces}
+The camera interface accepts a local camera or supported video stream. The
+wearable sends timestamped raw samples by HTTPS to
+\texttt{cpg44.nivaspms.com}. The local processor receives the samples from the
+relay by WSS. Each event includes source identity, time, sequence, payload, and
+status.
+
+\paragraph{Software Interfaces}
+FastAPI provides session commands and snapshots. Versioned WebSocket events
+provide live updates. Remote clients use HTTPS or WSS at the required domain;
+direct VPS-IP addresses are rejected.
+
+\subsubsection{Other Non-functional Requirements}
+
+\paragraph{Performance Requirements}
+The system shall show processing rate, display delay, packet age, and sequence
+gaps for the demonstration setup. Queues and relay memory shall have fixed
+limits. A relay reconnect shall request events after the last accepted sequence
+or request a new snapshot when the gap is too old.
+
+\paragraph{Safety Requirements}
+The wearable shall be insulated, strain-relieved, and fitted so it does not
+interfere with play. A stale or weak sensor value shall not be presented as a
+valid measurement. Health-related output shall be labelled as coaching support,
+not diagnosis.
+
+\paragraph{Security Requirements}
+Session commands and relay routes shall require a role or private token. Secrets
+shall stay outside tracked firmware and frontend source. The relay shall check
+the token, source, timestamp, value range, and body size, and shall create no
+persistent storage. Personal
+session records shall remain on the project PC unless the team makes an
+authorised export.
+
+\subsection{Cost Analysis}
+Table~\ref{tab:cost_analysis} gives a planning estimate for five wearables. The
+project PC, domain, and VPS are already available, so they add no new purchase
+cost. Invoice values can replace these estimates in the final report.
+
+\begin{table}[H]
+\centering
+\caption{Estimated cost for a five-player prototype}
+\label{tab:cost_analysis}
+\small
+\begin{tabularx}{\textwidth}{X r r r}
+\toprule
+\textbf{Item} & \textbf{Qty.} & \textbf{Unit cost (Rs.)} & \textbf{Amount (Rs.)}\\
+\midrule
+ESP32-S3 development board & 5 & 900 & 4,500\\
+MPU-6050 IMU module & 5 & 180 & 900\\
+MAX30102 optical sensor module & 5 & 350 & 1,750\\
+NEO-6M GPS module and antenna & 5 & 650 & 3,250\\
+Battery, charger, and regulation & 5 & 550 & 2,750\\
+Enclosure, strap, wiring, and connectors & 5 & 650 & 3,250\\
+Camera support and tripod allowance & 1 & 3,000 & 3,000\\
+Calibration and labelling material & 1 & 1,200 & 1,200\\
+\midrule
+\multicolumn{3}{r}{\textbf{Estimated total}} & \textbf{20,600}\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+One wearable has an estimated material cost of Rs. 3,280. The design can start
+with fewer units for a controlled drill and later increase to five. Annotation,
+testing, fitting, and maintenance still require team effort.
+
+\subsection{Risk Analysis}
+\begin{longtable}{@{}p{1.1in}>{\centering\arraybackslash}p{0.65in}>{\centering\arraybackslash}p{0.6in}p{3.35in}@{}}
+\caption{Project risk register}\label{tab:risk_register}\\
+\toprule
+\textbf{Risk} & \textbf{Chance} & \textbf{Impact} & \textbf{Control and check}\\
+\midrule
+\endfirsthead
+\toprule
+\textbf{Risk} & \textbf{Chance} & \textbf{Impact} & \textbf{Control and check}\\
+\midrule
+\endhead
+Player ID switch & Medium & High & Team calibration, jersey and appearance votes, unresolved state, manual correction, IDF1 and switch count.\\
+Ball missed & High & Medium & Ball-specific labels, short recovery, speed and field limits, visible confidence, review clips.\\
+PPG motion noise & High & High & Stable fitting, contact and motion gates, raw signal retention, reference-device test.\\
+GPS dropout & Medium & Medium & Fix and satellite state, physical bounds, vision cross-check, no long silent interpolation.\\
+Clock drift & Medium & High & SNTP source time, receive time, sequence numbers, and repeated LED plus tap test.\\
+Limited outcome labels & High & High & Minimum-data gate, reviewed labels, later-session test, no early injury claim.\\
+Relay outage & Medium & High & Bounded wearable queue, domain health check, sequence replay, fresh snapshot after a long gap.\\
+Camera movement & Medium & High & Calibration lock, field-point check, mapping-error monitor, recalibration step.\\
+Dashboard overload & Medium & Medium & Large pitch, short labels, task-based pages, projector and narrow-screen review.\\
+Unauthorised access & Low & High & TLS, token checks, local records, no relay database, limited logs.\\
+\bottomrule
+\end{longtable}
