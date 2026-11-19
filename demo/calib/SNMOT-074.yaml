@@ -1,0 +1,41 @@
+# Calibration for SNMOT-074 (kick-off view, frame 0 of demo/clips/SNMOT-074_750f.mp4).
+# Read from 1.4x zoomed, ruler-ticked crops of the exact first frame: the four
+# centre-circle extremes (used as on-circle constraints, not as biased point
+# correspondences), extra arc samples, the halfway line, the near touchline and
+# the right penalty-area / goal-area corners and edges (read from a ruler crop).
+# The far touchline is hidden behind the advertising boards. Verify with
+# scripts/check_calibration.py before relying on far-side distances.
+points:
+  circle_left:   [65, 540]
+  circle_right:  [676, 524]
+  circle_top:    [376, 472]
+  circle_bottom: [381, 597]
+  r_pen_top:     [1160, 392]
+  r_pen_bottom:  [1800, 590]
+  r_goal_top:    [1495, 417]
+  r_goal_bottom: [1800, 492]
+circle:
+  - [147, 501]
+  - [147, 579]
+  - [576, 484]
+  - [583, 576]
+lines:
+  halfway:
+    - [373, 440]
+    - [381, 640]
+    - [395, 700]
+    - [413, 1000]
+  right_box_front:
+    - [1160, 392]
+    - [1500, 497]
+    - [1800, 590]
+  right_goal_area_front:
+    - [1495, 417]
+    - [1800, 492]
+  box_near_edge:
+    - [1800, 590]
+    - [1915, 578]
+  near_touchline:
+    - [470, 1068]
+    - [700, 1033]
+    - [880, 1006]

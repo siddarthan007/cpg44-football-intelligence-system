@@ -113,7 +113,8 @@ def test_kalman_recovers_constant_velocity():
 
 def test_metabolic_energy_cost_flat():
     from soccer_analytics.catapult import energy_cost
-    assert abs(energy_cost(0.0) - 3.6) < 1e-6   # flat, constant speed = 3.6 J/kg/m
+    assert abs(energy_cost(0.0) - 3.6) < 1e-6   # hard flat surface, constant speed = 3.6 J/kg/m
+    assert abs(energy_cost(0.0, 1.29) - 4.644) < 1e-3   # natural grass (Osgnach et al. 2010)
     assert energy_cost(3.0) > energy_cost(0.0)   # accelerating costs more
     assert energy_cost(-3.0) < energy_cost(0.0)  # decelerating costs less
 
@@ -127,9 +128,13 @@ def test_loadengine_metabolic_power():
     f = le.features(1)
     assert abs(f.total_distance - 30.0) < 1.0            # 6*5 = 30 m
     assert f.hsr_distance > 25                            # 6 > 5.5 m/s
-    assert abs(f.metabolic_power_avg - 21.6) < 1.0        # 3.6 J/kg/m * 6 m/s
+    assert abs(f.metabolic_power_avg - 27.9) < 1.0        # 3.6 J/kg/m x 1.29 (grass) x 6 m/s
     assert f.energy_kcal > 0
     assert f.distance_by_zone.get("sprint", 0) == 0       # 6 < 7 m/s not sprint
+    court = LoadEngine(mass_kg=75, terrain="court")
+    for i in range(125):
+        court.update(1, 0.04, vel=(6.0, 0.0), acc=(0.0, 0.0))
+    assert abs(court.features(1).metabolic_power_avg - 21.6) < 1.0   # futsal floor, no terrain cost
 
 
 def test_pitch_control_voronoi():
@@ -218,7 +223,7 @@ def test_shot_detection():
     goals = {1: 105.0, 2: 0.0}
     # team 1 fires from (80,34) toward x=105 at 12 m/s → one shot
     sd.update(0, (80.0, 34.0), (12.0, 0.0), 1, goals, nearest_player=9)
-    # ball still fast next frame — no double count (debounced by _in_shot)
+    # ball still fast next frame, no double count (debounced by _in_shot)
     sd.update(1, (82.0, 34.0), (12.0, 0.0), 1, goals, nearest_player=9)
     # slow ball → nothing
     sd.update(2, (50.0, 34.0), (1.0, 0.0), 1, goals)
@@ -243,9 +248,9 @@ def test_jersey_tie_not_confident():
     v = JerseyVoteTracker(min_votes=4, min_fraction=0.5)
     for n in [10, 16, 10, 16]:
         v.add(1, n)
-    assert v.confident_number(1) is None   # 2–2 tie is NOT confident
+    assert v.confident_number(1) is None   # 2-2 tie is NOT confident
     v.add(1, 10)
-    assert v.confident_number(1) == 10     # now a clear 3–2 majority
+    assert v.confident_number(1) == 10     # now a clear 3-2 majority
 
 
 def test_autobind_uniqueness_and_manual():
@@ -258,7 +263,7 @@ def test_autobind_uniqueness_and_manual():
         def read(self, frame, bbox): return self.n
 
     sync = SensorVideoSync()
-    sync.bind(99, 3)                        # manual binding — authoritative
+    sync.bind(99, 3)                        # manual binding, authoritative
     ab = AutoBinder(StubReader(10), {10: 7}, every=1)
     for fi in range(6):                     # track 5 reads #10 → player 7
         ab.step(fi, None, [(5, (0, 0, 10, 20)), (99, (0, 0, 10, 20))], sync)
@@ -322,7 +327,7 @@ def test_jersey_vote_tracker():
 
 def test_team_assign_shadow_invariant():
     # regression for the team-mixing bug: a white jersey in SHADOW (low Lab-L) must
-    # be assigned to the same team as a bright white jersey — clustering on chroma
+    # be assigned to the same team as a bright white jersey, clustering on chroma
     # (a,b), not lightness. Colours are (L, a, b).
     from soccer_analytics.team_assign import TeamAssigner
     ta = TeamAssigner()
@@ -337,7 +342,7 @@ def test_team_assign_shadow_invariant():
 
 def test_line_circle_constrained_homography():
     # synthesize a camera H, generate: 2 exact points, points on pitch lines
-    # (touchline y=0, halfway x=52.5), and points ON the centre circle — the
+    # (touchline y=0, halfway x=52.5), and points ON the centre circle, the
     # constrained fit must recover the mapping (sideline-compression regression).
     from soccer_analytics.view import fit_homography_lines, apply_homography
     Hcam = np.array([[8.0, 2.0, 300.0], [0.5, 10.0, 150.0], [0.0005, 0.001, 1.0]])
@@ -364,8 +369,7 @@ def test_line_circle_constrained_homography():
 
 
 def test_reid_persists_across_gap():
-    # a player leaves view (ByteTrack drops the id) and returns with a NEW id —
-    # Re-ID must map it back to the SAME stable id.
+    # a player leaves view (ByteTrack drops the id) and returns with a NEW id, # Re-ID must map it back to the SAME stable id.
     from soccer_analytics.reid import ReIDManager
     r = ReIDManager()
     green = np.array([150.0, 100.0, 160.0])
@@ -462,6 +466,22 @@ def test_hardware_chain_end_to_end():
     ranked = adv.advise({3: r.risk})
     assert ranked and ranked[0].player_id == 3
     assert ranked[0].fatigue > 0.2                     # the fade is detected
+
+
+def test_fusion_rejects_explicitly_unsynced_wearable_sample():
+    from soccer_analytics.sensors import FusionEngine, SensorVideoSync
+    from soccer_analytics.sensors.schema import SensorSample
+
+    sync = SensorVideoSync()
+    sync.bind(3, 7)
+    fusion = FusionEngine(sync)
+    fusion.ingest_sensors([
+        SensorSample(7, 10.0, hr=180.0, spo2=90.0, accel=(1.0, 1.0, 1.0), clock_synced=False)
+    ])
+    fusion.step(0.04, 10.0, {3: ((4.0, 0.0), (0.0, 0.0))})
+    assert 3 not in fusion.aligned
+    assert fusion.alignment[3]["matched"] is False
+    assert np.isnan(fusion.load.features(3).avg_hr)
 
 
 if __name__ == "__main__":

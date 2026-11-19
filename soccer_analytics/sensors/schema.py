@@ -1,7 +1,7 @@
 """Typed records exchanged across the fusion layer.
 
 Every sample carries a ``t`` (epoch seconds, float) so the wearable and video
-streams can be time-aligned regardless of their independent sample rates — the
+streams can be time-aligned regardless of their independent sample rates, the
 foundation for near-real-time multimodal sync.
 """
 
@@ -30,6 +30,11 @@ class SensorSample:
     gps: Optional[Tuple[float, float]] = None            # lat, lon (NEO-6M)
     source: str = "unknown"
     signal_quality: Optional[float] = None               # 0..1 after source gating
+    clock_synced: Optional[bool] = None
+    transport_delay_ms: Optional[float] = None
+    sample_age_ms: Optional[float] = None
+    imu_calibrated: Optional[bool] = None
+    hr_timestamp: Optional[float] = None
 
     @classmethod
     def from_json(cls, d: dict) -> "SensorSample":
@@ -42,6 +47,11 @@ class SensorSample:
             altitude=d.get("altitude"), gps=tup(d.get("gps")),
             source=d.get("source", "json"),
             signal_quality=d.get("signal_quality"),
+            clock_synced=d.get("clock_synced"),
+            transport_delay_ms=d.get("transport_delay_ms"),
+            sample_age_ms=d.get("sample_age_ms"),
+            imu_calibrated=d.get("imu_calibrated"),
+            hr_timestamp=d.get("hr_timestamp"),
         )
 
 

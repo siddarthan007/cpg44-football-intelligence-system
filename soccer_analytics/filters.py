@@ -4,7 +4,7 @@ A constant-acceleration Kalman filter turns noisy per-frame pitch positions into
 smooth **position, velocity and acceleration** estimates. This is the single
 biggest accuracy lever downstream: raw finite-difference speed is dominated by
 detection jitter (which is why unfiltered speeds needed hard clamping), whereas
-the filter yields physically plausible velocity and — crucially — acceleration,
+the filter yields physically plausible velocity and, crucially, acceleration,
 which the metabolic-power / Catapult load model in :mod:`soccer_analytics.catapult`
 depends on.
 
@@ -12,7 +12,7 @@ State per track: [x, vx, ax, y, vy, ay] (metres, m/s, m/s²). Measurement: (x, y
 During occlusions (no detection) the filter runs predict-only, so a briefly lost
 player keeps a sensible trajectory instead of a teleport.
 
-Pure NumPy — unit-testable without the CV stack.
+Pure NumPy, unit-testable without the CV stack.
 """
 
 from __future__ import annotations
@@ -26,7 +26,7 @@ class TrackKalman:
     """Constant-acceleration Kalman filter for one 2-D track (metres)."""
 
     def __init__(self, meas_noise: float = 0.35, accel_noise: float = 3.0,
-                 max_speed: float = 12.0):
+                 max_speed: float = 12.0, innovation_gate: float = 13.82):
         # measurement noise (m): homography + foot-point error, ~0.3-0.5 m
         self.R = np.eye(2) * (meas_noise ** 2)
         self.q = accel_noise ** 2           # process (jerk) noise density
@@ -37,6 +37,9 @@ class TrackKalman:
         self.H[0, 0] = 1.0
         self.H[1, 3] = 1.0
         self._initialized = False
+        self.innovation_gate = innovation_gate  # chi-square(2), 99.9% gate
+        self.measurement_accepted = False
+        self.rejected_measurements = 0
 
     @staticmethod
     def _F(dt: float) -> np.ndarray:
@@ -65,21 +68,32 @@ class TrackKalman:
 
     def step(self, z: Optional[Tuple[float, float]], dt: float):
         """Advance one frame with measurement ``z`` (or None during occlusion)."""
+        self.measurement_accepted = False
+        valid = z is not None and np.isfinite(z).all()
         if not self._initialized:
-            if z is not None and not np.isnan(z[0]):
+            if valid:
                 self.init(z)
+                self.measurement_accepted = True
             return
         dt = max(dt, 1e-3)
         F = self._F(dt)
         self.x = F @ self.x
         self.P = F @ self.P @ F.T + self._Q(dt)
 
-        if z is not None and not np.isnan(z[0]):
+        if valid:
             y = np.array([z[0], z[1]]) - self.H @ self.x
             S = self.H @ self.P @ self.H.T + self.R
-            K = self.P @ self.H.T @ np.linalg.inv(S)
-            self.x = self.x + K @ y
-            self.P = (np.eye(6) - K @ self.H) @ self.P
+            innovation = float(y @ np.linalg.solve(S, y))
+            if innovation <= self.innovation_gate:
+                K = np.linalg.solve(S, self.H @ self.P).T
+                self.x = self.x + K @ y
+                correction = np.eye(6) - K @ self.H
+                # Joseph form keeps covariance positive under long float runs.
+                self.P = correction @ self.P @ correction.T + K @ self.R @ K.T
+                self.P = 0.5 * (self.P + self.P.T)
+                self.measurement_accepted = True
+            else:
+                self.rejected_measurements += 1
 
         # clamp velocity to physically plausible range (robust to bad detections)
         sp = self.speed
@@ -119,7 +133,7 @@ class TrackKalman:
 
 
 class BallKalman(TrackKalman):
-    """Ball filter — higher process noise (fast, erratic) and higher speed cap."""
+    """Ball filter, higher process noise (fast, erratic) and higher speed cap."""
 
     def __init__(self):
         super().__init__(meas_noise=0.5, accel_noise=12.0, max_speed=40.0)
@@ -139,20 +153,28 @@ class KalmanBank:
         self._kw = dict(meas_noise=meas_noise, accel_noise=accel_noise, max_speed=max_speed)
         self._filters: dict = {}
         self._missing: dict = {}
+        self._last_time: dict = {}
         self.max_missing = max_missing
 
-    def update(self, track_id: int, z, dt: float) -> TrackKalman:
+    def update(self, track_id: int, z, dt: float, time_s: Optional[float] = None) -> TrackKalman:
         kf = self._filters.get(track_id)
         if kf is None:
             kf = TrackKalman(**self._kw)
             self._filters[track_id] = kf
+        if time_s is not None:
+            dt = max(1e-3, time_s - self._last_time.get(track_id, time_s - dt))
+            self._last_time[track_id] = time_s
         kf.step(z, dt)
-        self._missing[track_id] = 0 if (z is not None and not np.isnan(z[0])) \
+        self._missing[track_id] = 0 if kf.measurement_accepted \
             else self._missing.get(track_id, 0) + 1
         return kf
 
-    def prune(self):
+    def prune(self, active_ids=None):
+        if active_ids is not None:
+            for tid in self._filters.keys() - set(active_ids):
+                self._missing[tid] = self._missing.get(tid, 0) + 1
         dead = [t for t, m in self._missing.items() if m > self.max_missing]
         for t in dead:
             self._filters.pop(t, None)
             self._missing.pop(t, None)
+            self._last_time.pop(t, None)

@@ -40,7 +40,7 @@ MAX_BODY_BYTES = max(
 )
 MATCH_PATTERN = re.compile(r"^[A-Za-z0-9._:-]{1,64}$")
 SOURCE_VALUES = {"synchronized_local_hub", "wearable"}
-RAW_SAMPLE_TYPES = {"imu", "ppg", "gps", "status"}
+RAW_SAMPLE_TYPES = {"imu", "ppg", "ecg", "gps", "status"}
 RELAY_INSTANCE_ID = secrets.token_hex(8)
 
 
@@ -95,6 +95,9 @@ def _raw_payload(sample_type: Optional[str], value: Any) -> Optional[Dict[str, A
         if accel is None or gyro is None:
             return None
         clean.update({"a": accel, "g": gyro})
+        mag = _vector(value.get("m"), 3, 2000.0)            # magnetometer, microtesla
+        if mag is not None:
+            clean["m"] = mag
         temperature = _float(value.get("temp_c"), -50.0, 125.0)
         if temperature is not None:
             clean["temp_c"] = temperature
@@ -106,6 +109,18 @@ def _raw_payload(sample_type: Optional[str], value: Any) -> Optional[Dict[str, A
         if red is None or infrared is None:
             return None
         clean.update({"red": red, "ir": infrared})
+        return clean
+
+    if sample_type == "ecg":
+        # one block of single-lead ECG: raw 12-bit ADC counts at a fixed rate
+        rate = _integer(value.get("fs"), 50, 1000)
+        raw = value.get("v")
+        if rate is None or not isinstance(raw, list) or not 1 <= len(raw) <= 200:
+            return None
+        counts = [_integer(x, 0, 4095) for x in raw]
+        if any(c is None for c in counts):
+            return None
+        clean.update({"fs": rate, "v": counts, "lead_off": bool(value.get("lead_off"))})
         return clean
 
     if sample_type == "gps":
@@ -144,7 +159,24 @@ def _raw_payload(sample_type: Optional[str], value: Any) -> Optional[Dict[str, A
         "gps_rx": bool(value.get("gps_rx")),
         "dropped_samples": _integer(value.get("dropped_samples"), 0, 4_294_967_295) or 0,
         "queued_samples": _integer(value.get("queued_samples"), 0, 100_000) or 0,
+        "imu_rate_hz": _integer(value.get("imu_rate_hz"), 1, 3200),
+        "imu_accel_range_g": _integer(value.get("imu_accel_range_g"), 2, 32),
+        "imu_gyro_range_dps": _integer(value.get("imu_gyro_range_dps"), 125, 4000),
+        "ppg_output_rate_hz": _integer(value.get("ppg_output_rate_hz"), 1, 3200),
+        "ppg_raw_rate_hz": _integer(value.get("ppg_raw_rate_hz"), 1, 3200),
+        "ppg_sample_average": _integer(value.get("ppg_sample_average"), 1, 32),
+        "clock_anchor_age_ms": _integer(value.get("clock_anchor_age_ms"), 0, 300_000),
+        "ecg": bool(value.get("ecg")),
+        "magnetometer": bool(value.get("magnetometer")),
+        "fuel_gauge": bool(value.get("fuel_gauge")),
     })
+    # battery and GNSS rate were silently dropped here before: keep them
+    for key, low, high in (("battery_v", 2.5, 4.5), ("battery_pct", 0.0, 100.0),
+                           ("battery_rate_pct_h", -200.0, 200.0), ("gps_rate_hz", 0.0, 20.0),
+                           ("ecg_rate_hz", 0.0, 1000.0)):
+        number = _float(value.get(key), low, high)
+        if number is not None:
+            clean[key] = number
     return clean
 
 
@@ -201,6 +233,7 @@ class MemoryRelay:
         self.history_bytes = 0
         self.latest: Dict[Tuple[str, int], RelayEnvelope] = {}
         self.event_sequences: Dict[str, int] = {}
+        self.events: Dict[str, RelayEnvelope] = {}
         self.sequence = 0
         self.accepted_count = 0
         self.duplicate_count = 0
@@ -215,7 +248,7 @@ class MemoryRelay:
         if supplied and len(supplied) <= 160 and all(31 < ord(char) < 127 for char in supplied):
             return supplied
         material = (
-            f"{match_id}|{player_id}|{raw.get('sample_type')}|"
+            f"{match_id}|{player_id}|{raw.get('device_boot_id')}|{raw.get('sample_type')}|"
             f"{source_timestamp_ns}|{source_seq}"
         )
         return hashlib.sha256(material.encode("utf-8")).hexdigest()[:32]
@@ -230,7 +263,7 @@ class MemoryRelay:
             "method": str(value.get("method") or "unspecified")[:64],
             "drift_ppm": _float(value.get("drift_ppm"), -5000.0, 5000.0),
             "best_rtt_ms": _float(value.get("best_rtt_ms"), 0.0, 60_000.0),
-            "samples": int(value.get("samples") or 0),
+            "samples": _integer(value.get("samples"), 0, 1_000_000) or 0,
         }
 
     @staticmethod
@@ -293,9 +326,7 @@ class MemoryRelay:
             existing_seq = self.event_sequences.get(event_id)
             if existing_seq is not None:
                 self.duplicate_count += 1
-                for envelope, _ in reversed(self.history):
-                    if envelope.relay_seq == existing_seq:
-                        return envelope, True
+                return self.events[event_id], True
 
             accel_unit = raw.get("accel_unit") if raw.get("accel_unit") in {"g", "m/s2"} else None
             accel_limit = 32.0 if accel_unit == "g" else 320.0
@@ -335,12 +366,14 @@ class MemoryRelay:
             self.history_bytes += encoded_size
             self.latest[(match_id, player_id)] = envelope
             self.event_sequences[event_id] = envelope.relay_seq
+            self.events[event_id] = envelope
             self.accepted_count += 1
 
             while self.history and self.history_bytes > self.max_bytes:
                 old, old_size = self.history.popleft()
                 self.history_bytes -= old_size
                 self.event_sequences.pop(old.event_id, None)
+                self.events.pop(old.event_id, None)
                 if self.latest.get((old.match_id, old.player_id)) is old:
                     self.latest.pop((old.match_id, old.player_id), None)
             return envelope, False
@@ -348,13 +381,17 @@ class MemoryRelay:
     def replay(self, after_seq: int = 0, limit: int = 1000,
                match_id: Optional[str] = None, player_id: Optional[int] = None) -> dict:
         with self._lock:
-            items = [
-                asdict(envelope)
-                for envelope, _ in self.history
-                if envelope.relay_seq > after_seq
-                and (match_id is None or envelope.match_id == match_id)
-                and (player_id is None or envelope.player_id == player_id)
-            ][:limit]
+            items = []
+            has_more = False
+            for envelope, _ in self.history:
+                if (envelope.relay_seq <= after_seq
+                    or (match_id is not None and envelope.match_id != match_id)
+                    or (player_id is not None and envelope.player_id != player_id)):
+                    continue
+                if len(items) == limit:
+                    has_more = True
+                    break
+                items.append(asdict(envelope))
             oldest = self.history[0][0].relay_seq if self.history else self.sequence + 1
             latest = self.sequence
         return {
@@ -364,6 +401,7 @@ class MemoryRelay:
             "latest_seq": latest,
             "next_seq": items[-1]["relay_seq"] if items else after_seq,
             "cache_gap": bool(after_seq and after_seq < oldest - 1),
+            "has_more": has_more,
         }
 
     def latest_payload(self, match_id: Optional[str] = None) -> dict:
@@ -404,9 +442,9 @@ class MemoryRelay:
         match_id: Optional[str],
         player_id: Optional[int],
     ) -> Tuple[asyncio.Queue, dict]:
-        queue: asyncio.Queue = asyncio.Queue(maxsize=2048)
+        queue: asyncio.Queue = asyncio.Queue(maxsize=8)
         with self._lock:
-            replay = self.replay(after_seq, 5000, match_id, player_id)
+            replay = self.replay(after_seq, 256, match_id, player_id)
             self.ws_clients[ws] = (queue, match_id, player_id)
         return queue, replay
 
@@ -415,27 +453,31 @@ class MemoryRelay:
             self.ws_clients.pop(ws, None)
 
     async def broadcast(self, envelope: RelayEnvelope) -> None:
-        payload = {
-            "type": "wearable_sample",
-            "relay_instance_id": RELAY_INSTANCE_ID,
-            "data": asdict(envelope),
-        }
+        await self.broadcast_batch([envelope])
+
+    async def broadcast_batch(self, envelopes: List[RelayEnvelope]) -> None:
         with self._lock:
             subscribers = list(self.ws_clients.values())
         for queue, match_id, player_id in subscribers:
-            if match_id is not None and envelope.match_id != match_id:
+            if getattr(queue, "relay_gapped", False):
                 continue
-            if player_id is not None and envelope.player_id != player_id:
+            selected = [asdict(e) for e in envelopes
+                        if (match_id is None or e.match_id == match_id)
+                        and (player_id is None or e.player_id == player_id)]
+            if not selected:
                 continue
             if queue.full():
-                try:
+                # Closing and replaying from the last consumed cursor makes a
+                # gap explicit; silently dropping old pulse samples corrupts HR.
+                while not queue.empty():
                     queue.get_nowait()
-                except asyncio.QueueEmpty:
-                    pass
-            try:
-                queue.put_nowait(payload)
-            except asyncio.QueueFull:
-                pass
+                queue.relay_gapped = True
+                queue.put_nowait({"type": "stream_gap", "reason": "slow_consumer"})
+                continue
+            queue.put_nowait({
+                "type": "wearable_batch", "relay_instance_id": RELAY_INSTANCE_ID,
+                "data": selected,
+            })
 
 
 RELAY = MemoryRelay()
@@ -447,7 +489,7 @@ def _authorized(token: Optional[str]) -> bool:
 
 app = FastAPI(
     title="CPG44 stateless telemetry relay",
-    version="3.0.0",
+    version="3.1.0",
     description="Authenticated in-memory replay relay for raw and processed wearable observations.",
 )
 
@@ -462,6 +504,11 @@ app.add_middleware(
     allow_methods=["GET", "POST"],
     allow_headers=["Content-Type", "X-Auth"],
 )
+
+
+from cpg44_api.relay_camera import make_router as _camera_router  # noqa: E402
+
+app.include_router(_camera_router(_authorized))
 
 
 @app.middleware("http")
@@ -492,6 +539,7 @@ async def health():
     return {
         "status": "healthy",
         "service": "cpg44-stateless-relay",
+        "stream_protocol": {"version": "3.1", "messages": ["replay", "wearable_batch", "stream_gap", "heartbeat"]},
         "relay_instance_id": RELAY_INSTANCE_ID,
         "uptime_s": round(time.time() - RELAY.started_at, 1),
         "accepted": RELAY.accepted_count,
@@ -501,6 +549,17 @@ async def health():
         "auth_required": True,
         "cache": RELAY.cache_status(),
     }
+
+
+@app.get("/api/v1/time")
+async def server_time():
+    """Wall clock for NTP-style offset estimation by the field laptop.
+
+    The relay host is NTP-disciplined like the vest's SNTP clock, so the
+    laptop measures its own offset against it (Cristian 1989) and maps
+    vest timestamps onto the clock that stamps video frames.
+    """
+    return {"t_ns": time.time_ns()}
 
 
 @app.post("/api/v1/sensors/ingest")
@@ -514,6 +573,7 @@ async def ingest(
     if not 1 <= len(rows) <= 100:
         raise HTTPException(status_code=422, detail="send 1 to 100 observations")
     accepted: List[RelayEnvelope] = []
+    fresh: List[RelayEnvelope] = []
     duplicates = 0
     for row in rows:
         envelope, duplicate = RELAY.register(row)
@@ -522,7 +582,8 @@ async def ingest(
         accepted.append(envelope)
         duplicates += int(duplicate)
         if not duplicate:
-            await RELAY.broadcast(envelope)
+            fresh.append(envelope)
+    await RELAY.broadcast_batch(fresh)
     if not accepted:
         raise HTTPException(status_code=422, detail="no valid timestamped observations")
     return {
@@ -570,10 +631,17 @@ async def websocket_sensors(
     await ws.accept()
     queue, replay = RELAY.subscribe(ws, after_seq, match_id, player_id)
     try:
-        await ws.send_json({"type": "replay", "data": replay})
+        await asyncio.wait_for(ws.send_json({"type": "replay", "data": replay}), timeout=3.0)
         while True:
-            await ws.send_json(await queue.get())
-    except WebSocketDisconnect:
+            try:
+                message = await asyncio.wait_for(queue.get(), timeout=10.0)
+            except asyncio.TimeoutError:
+                message = {"type": "heartbeat", "relay_instance_id": RELAY_INSTANCE_ID}
+            await asyncio.wait_for(ws.send_json(message), timeout=3.0)
+            if message.get("type") == "stream_gap":
+                await ws.close(code=1013, reason="recover from last consumed cursor")
+                break
+    except (WebSocketDisconnect, asyncio.TimeoutError, RuntimeError):
         pass
     finally:
         RELAY.unsubscribe(ws)

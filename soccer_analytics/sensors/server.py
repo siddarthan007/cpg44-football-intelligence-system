@@ -6,11 +6,11 @@ nothing else in the pipeline changes.
 
 Two deployment shapes, same code:
 
-* **Laptop endpoint** (recommended outdoors) — run the endpoint in the SAME
+* **Laptop endpoint** (recommended outdoors), run the endpoint in the SAME
   process as the pipeline. ESP32 + laptop join one Wi-Fi (e.g. a phone hotspot,
   which sidesteps the university NAT / AP-isolation); the ESP32 POSTs to the
   laptop's LAN IP.
-* **Cloud relay** — run this endpoint standalone on a public server. The ESP32
+* **Cloud relay**, run this endpoint standalone on a public server. The ESP32
   POSTs there; the laptop pipeline subscribes to the same server. Works through
   NAT because both sides make *outbound* connections.
 
@@ -22,12 +22,12 @@ Wire format (one JSON object per sample; POST a single object or a list to
 
 ``t`` should be epoch seconds; if omitted the server stamps arrival time.
 """
-# NOTE: no `from __future__ import annotations` here — FastAPI needs real (not
+# NOTE: no `from __future__ import annotations` here, FastAPI needs real (not
 # stringized) type annotations to inject Request / WebSocket parameters.
 
 import threading
 import time
-from typing import Callable, List, Optional, Union
+from typing import Callable, List, Optional
 
 from .schema import SensorSample
 from .source import SensorSource
@@ -108,7 +108,7 @@ class EndpointSensorSource(SensorSource):
               f"(POST /ingest, WS /ws)")
         return self
 
-    def _produce(self):   # not used — samples arrive via HTTP handlers
+    def _produce(self):   # not used, samples arrive via HTTP handlers
         return iter(())
 
     def stop(self):
@@ -129,7 +129,7 @@ def run_relay(host: str = "0.0.0.0", port: int = 8000, token: Optional[str] = No
     lock = threading.Lock()
 
     def fanout(sample: SensorSample):
-        # bounded per-subscriber queues (deque maxlen) → a stalled subscriber drops
+        # bounded per-subscriber queues (deque maxlen) to a stalled subscriber drops
         # old samples instead of growing memory without bound.
         with lock:
             subs = list(subscribers)
@@ -160,5 +160,5 @@ def run_relay(host: str = "0.0.0.0", port: int = 8000, token: Optional[str] = No
                 if q in subscribers:
                     subscribers.remove(q)
 
-    print(f"[relay] listening on :{port} — POST /ingest, subscribe WS /subscribe")
+    print(f"[relay] listening on :{port}, POST /ingest, subscribe WS /subscribe")
     uvicorn.run(app, host=host, port=port, log_level="warning")

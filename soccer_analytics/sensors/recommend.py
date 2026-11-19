@@ -11,7 +11,7 @@ and **tactical/formation adjustment**.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Dict, List, Optional
 
 from .schema import InjuryRisk, WorkloadFeatures
@@ -62,7 +62,7 @@ class RecommendationEngine:
                 recs.append(Recommendation(
                     "load", "medium", pid,
                     f"Player {pid}: top speed down {100*(base-wf.top_speed)/base:.0f}% "
-                    f"vs baseline — fatigue; rotate or rest."))
+                    f"vs baseline, fatigue; rotate or rest."))
 
         # tactical adjustments straight from the tactical reports
         for rep in (tactical_reports or []):

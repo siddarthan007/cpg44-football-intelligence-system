@@ -1,8 +1,10 @@
-import { useEffect, useState } from 'react';
-import { ErrorBanner, PageHeader, StatusBadge } from '../components/common';
+import { useEffect, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
+import { Glyph } from '../components/Glyph';
 import { api } from '../lib/api';
+import { getSquad, type Squad } from '../lib/squad';
 
-type Port = { device: string; name?: string; description?: string; hwid?: string };
+type Port = { device: string; name?: string; description?: string; hwid?: string; windows_only?: boolean };
 type Toolchain = {
   ready?: boolean;
   arduino_cli?: string | null;
@@ -12,6 +14,8 @@ type Toolchain = {
   relay?: { endpoint?: string; token_configured?: boolean; ca_configured?: boolean; ready?: boolean };
 };
 type FlashJob = { id: string; status: string; logs?: string[]; error?: string; return_code?: number; player_id: number; port: string };
+type MonitorLine = { t: number; text: string };
+type MonitorState = { port?: string; running?: boolean; lines?: MonitorLine[] };
 
 export const HardwareFlasherPage = () => {
   const [ports, setPorts] = useState<Port[]>([]);
@@ -19,12 +23,18 @@ export const HardwareFlasherPage = () => {
   const [selectedPort, setSelectedPort] = useState('');
   const [playerId, setPlayerId] = useState(1);
   const [matchId, setMatchId] = useState('live');
-  const [ssid, setSsid] = useState('');
+  const [ssid, setSsid] = useState('EACCESS-M1');
   const [password, setPassword] = useState('');
   const [chip, setChip] = useState<Record<string, unknown> | null>(null);
   const [job, setJob] = useState<FlashJob | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [monitor, setMonitor] = useState<MonitorState>({});
+  const [monitorAuto, setMonitorAuto] = useState(true);
+  const [squad, setSquad] = useState<Squad | null>(null);
+  useEffect(() => { void getSquad().then(setSquad); }, []);
+  const consoleRef = useRef<HTMLDivElement | null>(null);
+  const monitorRef = useRef<HTMLDivElement | null>(null);
 
   const refreshHardware = async () => {
     try {
@@ -32,7 +42,9 @@ export const HardwareFlasherPage = () => {
       const nextPorts = portBody as Port[];
       setPorts(nextPorts);
       setToolchain(toolBody as Toolchain);
-      setSelectedPort((current) => current && nextPorts.some((port) => port.device === current) ? current : nextPorts[0]?.device ?? '');
+      // Windows-only ports (COM7) are hints, not usable devices inside WSL.
+      const usable = nextPorts.filter((port) => !port.windows_only);
+      setSelectedPort((current) => current && usable.some((port) => port.device === current) ? current : usable[0]?.device ?? '');
       setError(null);
     } catch (reason) { setError(reason instanceof Error ? reason.message : 'Hardware API unavailable'); }
   };
@@ -45,10 +57,35 @@ export const HardwareFlasherPage = () => {
     return () => window.clearInterval(timer);
   }, []);
   useEffect(() => {
+    const pull = () => api.monitorStatus().then(setMonitor).catch(() => undefined);
+    void pull();
+    const timer = window.setInterval(pull, 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+  useEffect(() => {
     setChip(null);
     if (!selectedPort) return;
     void api.chipInfo(selectedPort).then(setChip).catch((reason: unknown) => setError(reason instanceof Error ? reason.message : 'Chip probe failed'));
   }, [selectedPort]);
+
+  // Auto-scroll both consoles unless the reader scrolled up.
+  useEffect(() => {
+    if (consoleRef.current) consoleRef.current.scrollTop = consoleRef.current.scrollHeight;
+  }, [job?.logs?.length]);
+  useEffect(() => {
+    if (monitorAuto && monitorRef.current) monitorRef.current.scrollTop = monitorRef.current.scrollHeight;
+  }, [monitor.lines?.length, monitorAuto]);
+
+  // Auto-start the monitor when the flash job finishes so the boot log appears.
+  const lastJobStatus = useRef<string>('');
+  useEffect(() => {
+    const status = job?.status ?? '';
+    const finished = (lastJobStatus.current === 'compile' || lastJobStatus.current === 'upload') && status === 'completed';
+    lastJobStatus.current = status;
+    if (finished && selectedPort && monitorAuto) {
+      void api.monitorStart(selectedPort).catch(() => undefined);
+    }
+  }, [job?.status, selectedPort, monitorAuto]);
 
   const flash = async () => {
     setBusy(true); setError(null);
@@ -61,48 +98,94 @@ export const HardwareFlasherPage = () => {
     finally { setBusy(false); }
   };
 
+  const attachUsb = async () => {
+    setBusy(true); setError(null);
+    try {
+      const response = await api.usbAttach();
+      if (response.ok === false) throw new Error(String(response.error ?? 'USB attach failed'));
+      await refreshHardware();
+    } catch (reason) { setError(reason instanceof Error ? reason.message : 'USB attach failed'); }
+    finally { setBusy(false); }
+  };
+
+  const toggleMonitor = async () => {
+    if (monitor.running) {
+      await api.monitorStop().catch(() => undefined);
+      return;
+    }
+    if (!selectedPort) return;
+    try {
+      const response = await api.monitorStart(selectedPort);
+      if (response.ok === false) throw new Error(String(response.error ?? 'Monitor did not start'));
+    } catch (reason) { setError(reason instanceof Error ? reason.message : 'Monitor did not start'); }
+  };
+
   const running = job && ['starting', 'compile', 'upload', 'running'].includes(job.status);
+  const realPorts = ports.filter((port) => !port.windows_only);
+  const hintPorts = ports.filter((port) => port.windows_only);
+  const wearer = squad?.players.find(p => p.vest === playerId);
+  const checks: [string, boolean][] = [
+    ['Arduino CLI', Boolean(toolchain.arduino_cli)], ['esptool', Boolean(toolchain.esptool_available)],
+    ['Relay token', Boolean(toolchain.relay?.token_configured)], ['Relay certificate', Boolean(toolchain.relay?.ca_configured)],
+  ];
+  const connected = Boolean(selectedPort) && checks.every(([, ok]) => ok);
+  const done = job?.status === 'completed';
+  const failed = job?.status === 'failed' || Boolean(job?.error);
   return (
     <div className="page">
-      <PageHeader eyebrow="DEVICE PROVISIONING" title="ESP32 wearable flasher" description="Flash the checked-in sensor firmware with Wi-Fi, player and relay settings. The wearable publishes only through the HTTPS relay." actions={<StatusBadge status={toolchain.ready ? 'ready' : 'unavailable'} />} />
-      <ErrorBanner message={error ?? job?.error} />
+      <header className="page-header"><h1>Flash a vest</h1><p>Load the relay firmware onto a vest and give it its number and Wi-Fi.</p></header>
+      {error && <div className="notice bad">{error}</div>}
 
-      <div className="two-column">
-        <section className="card-clean">
-          <div className="section-heading"><div><span className="eyebrow">TOOLCHAIN</span><h2>WSL readiness</h2></div><button className="btn-outline" onClick={refreshHardware}>Rescan</button></div>
-          <dl className="definition-grid">
-            <div><dt>Arduino CLI</dt><dd>{toolchain.arduino_cli ? 'installed' : 'missing'}</dd></div>
-            <div><dt>esptool</dt><dd>{toolchain.esptool_available ? 'installed' : 'missing'}</dd></div>
-            <div><dt>Serial devices</dt><dd>{ports.length}</dd></div>
-            <div><dt>Target</dt><dd>ESP32-S3</dd></div>
-            <div><dt>Relay token</dt><dd>{toolchain.relay?.token_configured ? 'configured' : 'missing'}</dd></div>
-            <div><dt>Relay CA</dt><dd>{toolchain.relay?.ca_configured ? 'configured' : 'missing'}</dd></div>
-          </dl>
-          {!ports.length && (
-            <div className="quality-callout neutral">
-              <strong>No ESP32 is attached to WSL</strong>
-              <p>In an elevated Windows terminal run <code>usbipd list</code>, then attach the board bus ID with <code>usbipd attach --wsl --busid &lt;BUSID&gt;</code>. Rescan after <code>/dev/ttyACM*</code> or <code>/dev/ttyUSB*</code> appears.</p>
-            </div>
-          )}
-          <div className="form-grid">
-            <label className="field wide"><span>Serial port</span><select value={selectedPort} onChange={(event) => setSelectedPort(event.target.value)} disabled={!ports.length}>{!ports.length && <option value="">No attached serial device</option>}{ports.map((port) => <option key={port.device} value={port.device}>{port.device} · {port.description ?? port.name}</option>)}</select></label>
-            <label className="field"><span>Player ID</span><input type="number" min="1" max="9999" value={playerId} onChange={(event) => setPlayerId(Number(event.target.value))} /></label>
-            <label className="field"><span>Match ID</span><input value={matchId} maxLength={64} pattern="[A-Za-z0-9._:-]+" onChange={(event) => setMatchId(event.target.value)} /></label>
-            <label className="field"><span>Wi-Fi SSID</span><input autoComplete="off" value={ssid} onChange={(event) => setSsid(event.target.value)} /></label>
-            <label className="field wide"><span>Wi-Fi password</span><input type="password" autoComplete="new-password" value={password} onChange={(event) => setPassword(event.target.value)} /></label>
-          </div>
-          <p className="form-help">Target: <code>{toolchain.relay?.endpoint ?? 'https://cpg44.nivaspms.com/api/v1/sensors/ingest'}</code>. Secrets are written only to the ignored build header and are not returned to the browser.</p>
-          <button className="btn-solid" disabled={busy || !toolchain.ready || !selectedPort || !ssid || !matchId || Boolean(running)} onClick={flash}>{running ? `${job?.status}…` : 'Compile and flash relay firmware'}</button>
-        </section>
+      <section className={`panel step-panel ${connected ? 'done' : ''}`}>
+        <div className="panel-head"><h2><span className="step-n">1</span>Connect the vest</h2>
+          <button className="btn ghost small" onClick={() => void refreshHardware()}>Rescan</button></div>
+        <ul className="checks">{checks.map(([label, ok]) => <li key={label} className={ok ? 'ok' : 'bad'}><Glyph g={ok ? 'check' : 'warn'} size={14} />{label}</li>)}</ul>
+        {!realPorts.length ? <div className="notice" style={{ marginTop: 10 }}>
+          {hintPorts.length ? `Windows sees the vest on ${hintPorts[0].device}. Attach it to WSL and accept the administrator prompt.` : 'Plug the vest in with a data USB cable, then attach it to WSL.'}
+          <div style={{ marginTop: 8 }}><button className="btn small" disabled={busy} onClick={() => void attachUsb()}>Attach USB to WSL</button></div>
+        </div> : <div className="row-fields">
+          <label>Port<select value={selectedPort} onChange={(e) => setSelectedPort(e.target.value)}>{realPorts.map((port) => <option key={port.device} value={port.device}>{port.device}, {port.description ?? port.name}</option>)}</select></label>
+          {chip && <span className="muted" style={{ fontSize: 12.5 }}>{chip.ok === true ? 'ESP32 answered' : String(chip.error ?? 'Chip probe unavailable')}</span>}
+        </div>}
+      </section>
 
-        <section className="card-clean console-card">
-          <div className="section-heading"><div><span className="eyebrow">SERIAL PROBE</span><h2>Hardware and build log</h2></div>{job && <StatusBadge status={job.status} />}</div>
-          {chip && <div className="chip-summary">{chip.ok === true ? String(chip.output ?? 'ESP32 detected') : String(chip.error ?? 'Chip probe unavailable')}</div>}
-          <div className="console" aria-live="polite">
-            {job?.logs?.length ? job.logs.map((line, index) => <div key={`${index}-${line}`}>{line}</div>) : <span>Waiting for a compile or upload job.</span>}
+      <section className="panel step-panel">
+        <div className="panel-head"><h2><span className="step-n">2</span>Vest number and Wi-Fi</h2></div>
+        <div className="row-fields">
+          <label>Vest number<input type="number" min="1" max="9999" value={playerId} onChange={(e) => setPlayerId(Number(e.target.value))} /></label>
+          <span className="muted" style={{ fontSize: 13 }}>{wearer ? `Worn by ${wearer.number != null ? wearer.number + ' ' : ''}${wearer.name}` : <>Not in the squad yet. <Link to="/squad">Assign it</Link></>}</span>
+        </div>
+        <div className="row-fields">
+          <label>Wi-Fi name<input autoComplete="off" value={ssid} onChange={(e) => setSsid(e.target.value)} /></label>
+          <label>Wi-Fi password<input type="password" autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} /></label>
+        </div>
+        <details className="more"><summary>Session name</summary>
+          <div className="row-fields"><label>Match ID<input value={matchId} maxLength={64} pattern="[A-Za-z0-9._:-]+" onChange={(e) => setMatchId(e.target.value)} /></label></div></details>
+        <p className="muted" style={{ fontSize: 12 }}>The password goes only into the firmware build and is never sent back to the browser.</p>
+      </section>
+
+      <section className={`panel step-panel ${done ? 'done' : ''}`}>
+        <div className="panel-head"><h2><span className="step-n">3</span>Flash</h2>
+          <button className="btn" disabled={busy || !toolchain.ready || !selectedPort || !ssid || !matchId || Boolean(running)} onClick={() => void flash()}>
+            <Glyph g="chip" size={15} />{running ? 'Flashing' : 'Compile and flash'}</button></div>
+        {job && <div className={`flash-state ${done ? 'ok' : failed ? 'bad' : ''}`} aria-live="polite">
+          <div className="flash-steps">{['compile', 'upload', 'completed'].map((k, n) => {
+            const order = ['starting', 'compile', 'upload', 'completed'];
+            const reached = order.indexOf(job.status) >= order.indexOf(k) || done;
+            return <span key={k} className={reached ? 'on' : ''}>{n + 1}. {k === 'completed' ? 'running' : k}</span>; })}</div>
+          {done && <p>Flashed. The vest restarts and sends within a few seconds: <Link to="/vest">watch it arrive</Link>.</p>}
+          {failed && <p>{job.error ?? 'The build or upload failed; the log below says where.'}</p>}
+        </div>}
+        <details className="more" open={failed}><summary>Build log</summary>
+          <div className="console" ref={consoleRef}>{job?.logs?.length ? job.logs.map((line, index) => <div key={`${index}-${line}`}>{line}</div>) : <span>No build yet.</span>}</div></details>
+        <details className="more"><summary>Serial monitor {monitor.running ? `(reading ${monitor.port})` : ''}</summary>
+          <div className="row-fields" style={{ marginTop: 6 }}>
+            <button className="btn ghost small" onClick={() => void toggleMonitor()} disabled={!selectedPort}>{monitor.running ? 'Stop' : 'Start'}</button>
+            <label className="inline"><input type="checkbox" checked={monitorAuto} onChange={(e) => setMonitorAuto(e.target.checked)} /> open after flashing</label>
           </div>
-        </section>
-      </div>
+          <div className="console" ref={monitorRef} style={{ maxHeight: 320 }}>{monitor.lines?.length ? monitor.lines.map((line, index) => <div key={`${index}-${line.t}`}>{line.text}</div>) : <span>No serial output yet.</span>}</div>
+        </details>
+      </section>
     </div>
   );
 };

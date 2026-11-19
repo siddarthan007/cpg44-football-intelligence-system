@@ -13,7 +13,7 @@ wearable sensing, and workload modelling. SoccerNet-Tracking and SportsMOT show
 common sports-tracking problems \cite{cioppa2022soccernet,cui2023sportsmot}.
 ByteTrack gives the starting association method \cite{zhang2022bytetrack}.
 Tactical and wearable papers help select features and quality checks
-\cite{honda2022pass,teixeira2025tactical,pollreisz2022wearable}.
+\cite{honda2022pass,teixeira2025tactical,charlton2022ppg}.
 
 The current SoccerNet conversion keeps ball, goalkeeper, player, and referee
 classes. Its metadata records 57 training sequences and 49 test sequences from
@@ -73,6 +73,26 @@ tracks to the pitch. Team colour, appearance, jersey votes, and manual review
 are kept as separate identity evidence. The ball has its own short recovery
 rules because it is smaller and faster than a player.
 
+Team tagging is anchored to kit colours that the operator picks from a clear
+frame on the review page before the session. The two calibrated colours are
+converted to CIELAB and used to label the two colour clusters, so Team 1 stays
+Team 1 after every model refit instead of swapping when cluster order changes.
+A track receives its team only through confidence-gated votes over a rolling
+window, so one noisy frame cannot flip the tag.
+
+The pitch mapping follows a moving camera in two steps. Short frame-to-frame
+camera motion is chained from tracked image features, and every tenth frame the
+current view is matched against stored keyframes to reset any drift against an
+absolute reference. A chained step is skipped when too few features agree, which
+stops a bad estimate from pulling positions toward the middle of the pitch.
+
+Passes are counted when control moves between two players of the same team for
+three confirmed frames. Throw-ins are recorded when the observed ball leaves the
+pitch over a touchline and later re-enters; only actually observed ball positions
+are used, so a coasted estimate during an occlusion cannot create a restart.
+Both event types carry their frame number, team, and pitch position into the
+live feed for review.
+
 \subsubsection{Wearable Acquisition}
 The ESP32-S3 reads the MPU-6050, MAX30102, and NEO-6M. The main firmware sends
 timestamped raw batches to the relay with a device ID, boot ID, and source
@@ -103,6 +123,13 @@ high-intensity efforts, team centre, width, length, compactness, line spacing,
 and pressure distance. Event rules point to the positions and time that caused
 them. Later predictive models use reviewed player-session features and keep the
 model version with every result.
+
+The dashboard receives a small occupancy grid with each live update. Player
+positions in metres are binned over the pitch, log-scaled, and downsampled to a
+17 by 25 grid, so the browser can draw a heatmap of where play concentrated
+without receiving raw coordinates. The pitch view is drawn to scale from the
+FIFA field dimensions with a 20 metre reference bar, and player tokens use the
+two calibrated team colours.
 
 FastAPI provides commands and snapshots, while WebSocket carries live events
 to the dashboard. The required VPS relay receives validated raw wearable events

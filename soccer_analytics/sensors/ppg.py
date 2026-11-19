@@ -6,8 +6,7 @@ derivative peak detection, and AC/DC ratio-of-ratios SpO2 calculation.
 
 from __future__ import annotations
 
-import math
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Dict, Optional, Sequence
 import numpy as np
 from scipy.signal import butter, sosfiltfilt, find_peaks
 

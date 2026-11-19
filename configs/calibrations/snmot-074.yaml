@@ -1,0 +1,90 @@
+name: SoccerNet stadium view
+created: '2026-11-12'
+source: demo/clips/SNMOT-074_750f.mp4
+image_size:
+- 1920
+- 1080
+pitch:
+  length: 105.0
+  width: 68.0
+lens:
+  k1: 0.0
+camera: panning
+points:
+  circle_left:
+  - 65
+  - 540
+  circle_right:
+  - 676
+  - 524
+  circle_top:
+  - 376
+  - 472
+  circle_bottom:
+  - 381
+  - 597
+  r_pen_top:
+  - 1160
+  - 392
+  r_pen_bottom:
+  - 1800
+  - 590
+  r_goal_top:
+  - 1495
+  - 417
+  r_goal_bottom:
+  - 1800
+  - 492
+lines:
+  halfway:
+  - - 373
+    - 440
+  - - 381
+    - 640
+  - - 395
+    - 700
+  - - 413
+    - 1000
+  right_box_front:
+  - - 1160
+    - 392
+  - - 1500
+    - 497
+  - - 1800
+    - 590
+  right_goal_area_front:
+  - - 1495
+    - 417
+  - - 1800
+    - 492
+  box_near_edge:
+  - - 1800
+    - 590
+  - - 1915
+    - 578
+  near_touchline:
+  - - 470
+    - 1068
+  - - 700
+    - 1033
+  - - 880
+    - 1006
+circle:
+- - 147
+  - 501
+- - 147
+  - 579
+- - 576
+  - 484
+- - 583
+  - 576
+homography:
+- - -0.0766850593185926
+  - -0.37371963704245287
+  - 79.6341712429422
+- - -0.02282087717338616
+  - -0.6634408670902366
+  - 262.4800112476699
+- - 7.249858914295908e-05
+  - -0.007253036856161488
+  - 1.0

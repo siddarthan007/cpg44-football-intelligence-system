@@ -30,13 +30,13 @@
 <body>
 <main>
 <header>
-  <div><h1>Wearable Telemetry</h1><div class="sub">Live PPG (bandpass + peaks) · GPS speed/heading · IMU accel — not integrated speed</div></div>
+  <div><h1>Wearable Telemetry</h1><div class="sub">Live PPG (bandpass + peaks), GPS speed/heading, IMU accel, not integrated speed</div></div>
   <div class="status"><span id="onlineDot" class="dot"></span><span id="onlineText">Waiting</span></div>
 </header>
 <div class="grid">
   <section class="card s3"><div class="label">Heart rate (live)</div><span id="liveBpm" class="big">--</span><span class="unit">BPM</span><div id="liveBpmMeta" class="meta">Hold still, finger covering both LEDs</div></section>
   <section class="card s3"><div class="label">SpO₂ estimate (live)</div><span id="liveSpo2" class="big">--</span><span class="unit">%</span><div id="liveSpo2Meta" class="meta">Not a medical device</div></section>
-  <section class="card s3"><div class="label">GPS speed</div><span id="speed" class="big">--</span><span class="unit">m/s</span><div id="speedMeta" class="meta">NEO-6M only — IMU is not integrated</div></section>
+  <section class="card s3"><div class="label">GPS speed</div><span id="speed" class="big">--</span><span class="unit">m/s</span><div id="speedMeta" class="meta">NEO-6M only, IMU is not integrated</div></section>
   <section class="card s3"><div class="label">Heading</div><span id="heading" class="big">--</span><span class="unit" id="headingUnit"></span><div id="headingMeta" class="meta">GPS course when fix exists</div></section>
 
   <section class="card s4">
@@ -106,11 +106,11 @@ function update(s){
   $('onlineText').textContent=dev.connected?'Live':'Offline';
   $('liveBpm').textContent=live.bpm??'--';
   $('liveSpo2').textContent=live.spo2_estimate_pct??'--';
-  $('liveBpmMeta').textContent=`${live.valid?(live.stale?'held (last good)':'live'):'not valid'} · ${roll.reason||live.reason||'--'}`;
+  $('liveBpmMeta').textContent=`${live.valid?(live.stale?'held (last good)':'live'):'not valid'}, ${roll.reason||live.reason||'--'}`;
   $('liveBpmMeta').className='meta '+(live.valid&&!live.stale?'good':'warn');
-  $('liveSpo2Meta').textContent='estimate · not medically calibrated';
+  $('liveSpo2Meta').textContent='estimate, not medically calibrated';
   $('speed').textContent=kin.speed_mps==null?'--':f(kin.speed_mps,2);
-  $('speedMeta').textContent=kin.speed_source==='gps'?`${f(kin.speed_kmh,1)} km/h · GPS fix`:'no GPS fix — speed not estimated from IMU';
+  $('speedMeta').textContent=kin.speed_source==='gps'?`${f(kin.speed_kmh,1)} km/h, GPS fix`:'no GPS fix, speed not estimated from IMU';
   $('heading').textContent=kin.heading_cardinal||'--';
   $('headingUnit').textContent=kin.course_deg==null?'':f(kin.course_deg,0)+'°';
   $('headingMeta').textContent=kin.gps_fix?'GPS course':'need outdoor GPS fix';

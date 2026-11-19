@@ -2,7 +2,7 @@
 set -e
 source ~/miniconda3/etc/profile.d/conda.sh; conda activate soccer
 cd ~/capstone
-echo "=== build 16-seq subset (stride 5, denser → more ball frames) ==="
+echo "=== build 16-seq subset (stride 5, denser to more ball frames) ==="
 rm -rf /tmp/sn16 /tmp/yolo16; mkdir -p /tmp/sn16/train /tmp/sn16/test
 i=0; for s in $(ls ~/SoccerNet/tracking/train); do ln -s ~/SoccerNet/tracking/train/$s /tmp/sn16/train/$s; i=$((i+1)); [ $i -ge 16 ] && break; done
 for s in $(ls ~/SoccerNet/tracking/test | head -3); do ln -s ~/SoccerNet/tracking/test/$s /tmp/sn16/test/$s; done

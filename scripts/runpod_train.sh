@@ -19,7 +19,7 @@ MODEL=${MODEL:-yolov8m.pt}                          # m fits A100; use l/x on bi
 IMGSZ=${IMGSZ:-1280}
 BATCH=${BATCH:-24}                                  # A100 40 GB @1280; lower for 4090 (~10)
 EPOCHS=${EPOCHS:-100}
-STRIDE=${STRIDE:-3}                                 # every 3rd frame → ~14k imgs
+STRIDE=${STRIDE:-3}                                 # every 3rd frame to ~14k imgs
 
 cd $WS
 # --- code ---
@@ -45,7 +45,7 @@ if [ ! -d "$DATA_ROOT/train" ]; then
   exit 1
 fi
 
-echo "== converting SoccerNet → YOLO =="
+echo "== converting SoccerNet to YOLO =="
 python soccernet_to_yolo.py --src "$DATA_ROOT" --dst "$WS/SoccerNet/yolo" \
     --stride "$STRIDE" --image-mode symlink
 
@@ -55,6 +55,6 @@ python -m soccer_analytics.train base \
     --model "$MODEL" --imgsz "$IMGSZ" --batch "$BATCH" --epochs "$EPOCHS" \
     --name soccernet_full
 
-echo "DONE → runs/detect/soccernet_full/weights/best.pt"
+echo "DONE to runs/detect/soccernet_full/weights/best.pt"
 echo "Download it, then locally:"
 echo "  python -m soccer_analytics.train finetune --data ~/campus/data.yaml --base best.pt"

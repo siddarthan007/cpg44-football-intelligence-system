@@ -1,0 +1,11 @@
+{
+  "sessions": 21,
+  "active_minutes": 146.9,
+  "imu_completeness_median": 0.439,
+  "ppg_completeness_median": 0.226,
+  "transport_delay_ms_p50_median": 51218.9,
+  "gps_fix_share_max": 0.0,
+  "hr_valid_windows_total": 3,
+  "hr_windows_with_data_total": 131,
+  "note": "Bench sessions recorded 21-22 Aug 2026 before the vest design; firmware batching was later changed (32 samples / 25 ms / 256 slots)."
+}

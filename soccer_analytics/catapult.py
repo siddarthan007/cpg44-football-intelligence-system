@@ -7,7 +7,7 @@ within-system comparisons after camera validation; it is not claimed to
 reproduce a commercial device.
 
 Inputs come from the Kalman filter (:mod:`soccer_analytics.filters`), which
-supplies smooth velocity and acceleration — essential, because metabolic power is
+supplies smooth velocity and acceleration, essential, because metabolic power is
 extremely sensitive to acceleration noise.
 
 Metrics produced per player:
@@ -18,13 +18,13 @@ Metrics produced per player:
   * vision acceleration-load proxy and, if worn, tri-axial IMU PlayerLoad
   * HR average / drift, min SpO2, and cross-session ACWR
 
-Pure NumPy — unit-testable.
+Pure NumPy, unit-testable.
 """
 
 from __future__ import annotations
 
 import math
-from collections import defaultdict
+from collections import defaultdict, deque
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
@@ -43,21 +43,28 @@ SPEED_ZONES = [
 ]
 HSR_SPEED = 5.5
 SPRINT_SPEED = 7.0
-ACC_THRESH = 2.0            # m/s² — high acceleration effort
-DEC_THRESH = 2.0           # m/s² — high deceleration effort
-HIGH_METABOLIC = 20.0      # W/kg — high metabolic power threshold (Osgnach)
+ACC_THRESH = 2.0            # m/s², high acceleration effort
+DEC_THRESH = 2.0           # m/s², high deceleration effort
+HIGH_METABOLIC = 20.0      # W/kg, high metabolic power threshold (Osgnach)
 
 
-def energy_cost(a_forward: float) -> float:
+# Terrain constant KT (Osgnach et al. 2010): running on natural grass costs about
+# 29 % more than on a hard surface; artificial turf is treated like grass; a
+# futsal court is a hard floor.
+TERRAIN_KT = {"grass": 1.29, "turf": 1.29, "court": 1.0}
+
+
+def energy_cost(a_forward: float, kt: float = 1.0) -> float:
     """Energy cost of running (J/kg/m) at forward acceleration ``a_forward`` (m/s²),
-    di Prampero equivalent-slope model with the Minetti gradient-cost polynomial.
-    On flat constant speed (a=0) this returns 3.6 J/kg/m."""
+    di Prampero equivalent-slope model with the Minetti gradient-cost polynomial,
+    times the terrain constant ``kt``. On a hard flat surface at constant speed
+    this is 3.6 J/kg/m; on grass (kt 1.29) 4.64 J/kg/m."""
     es = a_forward / G                          # equivalent slope
     es = max(-0.45, min(0.45, es))              # Minetti model validity range
     em = math.sqrt(es * es + 1.0)               # equivalent mass ratio
     c = (155.4 * es**5 - 30.4 * es**4 - 43.3 * es**3
          + 46.3 * es**2 + 19.5 * es + 3.6)
-    return c * em
+    return c * em * kt
 
 
 def _zone(speed: float) -> str:
@@ -86,8 +93,12 @@ class _Acc:
         self.power_n = 0
         self.energy_jkg = 0.0
         self.high_met = 0.0
-        self.hr: List[float] = []
-        self.spo2: List[float] = []
+        self.hr = deque(maxlen=120)
+        self.hr_early = []
+        self.hr_sum = 0.0
+        self.hr_count = 0
+        self.hr_max = 0.0
+        self.spo2_min = None
         self.t = 0.0
         self._last_a = None      # last positional accel vector
         self._last_imu = None    # last IMU accel vector
@@ -96,8 +107,9 @@ class _Acc:
 class LoadEngine:
     """Per-player Catapult-style load accumulator."""
 
-    def __init__(self, mass_kg: float = 75.0):
+    def __init__(self, mass_kg: float = 75.0, terrain: str = "grass"):
         self.mass = mass_kg
+        self.kt = TERRAIN_KT.get(terrain, 1.29)
         self._acc: Dict[int, _Acc] = defaultdict(_Acc)
         self._history: Dict[int, List[float]] = {}
         self._mass_of: Dict[int, float] = {}
@@ -151,10 +163,10 @@ class LoadEngine:
         elif a_fwd > -DEC_THRESH * 0.5:
             a.in_dec = False
 
-        # metabolic power (di Prampero) — needs smooth accel from Kalman.
+        # metabolic power (di Prampero), needs smooth accel from Kalman.
         # Clamp to a physiological ceiling so a bad-calibration / tracking spike
         # cannot blow up energy totals (elite peaks are ~50-100 W/kg).
-        p = min(energy_cost(a_fwd) * speed, 120.0)    # W/kg
+        p = min(energy_cost(a_fwd, self.kt) * speed, 120.0)    # W/kg
         a.power_sum += p; a.power_n += 1
         a.power_peak = max(a.power_peak, p)
         a.energy_jkg += p * dt
@@ -175,8 +187,13 @@ class LoadEngine:
 
         if hr is not None:
             a.hr.append(hr)
+            if len(a.hr_early) < 120:
+                a.hr_early.append(hr)
+            a.hr_sum += hr
+            a.hr_count += 1
+            a.hr_max = max(a.hr_max, hr)
         if spo2 is not None:
-            a.spo2.append(spo2)
+            a.spo2_min = spo2 if a.spo2_min is None else min(a.spo2_min, spo2)
 
     def features(self, player_id: int) -> WorkloadFeatures:
         a = self._acc[player_id]
@@ -193,17 +210,18 @@ class LoadEngine:
         f.metabolic_power_avg = round(a.power_sum / a.power_n, 2) if a.power_n else 0.0
         f.metabolic_power_peak = round(a.power_peak, 2)
         f.high_metabolic_distance = round(a.high_met, 1)
-        f.energy_kcal = round(a.energy_jkg * mass / 4184.0, 1)   # J/kg → kcal
+        f.energy_kcal = round(a.energy_jkg * mass / 4184.0, 1)   # J/kg to kcal
         f.top_speed = round(a.top, 2)
         f.duration_s = round(a.t, 1)
         if a.hr:
-            f.avg_hr = round(float(np.mean(a.hr)), 1)
-            f.max_hr = round(float(np.max(a.hr)), 1)
+            f.avg_hr = round(a.hr_sum / a.hr_count, 1)
+            f.max_hr = round(a.hr_max, 1)
             n = len(a.hr)
             if n >= 6:
-                f.hr_drift = round(float(np.mean(a.hr[-n // 3:]) - np.mean(a.hr[: n // 3])), 1)
-        if a.spo2:
-            f.min_spo2 = round(float(np.min(a.spo2)), 1)
+                # Descriptive trend only. ReadinessEngine controls for speed.
+                f.hr_drift = round(float(np.mean(a.hr) - np.mean(a.hr_early)), 1)
+        if a.spo2_min is not None:
+            f.min_spo2 = round(a.spo2_min, 1)
         f.acwr = self._acwr(player_id, a.dist)
         return f
 

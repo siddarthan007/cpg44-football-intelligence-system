@@ -40,12 +40,27 @@ class TrainingManager:
         self.jobs_dir = self.root / "data" / "training_jobs"
         self.jobs_dir.mkdir(parents=True, exist_ok=True)
         model_path = self.root / "models" / "strain_xgboost.pkl"
+        saved_backend = None
+        saved_metadata = {}
+        if model_path.is_file():
+            try:
+                from soccer_analytics.sensors.injury import InjuryRiskModel
+                saved_model = InjuryRiskModel.load(str(model_path))
+                saved_backend = saved_model._backend
+                saved_metadata = saved_model.metadata
+            except Exception:
+                saved_backend = None
         self.strain_model_status = {
-            "trained": model_path.is_file(),
-            "backend": "xgboost" if model_path.is_file() else None,
-            "model_path": str(model_path) if model_path.is_file() else None,
-            "validation": None,
-            "training_source": "independently reviewed player-session outcomes required",
+            "trained": saved_backend is not None,
+            "backend": saved_backend,
+            "model_path": str(model_path) if saved_backend is not None else None,
+            "validation": saved_metadata.get("validation"),
+            "labelled_sessions": saved_metadata.get("labelled_sessions"),
+            "training_rows": saved_metadata.get("training_rows"),
+            "positive_outcomes": saved_metadata.get("positive_outcomes"),
+            "training_source": saved_metadata.get(
+                "training_source", "independently reviewed player-session outcomes required"
+            ),
         }
 
     def _default_dataset(self) -> Path:
@@ -159,13 +174,18 @@ class TrainingManager:
         model_name: str = "yolov8m.pt",
         epochs: int = 50,
         imgsz: int = 1280,
-        batch: int = 4,
+        batch: int = 2,
         lr: float = 0.01,
     ) -> dict:
         del lr  # the CLI owns its tuned learning-rate schedule
         dataset = Path(data_path).expanduser().resolve()
         if not dataset.is_file():
             return {"ok": False, "error": f"dataset YAML not found: {dataset}"}
+        from soccer_analytics.data_split import validate_training_data
+        try:
+            validate_training_data(dataset)
+        except (ValueError, OSError) as error:
+            return {"ok": False, "error": str(error)}
         if not 1 <= epochs <= 500:
             return {"ok": False, "error": "epochs must be between 1 and 500"}
         if imgsz not in {640, 768, 960, 1024, 1280, 1536, 1920}:
@@ -379,6 +399,14 @@ class TrainingManager:
             load = player.get("load")
             if not isinstance(wearable, dict) or not isinstance(load, dict):
                 continue
+            if wearable.get("clock_synced") is False:
+                continue
+            alignment_ms = wearable.get("alignment_offset_ms")
+            try:
+                if alignment_ms is not None and abs(float(alignment_ms)) > 1000.0:
+                    continue
+            except (TypeError, ValueError):
+                continue
             try:
                 player_id = int(player.get("player_id"))
             except (TypeError, ValueError):
@@ -389,6 +417,11 @@ class TrainingManager:
                 if source_timestamp <= previous or source_timestamp - previous < interval_s:
                     continue
                 self._last_multimodal_capture[capture_key] = source_timestamp
+            quality = wearable.get("signal_quality")
+            try:
+                optical_ok = quality is None or float(quality) >= 0.35
+            except (TypeError, ValueError):
+                optical_ok = False
             self.record_multimodal_sample(
                 match_id=match_id,
                 player_id=player_id,
@@ -405,8 +438,8 @@ class TrainingManager:
                     "metabolic_power": load.get("metabolic_power_wkg"),
                 },
                 internal_metrics={
-                    "hr": wearable.get("hr"),
-                    "spo2": wearable.get("spo2"),
+                    "hr": wearable.get("hr") if optical_ok else None,
+                    "spo2": wearable.get("spo2") if optical_ok else None,
                     "signal_quality": wearable.get("signal_quality"),
                     "hr_drift": load.get("hr_drift"),
                     "player_load": load.get("player_load_imu")
@@ -489,23 +522,26 @@ class TrainingManager:
                 JOIN outcome_labels AS outcome
                   ON outcome.match_id = sample.match_id
                  AND outcome.player_id = sample.player_id
-                WHERE sample.id = (
-                    SELECT latest.id FROM multimodal_samples AS latest
-                    WHERE latest.match_id = sample.match_id
-                      AND latest.player_id = sample.player_id
-                    ORDER BY latest.timestamp DESC, latest.id DESC LIMIT 1
-                )
-                  AND outcome.outcome_window_days = ?
+                WHERE outcome.outcome_window_days = ?
                 ORDER BY sample.timestamp
                 """,
                 (self.outcome_window_days,),
             ).fetchall()
-        positives = sum(int(row["outcome_label"]) for row in rows)
-        if len(rows) < 100 or positives < 10 or len(rows) - positives < 10:
+        sessions = {}
+        for row in rows:
+            key = (str(row["match_id"]), int(row["player_id"]))
+            sessions[key] = {
+                "last_timestamp": max(float(row["timestamp"]), sessions.get(key, {}).get("last_timestamp", 0.0)),
+                "label": int(row["outcome_label"]),
+            }
+        ordered_sessions = sorted(sessions, key=lambda key: sessions[key]["last_timestamp"])
+        positives = sum(sessions[key]["label"] for key in ordered_sessions)
+        if len(ordered_sessions) < 100 or positives < 10 or len(ordered_sessions) - positives < 10:
             return {
                 "ok": False,
                 "error": "need at least 100 independently labelled player-sessions with 10 outcomes in each class",
-                "labelled_samples": len(rows),
+                "labelled_sessions": len(ordered_sessions),
+                "training_rows": len(rows),
                 "positive_outcomes": positives,
             }
 
@@ -528,20 +564,35 @@ class TrainingManager:
             for row in rows
         ]
         labels = [int(row["outcome_label"]) for row in rows]
-        split = int(len(rows) * 0.8)
-        if len(set(labels[:split])) < 2 or len(set(labels[split:])) < 2:
+        split = int(len(ordered_sessions) * 0.8)
+        train_sessions = set(ordered_sessions[:split])
+        holdout_sessions = set(ordered_sessions[split:])
+        train_indices = [
+            index for index, row in enumerate(rows)
+            if (str(row["match_id"]), int(row["player_id"])) in train_sessions
+        ]
+        holdout_indices = [
+            index for index, row in enumerate(rows)
+            if (str(row["match_id"]), int(row["player_id"])) in holdout_sessions
+        ]
+        train_labels = [labels[index] for index in train_indices]
+        holdout_labels = [labels[index] for index in holdout_indices]
+        if len(set(train_labels)) < 2 or len(set(holdout_labels)) < 2:
             return {"ok": False, "error": "chronological train and holdout periods both need two classes"}
 
-        validation_model = InjuryRiskModel().fit(features[:split], labels[:split])
+        validation_model = InjuryRiskModel().fit(
+            [features[index] for index in train_indices], train_labels
+        )
         import numpy as np
         from sklearn.metrics import average_precision_score, brier_score_loss, roc_auc_score
 
-        X_holdout = np.vstack([features_to_array(feature) for feature in features[split:]])
+        X_holdout = np.vstack([features_to_array(features[index]) for index in holdout_indices])
         probabilities = validation_model.model.predict_proba(X_holdout)[:, 1]
-        y_holdout = np.asarray(labels[split:])
+        y_holdout = np.asarray(holdout_labels)
         validation = {
-            "split": "chronological_last_20_percent",
-            "samples": int(len(y_holdout)),
+            "split": "chronological_last_20_percent_by_player_session",
+            "sessions": len(holdout_sessions),
+            "rows": int(len(y_holdout)),
             "roc_auc": round(float(roc_auc_score(y_holdout, probabilities)), 4),
             "average_precision": round(float(average_precision_score(y_holdout, probabilities)), 4),
             "brier_score": round(float(brier_score_loss(y_holdout, probabilities)), 4),
@@ -551,14 +602,22 @@ class TrainingManager:
         out_dir = self.root / "models"
         out_dir.mkdir(parents=True, exist_ok=True)
         model_path = out_dir / "strain_xgboost.pkl"
-        final_model.save(str(model_path))
+        metadata = {
+            "validation": validation,
+            "labelled_sessions": len(ordered_sessions),
+            "training_rows": len(rows),
+            "positive_outcomes": positives,
+            "training_source": "labelled multimodal_dataset.db",
+        }
+        final_model.save(str(model_path), metadata=metadata)
         with self.lock:
             self.strain_model_status = {
                 "trained": True,
                 "backend": final_model._backend,
                 "model_path": str(model_path),
                 "last_trained": time.time(),
-                "labelled_samples": len(rows),
+                "labelled_sessions": len(ordered_sessions),
+                "training_rows": len(rows),
                 "positive_outcomes": positives,
                 "validation": validation,
                 "training_source": "labelled multimodal_dataset.db",

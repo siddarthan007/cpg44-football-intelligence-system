@@ -1,0 +1,21 @@
+{
+  "scope": "synthetic loopback, excludes Wi-Fi, TLS/WAN, physical sensors and vision",
+  "samples": 512,
+  "duplicates_suppressed": 16,
+  "recovered_samples": 512,
+  "replay_pages": 2,
+  "sample_loss": 0,
+  "http_to_websocket_batch_age_ms": {
+    "p50": 3.48,
+    "p95": 5.01,
+    "p99": 5.3
+  },
+  "cache": {
+    "storage": "memory_only",
+    "items": 512,
+    "bytes": 299871,
+    "max_bytes": 4194304,
+    "oldest_seq": 1,
+    "latest_seq": 512
+  }
+}

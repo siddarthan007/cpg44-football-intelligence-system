@@ -6,28 +6,38 @@ sketch and the supported field firmware. It publishes only to
 
 ## Connections
 
+The full build, power design and checks are in
+[docs/hardware/BUILD_GUIDE.md](docs/hardware/BUILD_GUIDE.md). Pin summary:
+
 | Connection | ESP32-S3 pin | Setting |
 |---|---:|---|
-| MPU6050 and MAX30102 SDA | GPIO 4 | I2C, 100 kHz |
-| MPU6050 and MAX30102 SCL | GPIO 5 | I2C, 100 kHz |
+| GY-87 SDA (MPU6050, magnetometer) | GPIO 4 | I2C, 100 kHz |
+| GY-87 SCL | GPIO 5 | I2C, 100 kHz |
 | NEO-6M TX to ESP32 RX | GPIO 16 | 9600 baud |
-| ESP32 TX to NEO-6M RX | GPIO 17 | optional |
+| ESP32 TX to NEO-6M RX | GPIO 17 | sets 5 Hz at boot |
+| AD8232 OUTPUT | GPIO 2 | ADC1, 250 Hz |
+| AD8232 LO+ / LO- | GPIO 11 / 12 | electrode-off |
+| Battery divider (2 x 100 kOhm) | GPIO 1 | ADC1 |
+| TPS63020 3.3 V output | 3V3 pin | not 5V or VIN |
 
-All boards must share ground. Check the voltage requirement printed on each
-breakout before wiring. Expected I2C addresses are `0x57` for MAX30102 and
-`0x68` for MPU6050.
+An optional MAX30102 on the same I2C bus (0x57) is detected automatically and
+used only for resting SpO2.
 
 ## Sampling
 
-| Sensor | Current output |
+| Sensor | Output |
 |---|---:|
-| MPU6050 | about 100 Hz |
-| MAX30102 red and IR FIFO | 25 Hz |
-| NEO-6M GPS | 1 Hz |
+| MPU6050 | 50 Hz, ±16 g, ±2000 °/s, on-chip low-pass 21 Hz |
+| Magnetometer (HMC5883L or QMC5883L) | 50 Hz, with each IMU sample |
+| AD8232 ECG | 250 Hz, sent in blocks of 50 |
+| NEO-6M GPS | 5 Hz, RMC and GGA only |
+| Battery | every 2 s |
 
-Acceleration is sent in m/s² and angular rate in rad/s. Raw PPG is processed on
-the PC so motion, contact and optical quality can be checked before BPM or SpO2
-is shown.
+The low-pass must stay below the 25 Hz Nyquist limit of 50 Hz sampling, and
+±16 g avoids clipping on kicks and tackles. Acceleration is sent in m/s²,
+angular rate in rad/s and the magnetic field in microtesla. Heart rate is
+computed on the PC from the raw ECG so electrode contact and noise can be
+checked before a number is shown.
 
 ## Flash from WSL
 
@@ -61,8 +71,16 @@ arduino-cli upload --port /dev/ttyACM0 \
 
 ## Placement
 
+The wearable design (compression vest, back pod between the shoulder blades,
+optical pad on the left upper chest, harness, enclosure, power budget, BOM and
+validation tests) is in [docs/hardware/VEST_DESIGN.md](docs/hardware/VEST_DESIGN.md).
+Replaying 21 recorded bench sessions (`python -m soccer_analytics.sensors.session_report`)
+showed the main field risks: incomplete relay delivery, no GNSS fix indoors and
+the optical sensor rarely on skin, so heart rate was correctly withheld.
+
+
 - Fix the IMU firmly in the same upper-back position for each session.
-- Keep the MAX30102 against skin and shield it from outside light.
+- Fix the ECG leads to the vest every 10 cm; cable movement is the main source of noise.
 - Keep the GPS patch facing upward.
 - Use strain relief, an insulated enclosure and a protected battery supply.
 

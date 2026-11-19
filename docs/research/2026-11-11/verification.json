@@ -1,0 +1,110 @@
+{
+  "date": "2026-11-11",
+  "baseline_tests_passed": 56,
+  "final_tests_passed": 81,
+  "frontend_typecheck": "passed",
+  "frontend_production_build": "passed",
+  "python_compile": "passed",
+  "mapped_source_files": 88,
+  "mapped_api_routes": 72,
+  "calibrated_smoke": {
+    "video": "demo/clips/SNMOT-060_750f.mp4",
+    "weights": "runs/detect/soccernet_v3_s1/weights/best.pt",
+    "weights_sha256": "8331a71a52f10f31b84e3cb6cfe3c9687c412866d0cdd6f142e85a8e2a3bbe54",
+    "calibration": "demo/calib/SNMOT-060.yaml",
+    "runtime": {
+      "python": "3.11.15",
+      "torch": "2.11.0+cu128",
+      "cuda": "12.8",
+      "ultralytics": "8.4.123",
+      "supervision": "0.29.1"
+    },
+    "results": [
+      {
+        "tracker": "bytetrack",
+        "frames": 40,
+        "wall_seconds_including_warmup": 5.513,
+        "accepted_position_observations": 552,
+        "calibration_supported_frames": 40,
+        "reidentifications": 1,
+        "ambiguous_reidentifications": 0,
+        "peak_torch_allocated_mb": 120.4,
+        "accuracy_claim": "Smoke diagnostics only. No manually labelled ground truth was used.",
+        "tracked_player_observations": 554
+      },
+      {
+        "tracker": "botsort",
+        "frames": 40,
+        "wall_seconds_including_warmup": 3.668,
+        "accepted_position_observations": 593,
+        "calibration_supported_frames": 40,
+        "reidentifications": 1,
+        "ambiguous_reidentifications": 0,
+        "peak_torch_allocated_mb": 170.2,
+        "accuracy_claim": "Smoke diagnostics only. No manually labelled ground truth was used.",
+        "tracked_player_observations": 594
+      }
+    ]
+  },
+  "uncalibrated_smoke": {
+    "video": "demo/clips/SNMOT-060_750f.mp4",
+    "weights": "runs/detect/soccernet_v3_s1/weights/best.pt",
+    "weights_sha256": "8331a71a52f10f31b84e3cb6cfe3c9687c412866d0cdd6f142e85a8e2a3bbe54",
+    "calibration": null,
+    "results": [
+      {
+        "tracker": "bytetrack",
+        "frames": 12,
+        "wall_seconds_including_warmup": 4.392,
+        "accepted_position_observations": 0,
+        "calibration_supported_frames": 0,
+        "reidentifications": 1,
+        "ambiguous_reidentifications": 0,
+        "peak_torch_allocated_mb": 99.8,
+        "accuracy_claim": "Smoke diagnostics only. No manually labelled ground truth was used.",
+        "tracked_player_observations": 149
+      },
+      {
+        "tracker": "botsort",
+        "frames": 12,
+        "wall_seconds_including_warmup": 1.244,
+        "accepted_position_observations": 0,
+        "calibration_supported_frames": 0,
+        "reidentifications": 0,
+        "ambiguous_reidentifications": 0,
+        "peak_torch_allocated_mb": 151.1,
+        "accuracy_claim": "Smoke diagnostics only. No manually labelled ground truth was used.",
+        "tracked_player_observations": 185
+      }
+    ]
+  },
+  "offline_analysis": {
+    "result": "stats and heatmap artifacts generated",
+    "labelled_accuracy_evaluation": false,
+    "tracker": "botsort",
+    "frames": 20
+  },
+  "browser": {
+    "viewport_reset": true,
+    "source": "real SNMOT-060 annotated footage",
+    "checked": [
+      "unavailable state",
+      "calibration mismatch warning",
+      "map/heatmap switch",
+      "Space-key track selection",
+      "390 px responsive viewport",
+      "no document horizontal overflow"
+    ]
+  },
+  "limitations": [
+    "No new neural model was trained.",
+    "No independent before/after accuracy claim is made.",
+    "Smoke timings include initialization and backend order effects.",
+    "PyTorch allocation is not total device memory.",
+    "Demo kit calibration mismatched this footage and was left unchanged.",
+    "Live 750-source-frame previews dropped 209 and 219 frames to maintain pacing."
+  ],
+  "calibration_sha256": "d21bd89d11db67482f3732df3f6f27d7f8c69d7d15ad340b9a2ac39db4406f84",
+  "ui_review": "ui-review.md",
+  "source_inventory": "project-map.json"
+}

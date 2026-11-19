@@ -3,12 +3,12 @@
 Honda et al. predict the pass receiver by fusing video with player trajectories
 (3D-CNN + LSTM + Transformer). This is the interpretable geometric counterpart:
 for the ball carrier, each teammate is scored as a pass option from spatial
-features — receiver **openness** (space from nearest defender), passing-**lane
+features, receiver **openness** (space from nearest defender), passing-**lane
 clearness** (no defender intercepting the straight lane), **progressiveness**
 (territory gained toward goal), and a plausible **range**. The trajectory LSTM
 (:mod:`soccer_analytics.trajectory`) can extend this to where players *will* be.
 
-Pure NumPy over pitch-metre coordinates — unit-testable. A logistic model can be
+Pure NumPy over pitch-metre coordinates, unit-testable. A logistic model can be
 fitted on labelled completed/failed passes later to calibrate the weighting.
 """
 

@@ -1,6 +1,6 @@
 """LSTM player-trajectory prediction (CPG44 Objective 3 / DL course / ref [8] Honda).
 
-Predicts each player's future path from their recent trajectory — the sequential
+Predicts each player's future path from their recent trajectory, the sequential
 deep-learning component the report calls for ("LSTM networks for analysing
 sequential multimodal data", and Honda et al. [8], who fuse video with LSTM
 player trajectories for pass-receiver prediction).
@@ -9,10 +9,10 @@ Design: translation-invariant. The LSTM ingests the last K velocity steps
 (Δposition, normalised pitch units) and directly predicts the next H velocities;
 positions are recovered by integrating from the last observed point. Trains on
 the SoccerNet Tracking ground-truth tracklets (which we already have), reporting
-ADE/FDE (average / final displacement error) — the standard trajectory metrics.
+ADE/FDE (average / final displacement error), the standard trajectory metrics.
 
     python -m soccer_analytics.trajectory train --src ~/SoccerNet/tracking/train --epochs 15
-    # → runs/trajectory/traj_lstm.pt  (+ ADE/FDE on a held-out split)
+    # to runs/trajectory/traj_lstm.pt  (+ ADE/FDE on a held-out split)
 """
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ import glob
 import math
 import os
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import List, Tuple
 
 import numpy as np
 import torch
@@ -36,7 +36,7 @@ IMW, IMH = 1920.0, 1080.0     # SoccerNet frame size for normalisation
 # model
 # --------------------------------------------------------------------------- #
 class TrajectoryLSTM(nn.Module):
-    """Encode K velocity steps → predict H future velocity steps."""
+    """Encode K velocity steps to predict H future velocity steps."""
 
     def __init__(self, hidden: int = 64, layers: int = 1, horizon: int = H_OUT):
         super().__init__()
@@ -45,13 +45,13 @@ class TrajectoryLSTM(nn.Module):
         self.head = nn.Linear(hidden, horizon * 2)
 
     def forward(self, vel_seq: torch.Tensor) -> torch.Tensor:
-        # vel_seq: (B, K, 2) → (B, H, 2) predicted velocities
+        # vel_seq: (B, K, 2) to (B, H, 2) predicted velocities
         _, (h, _) = self.lstm(vel_seq)
         return self.head(h[-1]).view(-1, self.horizon, 2)
 
     @torch.no_grad()
     def predict_positions(self, recent_xy: np.ndarray) -> np.ndarray:
-        """recent_xy: (>=K+1, 2) normalised positions → (H, 2) future positions."""
+        """recent_xy: (>=K+1, 2) normalised positions to (H, 2) future positions."""
         self.eval()
         xy = np.asarray(recent_xy, dtype=np.float32)
         vel = np.diff(xy[-(K_IN + 1):], axis=0)          # (K, 2)
@@ -116,7 +116,7 @@ def build_windows(src: str, max_seqs: int = 0) -> Tuple[np.ndarray, np.ndarray, 
 def _ade_fde(pred_off: np.ndarray, true_off: np.ndarray) -> Tuple[float, float]:
     # de-normalise to metres-ish via pitch scale (approx: full frame ≈ pitch), in px
     d = np.linalg.norm(pred_off - true_off, axis=-1)      # (N, H) normalised units
-    scale = math.hypot(IMW, IMH)                          # normalised → pixels
+    scale = math.hypot(IMW, IMH)                          # normalised to pixels
     return float(d.mean() * scale), float(d[:, -1].mean() * scale)
 
 
@@ -148,7 +148,7 @@ def train(src: str, epochs: int = 15, batch: int = 256, hidden: int = 64,
             b = torch.as_tensor(tr[perm[i:i + batch].numpy()])
             xb, yb = Xv_t[b], Yp_t[b]
             opt.zero_grad()
-            # integrate predicted velocities → offsets for a position-space loss
+            # integrate predicted velocities to offsets for a position-space loss
             off = torch.cumsum(model(xb), dim=1).reshape(len(b), -1)
             loss = lossf(off, yb)
             loss.backward()
@@ -165,7 +165,7 @@ def train(src: str, epochs: int = 15, batch: int = 256, hidden: int = 64,
     Path(out).parent.mkdir(parents=True, exist_ok=True)
     torch.save({"state": model.state_dict(), "hidden": hidden,
                 "K_IN": K_IN, "H_OUT": H_OUT}, out)
-    print(f"[traj] saved → {out}  (ADE {ade:.1f}px, FDE {fde:.1f}px on holdout)")
+    print(f"[traj] saved to {out}  (ADE {ade:.1f}px, FDE {fde:.1f}px on holdout)")
     return model
 
 

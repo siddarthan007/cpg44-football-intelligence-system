@@ -1,7 +1,7 @@
 """Neutral load/injury data types shared by :mod:`soccer_analytics.catapult`
 (which produces them) and :mod:`soccer_analytics.sensors` (which consumes them).
 
-Kept in its own module — with no dependency on either package — so the two can
+Kept in its own module, with no dependency on either package, so the two can
 reference these types without an import cycle.
 """
 
@@ -13,11 +13,11 @@ from typing import Dict
 
 @dataclass
 class WorkloadFeatures:
-    """Accumulated per-player load features — the injury model's input vector.
+    """Accumulated per-player load features, the injury model's input vector.
 
     Catapult-aligned: external load comes from vision (distance, speed zones, HSR,
-    sprints, accel/decel efforts, metabolic power/energy) and — when the wearable
-    is present — internal load (HR/SpO2) and true IMU PlayerLoad augment it."""
+    sprints, accel/decel efforts, metabolic power/energy) and, when the wearable
+    is present, internal load (HR/SpO2) and true IMU PlayerLoad augment it."""
     player_id: int
     total_distance: float = 0.0           # m
     hsr_distance: float = 0.0             # high-speed-running distance, m (>5.5 m/s)

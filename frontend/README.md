@@ -2,7 +2,7 @@
 
 React + Vite UI for the local match workspace, tactical pitch, measured
 wearable data and live WebSocket/JPEG updates. The default design is light,
-responsive and uses the repository's own design tokens.
+responsive and uses a small warm-paper style sheet.
 
 ```bash
 # API

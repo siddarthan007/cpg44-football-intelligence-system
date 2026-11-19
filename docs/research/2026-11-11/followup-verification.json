@@ -1,0 +1,58 @@
+{
+  "date": "2026-11-11",
+  "active_tests_passed": 93,
+  "test_command": "PYTHONPATH=backend/src:. python -m pytest tests -q",
+  "frontend_typecheck": "passed",
+  "frontend_production_build": "passed",
+  "python_compilation": "passed",
+  "relay_network_verification": "relay-verification.json",
+  "relay_scope": "synthetic authenticated loopback HTTP/WebSocket; excludes TLS/WAN/Wi-Fi and acquisition",
+  "vision_smoke": {
+    "frames_per_backend": 120,
+    "trackers": ["bytetrack", "botsort"],
+    "source": "demo/clips/SNMOT-060_750f.mp4",
+    "weights": "runs/detect/soccernet_v3_s1/weights/best.pt",
+    "imgsz": 960,
+    "calibrated": true,
+    "ground_truth_accuracy_measured": false,
+    "bytetrack_observations": 1597,
+    "bytetrack_accepted_pins": 1430,
+    "botsort_observations": 1665,
+    "botsort_accepted_pins": 1491,
+    "fair_tracker_speed_ranking": false
+  },
+  "paced_preview": {
+    "source_frames": 750,
+    "first_followup_dropped_frames": 199,
+    "later_runs_dropped_frames": [101, 119],
+    "repeat_variability": "Warm-up, run order, GPU load and OS scheduling differ. These are functional previews, not a speed-gain claim.",
+    "saved_snapshots": 284,
+    "saved_tracked_player_observations": 3764,
+    "saved_accepted_position_observations": 3102,
+    "late_clip_pin_attrition": "Requires labelled calibration/contact/identity evaluation; gates were not loosened for display coverage."
+  },
+  "firmware": {
+    "modified": true,
+    "compiled": false,
+    "reason": "Arduino CLI could not build because the esp32:esp32 platform is not installed in this environment.",
+    "flashed": false,
+    "field_validated": false
+  },
+  "browser": {
+    "desktop_width": 1280,
+    "mobile_width": 390,
+    "checks": ["real annotated footage", "source unavailable", "Space-key player selection", "occupancy switch", "team-filter explanation", "unassigned legend", "source-quality disclosure", "wearable absence", "no document horizontal overflow"],
+    "review": "../../../.impeccable/review/verdict.md",
+    "scored_fixes_disposition": "ship",
+    "whole_application_design_certified": false
+  },
+  "rt_detr": {
+    "research_completed": true,
+    "locally_benchmarked": false,
+    "integrated_or_promoted": false,
+    "study": "../../RTDETR_AND_REPLAYFIELD.md"
+  },
+  "model_training_completed": false,
+  "independent_accuracy_gain_claimed": false,
+  "public_relay_deployed": false
+}

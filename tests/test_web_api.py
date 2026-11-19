@@ -76,6 +76,9 @@ def test_health_and_wearable_join_key():
                 headers={"Content-Type": "image/jpeg"},
             )
             assert posted_frame.status_code == 200
+            image, version = STORE.live_jpeg_snapshot()
+            assert image == jpeg
+            assert version is not None
 
             live = await client.get("/api/v1/live")
             assert live.status_code == 200
@@ -88,9 +91,62 @@ def test_health_and_wearable_join_key():
             assert frame.headers["content-type"] == "image/jpeg"
             assert frame.content == jpeg
 
+            registered = await client.post(
+                "/api/v1/cameras/register",
+                json={"id": "demo_cam", "name": "Demo", "type": "file", "source": "demo/sample_match.mp4"},
+            )
+            assert registered.status_code == 200
+            assert registered.json()["id"] == "demo_cam"
+
+            vision = await client.get("/api/v1/vision/status")
+            assert vision.status_code == 200
+            assert vision.json()["running"] is False
+
+            old_hub = STORE.hub_url
+            STORE.hub_url = "http://127.0.0.1:9999"
+            try:
+                wearable_status = await client.get("/api/v1/wearables/status")
+                assert wearable_status.status_code == 200
+                assert wearable_status.json()["connected"] is False
+            finally:
+                STORE.hub_url = old_hub
+
+            route_paths = {route.path for route in create_app().routes}
+            assert "/api/v1/live/mjpeg" in route_paths
+            assert "/api/v1/cameras/{camera_id}/mjpeg" in route_paths
     asyncio.run(check())
 
 
 if __name__ == "__main__":
     test_health_and_wearable_join_key()
     print("web api tests passed")
+
+
+def test_squad_round_trip_and_validation(tmp_path, monkeypatch):
+    monkeypatch.setenv("CPG44_SQUAD_FILE", str(tmp_path / "squad.json"))
+
+    async def check():
+        transport = httpx.ASGITransport(app=create_app())
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            assert (await client.get("/api/v1/squad")).json()["players"] == []
+            bad = await client.put("/api/v1/squad", json={"players": [{"name": "A", "number": 7}, {"name": "B", "number": 7}]})
+            assert bad.status_code == 422 and "used twice" in bad.json()["detail"]
+            bad = await client.put("/api/v1/squad", json={"players": [{"name": "A", "vest": 1}, {"name": "B", "vest": 1}]})
+            assert bad.status_code == 422
+            ok = await client.put("/api/v1/squad", json={"team_name": "Thapar FC", "players": [
+                {"name": " Rohan Gill ", "number": "7", "vest": 1, "position": "MF"}, {"name": "Aarav", "number": None}]})
+            assert ok.status_code == 200
+            got = (await client.get("/api/v1/squad")).json()
+            assert got["players"][0] == {"name": "Rohan Gill", "number": 7, "vest": 1, "position": "MF"}
+    asyncio.run(check())
+
+
+def test_live_frame_carries_pitch_geometry():
+    store = ProductStore()
+    store.ingest_live_frame({"players": [], "pitch": {"kind": "futsal", "length_m": 40.0, "width_m": 20.0}})
+    m = store.live_frame_snapshot()["match"]
+    assert (m["pitch_length_m"], m["pitch_width_m"], m["pitch_kind"]) == (40.0, 20.0, "futsal")
+    # implausible sizes are ignored, the last good geometry stays
+    store.ingest_live_frame({"players": [], "pitch": {"kind": "football", "length_m": 4000, "width_m": "x"}})
+    m = store.live_frame_snapshot()["match"]
+    assert m["pitch_length_m"] == 40.0

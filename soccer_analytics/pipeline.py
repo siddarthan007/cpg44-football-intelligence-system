@@ -2,7 +2,7 @@
 tactics, with an optional annotated output video.
 
 Design (two phases, so team colours are fit over the WHOLE match and the ball is
-interpolated with full temporal context — both more robust than the per-frame,
+interpolated with full temporal context, both more robust than the per-frame,
 first-frame-only approach in the reference repos):
 
   Phase 1  analyse each frame: detect + track people, pick the ball, estimate
@@ -31,7 +31,7 @@ import numpy as np
 from . import annotate as an
 from . import heatmap as hm
 from .catapult import LoadEngine
-from .core import PLAYER, REFEREE, Detections, centers, foot_points
+from .core import PLAYER, REFEREE, centers, foot_points
 from .config import PipelineConfig, PitchConfig
 from .device import resolve_device
 from .filters import BallKalman, KalmanBank
@@ -43,7 +43,7 @@ from .substitution import SubstitutionAdvisor
 from .tactical_engine import TacticalEngine
 from .team_assign import TeamAssigner
 from .tracker import Detector, SoccerTracker, pick_ball, interpolate_ball
-from .view import CameraMotionEstimator, ViewTransformer
+from .view import CameraMotionEstimator, ViewTransformer, PitchHomographyTracker
 
 
 @dataclass
@@ -51,6 +51,7 @@ class FrameRecord:
     players: List[tuple] = field(default_factory=list)  # (tid, xyxy, class_id, color)
     ball_px: Optional[np.ndarray] = None                # ball box [x1,y1,x2,y2]
     cam_offset: Tuple[float, float] = (0.0, 0.0)        # cumulative camera shift (px)
+    homography: Optional[np.ndarray] = None
 
 
 def _open_video(path: str):
@@ -75,9 +76,13 @@ def analyze(video: str, cfg: PipelineConfig, view: ViewTransformer,
     print(f"[analyze] compute: {dev.name} ({dev.device})")
     detector = Detector(cfg.weights, imgsz=cfg.imgsz, device=dev.device,
                         person_conf=cfg.conf, ball_conf=min(cfg.conf, 0.1),
-                        half=dev.half_ok)
-    tracker = SoccerTracker(frame_rate=int(round(fps)))
+                        half=dev.half_ok, track_low_conf=cfg.track_low_conf)
+    tracker = SoccerTracker(frame_rate=int(round(fps)), backend=cfg.tracker,
+                            track_activation_threshold=cfg.conf,
+                            lost_track_buffer=cfg.track_buffer, track_low_conf=cfg.track_low_conf)
     cam = CameraMotionEstimator((H, W))
+    pitch_tracker = PitchHomographyTracker(view.H, (H, W), pitch_length=cfg.pitch.length,
+                                            pitch_width=cfg.pitch.width) if view.is_metric else None
     team = TeamAssigner()
 
     # ---------- Phase 1: analyse ----------
@@ -90,13 +95,18 @@ def analyze(video: str, cfg: PipelineConfig, view: ViewTransformer,
         if not ok or (max_frames and fi >= max_frames):
             break
         det = detector.detect(frame)
-        tracked = tracker.update(det)
+        tracked = tracker.update(det, frame)
         ball_box = pick_ball(det)
 
-        dx, dy = cam.update(frame)
-        cum = cum + np.array([dx, dy])
+        if pitch_tracker is not None:
+            pitch_tracker.update(frame, det.of_class(PLAYER, REFEREE).xyxy)
+        else:
+            dx, dy = cam.update(frame)
+            cum = cum + np.array([dx, dy])
 
         rec = FrameRecord(ball_px=ball_box, cam_offset=(float(cum[0]), float(cum[1])))
+        if pitch_tracker is not None and pitch_tracker.valid:
+            rec.homography = pitch_tracker.H.copy()
         for i in range(len(tracked)):
             tid = int(tracked.tracker_id[i])
             xyxy = tracked.xyxy[i]
@@ -120,7 +130,7 @@ def analyze(video: str, cfg: PipelineConfig, view: ViewTransformer,
         team.fit(color_samples)
         team_ok = True
     else:
-        print("[warn] too few colour samples — team assignment disabled")
+        print("[warn] too few colour samples, team assignment disabled")
         team_ok = False
 
     ball_boxes = [r.ball_px for r in records]
@@ -132,15 +142,22 @@ def analyze(video: str, cfg: PipelineConfig, view: ViewTransformer,
     poss_dist = 2.0 if metric else 70.0
     engine = MetricsEngine(fps=fps, metric=metric, possession_dist=poss_dist,
                            max_speed_mps=cfg.max_speed_mps)
+    engine.pitch_width = cfg.pitch.width
+    engine.pitch_length = cfg.pitch.length
     tactic = TacticalEngine(cfg.pitch)
 
-    def to_pitch(px_xy, offset):
-        adj = np.array(px_xy, float) - np.array(offset, float)   # camera-correct
+    def to_pitch(px_xy, record):
+        if metric:
+            if record.homography is None:
+                return np.full(2, np.nan)
+            return ViewTransformer(H=record.homography, pitch_length=cfg.pitch.length,
+                                   pitch_width=cfg.pitch.width).transform([px_xy])[0]
+        adj = np.asarray(px_xy, float) - np.asarray(record.cam_offset)
         return view.transform([adj])[0]
 
     # Kalman-smooth trajectories → accurate velocity/acceleration; Catapult load
     kbank = KalmanBank(max_speed=cfg.max_speed_mps if metric else 1e9)
-    reid = ReIDManager()
+    reid = ReIDManager(frame_rate=fps, max_speed_mps=cfg.max_speed_mps)
     load = LoadEngine()
     subs = SubstitutionAdvisor()
     ball_kf = BallKalman()
@@ -177,12 +194,15 @@ def analyze(video: str, cfg: PipelineConfig, view: ViewTransformer,
         for (bt_id, xyxy, cls, color, t) in prepared:
             is_ref = cls == REFEREE
             tid = bt_id if is_ref else stable_ids.get(bt_id, bt_id)
+            if is_ref:
+                render_players.append((xyxy, 0, tid, True))
+                continue
             foot = foot_points(xyxy)[0]
-            pitch_xy = to_pitch(foot, rec.cam_offset)
-            meas = None if np.isnan(pitch_xy[0]) else (float(pitch_xy[0]), float(pitch_xy[1]))
-            kf = kbank.update(tid, meas, dt)
+            pitch_xy = to_pitch(foot, rec)
+            meas = tuple(map(float, pitch_xy)) if np.isfinite(pitch_xy).all() else None
+            kf = kbank.update(tid, meas, dt, time_s=fidx / fps)
             if not is_ref:
-                pos = kf.position
+                pos = kf.position if kf.measurement_accepted else (np.nan, np.nan)
                 players_xy[tid] = pos
                 teams[tid] = t
                 if metric and not np.isnan(pos[0]):
@@ -194,8 +214,8 @@ def analyze(video: str, cfg: PipelineConfig, view: ViewTransformer,
         ball_c = ball_centers[fidx]
         ball_pitch = None
         if ball_c is not None:
-            bp = to_pitch(ball_c, rec.cam_offset)
-            ball_pitch = (float(bp[0]), float(bp[1]))
+            bp = to_pitch(ball_c, rec)
+            ball_pitch = tuple(map(float, bp)) if np.isfinite(bp).all() else None
 
         # Kalman-smooth the ball → stable position + velocity for possession/shots
         ball_used = ball_pitch
@@ -204,7 +224,12 @@ def analyze(video: str, cfg: PipelineConfig, view: ViewTransformer,
             if ball_kf.initialized:
                 ball_used = ball_kf.position
 
-        engine.update(fidx, players_xy, teams, ball_used)
+        observed_ball = None
+        if rec.ball_px is not None:
+            observed = to_pitch(centers(rec.ball_px)[0], rec)
+            observed_ball = tuple(map(float, observed)) if np.isfinite(observed).all() else None
+        engine.update(fidx, players_xy, teams, observed_ball)
+        kbank.prune(players_xy)
         if metric:
             tactic.update({1: {k: v for k, v in players_xy.items() if teams.get(k) == 1},
                            2: {k: v for k, v in players_xy.items() if teams.get(k) == 2}},
@@ -241,10 +266,11 @@ def analyze(video: str, cfg: PipelineConfig, view: ViewTransformer,
             "synthetic_telemetry": False,
         },
         "tracking": {
-            "tracker": "ByteTrack",
+            "tracker": cfg.tracker.removesuffix(".yaml"),
             "stable_ids": reid._next - 1,
             "maximum_simultaneous_players": maximum_players_in_frame,
             "reidentifications": reid.reids,
+            "metric_calibration_coverage": round(sum(r.homography is not None for r in records) / max(n, 1), 4) if metric else None,
             "raw_ball_detection_rate": round(
                 sum(position is not None for position in [r.ball_px for r in records]) / max(n, 1), 4
             ),
@@ -294,6 +320,8 @@ def analyze(video: str, cfg: PipelineConfig, view: ViewTransformer,
         ) / max(len(players_out), 1)
         fragmentation_ratio = (reid._next - 1) / max(maximum_players_in_frame, 1)
         warnings = []
+        if any(r.homography is None for r in records):
+            warnings.append("pitch mapping lacked visual support on some frames; those positions were withheld")
         if not players_out:
             warnings.append("no confirmed player tracks were available")
         if not r1.evidence_ready or not r2.evidence_ready:
@@ -373,6 +401,8 @@ def main(argv=None) -> int:
                    help="pitch calibration .yaml (from soccer_analytics.calibrate). "
                         "Without it, metrics stay in pixels and tactics/heatmaps are skipped.")
     p.add_argument("--conf", type=float, default=0.3)
+    p.add_argument("--tracker", choices=("imm", "bytetrack", "botsort"), default="imm",
+                   help="imm = IMM-EIoU + camera compensation + football ReID (measured best)")
     p.add_argument("--imgsz", type=int, default=1280)
     p.add_argument("--device", default="")
     p.add_argument("--max-frames", type=int, default=0)
@@ -380,14 +410,14 @@ def main(argv=None) -> int:
     args = p.parse_args(argv)
 
     cfg = PipelineConfig(weights=args.weights, conf=args.conf, imgsz=args.imgsz,
-                         device=args.device)
+                         device=args.device, tracker=args.tracker)
     if args.calibration:
         from .pitch import load_calibration
         view = load_calibration(args.calibration, cfg.pitch)
         print(f"[calib] loaded homography from {args.calibration} (metric mode)")
     else:
         view = ViewTransformer()  # identity, pixel mode
-        print("[calib] no calibration — pixel mode (no meters/tactics/heatmaps)")
+        print("[calib] no calibration, pixel mode (no meters/tactics/heatmaps)")
 
     analyze(args.video, cfg, view, args.out, max_frames=args.max_frames, render=args.render)
     return 0

@@ -122,3 +122,15 @@ def test_relay_http_ingest_requires_shared_token(monkeypatch):
             assert len(history.json()["items"]) == 1
 
     asyncio.run(check())
+
+
+def test_relay_keeps_ecg_blocks_and_battery_status():
+    from cpg44_api.hostinger_sensor_relay import _raw_payload
+    ecg = _raw_payload("ecg", {"device_us": 10, "fs": 250, "v": [2048, 2100, 1990], "lead_off": False})
+    assert ecg == {"device_us": 10, "fs": 250, "v": [2048, 2100, 1990], "lead_off": False}
+    assert _raw_payload("ecg", {"device_us": 10, "fs": 250, "v": [5000]}) is None      # out of ADC range
+    st = _raw_payload("status", {"device_us": 1, "rssi_dbm": -60, "heap": 100000, "battery_v": 3.9,
+                                 "battery_pct": 71.5, "gps_rate_hz": 4.9, "ecg": True})
+    assert st["battery_v"] == 3.9 and st["battery_pct"] == 71.5 and st["gps_rate_hz"] == 4.9 and st["ecg"] is True
+    imu = _raw_payload("imu", {"device_us": 1, "a": [0, 0, 9.8], "g": [0, 0, 0], "m": [20.0, -5.0, 40.0]})
+    assert imu["m"] == [20.0, -5.0, 40.0]

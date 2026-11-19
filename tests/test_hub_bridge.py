@@ -15,7 +15,10 @@ def test_snapshot_to_sample_converts_units_and_vitals():
             "valid": True,
             "accel_body_mps2": [0.0, 0.0, 9.80665],
             "gyro_body_rads": [0.0, 0.0, 3.1415926535],
-            "timestamp": {"host_unix_ns": 1_700_000_000_500_000_000},
+            "timestamp": {
+                "host_unix_ns": 1_700_000_000_500_000_000,
+                "transport_delay_ms": 48.5,
+            },
         },
         "gps": {"fix": True, "lat": 30.1, "lon": 76.2, "alt_m": 312.0},
         "server": {"host_unix_ns": 1_700_000_000_500_000_000},
@@ -30,6 +33,8 @@ def test_snapshot_to_sample_converts_units_and_vitals():
     assert abs(s.gyro[2] - 180.0) < 0.01         # rad/s → deg/s
     assert s.gps == (30.1, 76.2)
     assert abs(s.t - 1_700_000_000.5) < 1e-6
+    assert s.transport_delay_ms == 48.5
+    assert s.sample_age_ms == 0.0
 
     obs = sample_to_observation(s, match_id="MATCH_001")
     assert obs["match_id"] == "MATCH_001"
@@ -57,6 +62,37 @@ def test_invalid_vitals_are_not_forwarded_as_measurements():
     assert sample is not None
     assert sample.hr is None
     assert sample.spo2 is None
+
+
+def test_low_quality_optical_values_and_stale_imu_are_withheld():
+    state = {
+        "device": {"connected": True},
+        "vitals": {
+            "stable_15s": {
+                "valid": True,
+                "bpm": 160.0,
+                "spo2_estimate_pct": 94.0,
+                "quality": 0.2,
+            }
+        },
+        "imu": {
+            "valid": True,
+            "accel_body_mps2": [0.0, 0.0, 9.80665],
+            "timestamp": {
+                "host_unix_ns": 1_700_000_000_000_000_000,
+                "clock_synced": True,
+                "transport_delay_ms": 62.0,
+            },
+        },
+        "server": {"host_unix_ns": 1_700_000_003_500_000_000},
+    }
+    sample = snapshot_to_sample(state, player_id=7)
+    assert sample is not None
+    assert sample.hr is None and sample.spo2 is None
+    assert sample.accel is None
+    assert sample.clock_synced is True
+    assert sample.transport_delay_ms == 62.0
+    assert sample.sample_age_ms == 3500.0
 
 
 def test_raw_relay_envelope_becomes_sensor_packet():

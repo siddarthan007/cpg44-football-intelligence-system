@@ -1,8 +1,7 @@
-"""Wearable data sources — the single hardware-abstraction seam.
+"""Wearable data sources, the single hardware-abstraction seam.
 
 All sources push :class:`SensorSample` objects into a thread-safe queue on a
-background thread, so the main (vision) loop never blocks waiting on the wearable
-— essential for near-real-time operation. Implement a new transport by
+background thread, so the main (vision) loop never blocks waiting on the wearable, essential for near-real-time operation. Implement a new transport by
 subclassing :class:`SensorSource` and yielding samples from :meth:`_produce`.
 """
 
@@ -19,10 +18,11 @@ from .schema import SensorSample
 class SensorSource:
     """Base class. Runs :meth:`_produce` on a daemon thread feeding a queue."""
 
-    def __init__(self, maxsize: int = 10000):
+    def __init__(self, maxsize: int = 256):
         self._q: "queue.Queue[SensorSample]" = queue.Queue(maxsize=maxsize)
         self._stop = threading.Event()
         self._thread: Optional[threading.Thread] = None
+        self.dropped_samples = 0
 
     # ---- override this ---- #
     def _produce(self) -> Iterable[SensorSample]:
@@ -30,20 +30,23 @@ class SensorSource:
 
     # ---- lifecycle ---- #
     def start(self) -> "SensorSource":
+        if self._thread is not None and self._thread.is_alive():
+            return self
+        self._stop.clear()
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._thread.start()
         return self
 
     def push(self, s: SensorSample):
-        """Enqueue a sample (drop-oldest if full). Safe to call from any thread —
-        used by push-based sources like the HTTP/WebSocket endpoint."""
+        """Enqueue a sample (drop-oldest if full). Safe to call from any thread, used by push-based sources like the HTTP/WebSocket endpoint."""
         try:
             self._q.put_nowait(s)
         except queue.Full:
             try:
                 self._q.get_nowait()              # drop oldest, keep fresh
+                self.dropped_samples += 1
                 self._q.put_nowait(s)
-            except queue.Empty:
+            except (queue.Empty, queue.Full):
                 pass
 
     def _run(self):
@@ -67,6 +70,8 @@ class SensorSource:
 
     def stop(self):
         self._stop.set()
+        if self._thread is not None and self._thread is not threading.current_thread():
+            self._thread.join(timeout=1.2)
 
 
 class SerialSensorSource(SensorSource):
@@ -93,7 +98,7 @@ class SerialSensorSource(SensorSource):
 
 
 class UdpSensorSource(SensorSource):
-    """Reads JSON datagrams over UDP (Wi-Fi microcontrollers) — lowest-latency
+    """Reads JSON datagrams over UDP (Wi-Fi microcontrollers), lowest-latency
     wireless option for live matches."""
 
     def __init__(self, host: str = "0.0.0.0", port: int = 9999):

@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Optional
 
 import numpy as np
 
-# class ids — must match the trained detector / data.yaml order
+# class ids, must match the trained detector / data.yaml order
 BALL, GOALKEEPER, PLAYER, REFEREE = 0, 1, 2, 3
 
 
@@ -41,7 +41,7 @@ class Detections:
 
 
 def foot_points(xyxy: np.ndarray) -> np.ndarray:
-    """Bottom-centre of each box — the point that touches the pitch. (N,2)."""
+    """Bottom-centre of each box, the point that touches the pitch. (N,2)."""
     xyxy = np.asarray(xyxy, dtype=float).reshape(-1, 4)
     x = (xyxy[:, 0] + xyxy[:, 2]) / 2.0
     y = xyxy[:, 3]

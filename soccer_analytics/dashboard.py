@@ -14,7 +14,7 @@ windows need WSLg (built into Windows 11); pass ``windows=False`` for headless.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
+from typing import Dict, List
 
 import cv2
 import numpy as np
@@ -166,7 +166,7 @@ def compose_dashboard(match, panel, radar=None, heatmap=None,
 
         ┌───────────────┬─────────┐
         │  match video  │  panel  │   left column = total_width - PANEL_W
-        ├───────┬───────┤ (native │   panel is NEVER squashed → text readable
+        ├───────┬───────┤ (native │   panel is NEVER squashed to text readable
         │ radar │ heat  │  680px) │
         └───────┴───────┴─────────┘
     """
@@ -202,7 +202,7 @@ def compose_dashboard(match, panel, radar=None, heatmap=None,
     return np.hstack([left, p])
 
 
-WINDOW = "Soccer Analytics — live  (q quit, space pause)"
+WINDOW = "Soccer Analytics, live  (q quit, space pause)"
 
 
 def display_available() -> bool:
@@ -230,13 +230,13 @@ def display_available() -> bool:
 
 class Dashboard:
     """Shows the composited dashboard live in ONE window, auto-fitted to the
-    screen (``display_width``). The recording keeps full resolution — only the
+    screen (``display_width``). The recording keeps full resolution, only the
     on-screen image is scaled, so text stays crisp in the mp4 and readable live.
     ``windows=False`` for headless runs (still records if an out path is set)."""
 
     def __init__(self, windows: bool = True, display_width: int = 1540):
         if windows and not display_available():
-            print("[dashboard] no reachable display — running headless (recording "
+            print("[dashboard] no reachable display, running headless (recording "
                   "continues). Under WSL: run `wsl --shutdown` from PowerShell and "
                   "reopen the terminal to revive WSLg, then rerun for the live window.")
             windows = False
@@ -262,8 +262,8 @@ class Dashboard:
             cv2.imshow(WINDOW, composite)
             return cv2.waitKey(1) & 0xFF
         except cv2.error:
-            # no display available (e.g. WSLg not running) → go headless, keep running
-            print("[dashboard] no display — continuing headless (still recording if --out)")
+            # no display available (e.g. WSLg not running) to go headless, keep running
+            print("[dashboard] no display, continuing headless (still recording if --out)")
             self.windows = False
             return -1
 

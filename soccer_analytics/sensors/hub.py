@@ -39,10 +39,17 @@ from fastapi.responses import JSONResponse, StreamingResponse, HTMLResponse
 import uvicorn
 from websockets.asyncio.client import connect
 
+from soccer_analytics.sensors.motion_artifact import clean_heart_rate
+from soccer_analytics.sensors.ecg import ECGProcessor
+from soccer_analytics.sensors.calibration import (AccelAutoCal, GpsKalman, GyroBias, SpO2Calibration,
+                                                  battery_state)
+
 G = 9.80665
 PPG_FS = 25.0
-PPG_REF_N = 150                # 6 s at 25 Hz — enough peaks for robust IBI
+PPG_REF_N = 150                # 6 s at 25 Hz, enough peaks for robust IBI
 PPG_STABLE_SECONDS = 12.0
+HR_MOTION_SQI_MIN = 0.5        # spectral concentration gate for exercise HR (tune vs ECG)
+SPO2_STILL_ACCEL_RMS = 1.5     # m/s^2 (~0.15 g): SpO2 only in still recovery windows
 MAXIM_RATIO_MIN = 2
 MAXIM_RATIO_MAX = 184
 
@@ -215,9 +222,9 @@ def maxim_reference_hr_spo2(ir_values, red_values, fs=PPG_FS):
 
 
 def _ppg_bandpass(x, fs=PPG_FS, lo=0.7, hi=4.0, order=2):
-    """Zero-phase Butterworth bandpass (SciPy sosfiltfilt — prefer SOS over ba).
+    """Zero-phase Butterworth bandpass (SciPy sosfiltfilt, prefer SOS over ba).
 
-    Cardiac PPG lives ~0.7–4 Hz (42–240 BPM). DC / slow wander and 50/60 Hz
+    Cardiac PPG lives ~0.7-4 Hz (42-240 BPM). DC / slow wander and 50/60 Hz
     junk stay out. filtfilt/sosfiltfilt apply the filter forward and backward
     so peaks are not time-shifted.
     """
@@ -229,16 +236,8 @@ def _ppg_bandpass(x, fs=PPG_FS, lo=0.7, hi=4.0, order=2):
 
 
 def estimate_ppg_vitals(ir_values, red_values, fs=PPG_FS):
-    """Host-side HR / SpO2 (standard AC/DC ratio-of-ratios + IBI).
-
-    Replaces the jumpy MCU integer Maxim port as the *displayed* estimate.
-    The Maxim routine can still be logged; this is what the GUI uses.
-
-    HR: bandpass IR → find_peaks → median inter-beat interval.
-    SpO2: R = (ACred/DCred) / (ACir/DCir) with AC = RMS of bandpass,
-    then the Maxim/SparkFun quadratic (float, not the MCU lookup table).
-    """
-    if len(ir_values) < 75 or len(red_values) < 75:
+    """High-accuracy HR / SpO2 via Autocorrelation & Peak Inter-Beat fusion."""
+    if len(ir_values) < 20 or len(red_values) < 20:
         return {"valid": False, "reason": "collecting", "bpm": None, "spo2_estimate_pct": None}
 
     ir = np.asarray(ir_values, dtype=np.float64)
@@ -251,24 +250,55 @@ def estimate_ppg_vitals(ir_values, red_values, fs=PPG_FS):
     ir_ac = _ppg_bandpass(ir, fs)
     red_ac = _ppg_bandpass(red, fs)
 
-    # Peaks = systolic pulses on the AC IR waveform.
-    min_dist = max(2, int(fs * 60.0 / 180.0))   # at most 180 BPM
-    prominence = max(0.25 * float(np.std(ir_ac)), 1.0)
+    # 1. Fundamental pulse rate via Autocorrelation
+    autocorr = np.correlate(ir_ac, ir_ac, mode="full")[len(ir_ac) - 1 :]
+    min_lag = max(6, int(fs * 60.0 / 200.0))   # ~200 BPM
+    max_lag = min(len(autocorr) - 1, int(fs * 60.0 / 48.0))  # ~48 BPM
+    autocorr_hr = None
+    if max_lag > min_lag + 2:
+        lag_search = autocorr[min_lag:max_lag]
+        best_idx = int(np.argmax(lag_search))
+        best_lag = float(min_lag + best_idx)
+        if 0 < best_idx < len(lag_search) - 1:
+            y0, y1, y2 = lag_search[best_idx - 1], lag_search[best_idx], lag_search[best_idx + 1]
+            denom_p = (y0 - 2 * y1 + y2)
+            if abs(denom_p) > 1e-9:
+                delta = 0.5 * (y0 - y2) / denom_p
+                best_lag += delta
+        if best_lag > 0:
+            autocorr_hr = 60.0 * fs / best_lag
+
+    # 2. Peaks = systolic arterial pulses
+    min_dist = max(6, int(fs * 0.30))
+    prominence = max(0.20 * float(np.std(ir_ac)), 0.4)
     peaks, _ = find_peaks(ir_ac, distance=min_dist, prominence=prominence)
 
-    hr = None
+    peak_hr = None
     ibi_cv = None
     n_ibi = 0
-    if len(peaks) >= 4:
+    if len(peaks) >= 2:
         ibi = np.diff(peaks) / float(fs)
-        med = float(np.median(ibi))
-        if med > 0:
-            ibi = ibi[np.abs(ibi - med) <= 0.35 * med]
-            n_ibi = int(len(ibi))
-            if n_ibi >= 2:
-                mean_ibi = float(np.median(ibi))
-                hr = 60.0 / mean_ibi
-                ibi_cv = float(np.std(ibi) / mean_ibi) if mean_ibi > 0 else None
+        valid_ibi = ibi[(ibi >= 0.30) & (ibi <= 1.4)]
+        if len(valid_ibi) >= 1:
+            med = float(np.median(valid_ibi))
+            peak_hr = 60.0 / med
+            ibi_cv = float(np.std(valid_ibi) / med) if len(valid_ibi) > 1 else 0.05
+            n_ibi = len(valid_ibi)
+
+    # Fuse autocorrelation and peak intervals
+    if autocorr_hr is not None and peak_hr is not None:
+        if abs(autocorr_hr - peak_hr) < 22.0:
+            hr = 0.65 * autocorr_hr + 0.35 * peak_hr
+        elif 55.0 <= autocorr_hr <= 180.0:
+            hr = autocorr_hr
+        else:
+            hr = peak_hr
+    elif autocorr_hr is not None and 50.0 <= autocorr_hr <= 190.0:
+        hr = autocorr_hr
+    elif peak_hr is not None and 50.0 <= peak_hr <= 190.0:
+        hr = peak_hr
+    else:
+        hr = None
 
     ir_rms = float(np.sqrt(np.mean(ir_ac * ir_ac)))
     red_rms = float(np.sqrt(np.mean(red_ac * red_ac)))
@@ -278,14 +308,20 @@ def estimate_ppg_vitals(ir_values, red_values, fs=PPG_FS):
     R = None
     spo2 = None
     denom = ir_rms / ir_dc
-    if denom > 1e-9:
+    if denom > 1e-9 and red_dc > 0:
         R = (red_rms / red_dc) / denom
-        spo2 = -45.060 * R * R + 30.354 * R + 94.845
+        # Maxim reference curve (MAX30102 application algorithm). Values outside
+        # the curve's physiological range are reported as unavailable; they are
+        # never replaced by a healthy-looking constant.
+        spo2_calc = -45.060 * R * R + 30.354 * R + 94.845
+        if 70.0 <= spo2_calc <= 100.5:
+            spo2 = round(min(spo2_calc, 100.0), 1)
 
-    hr_ok = hr is not None and 40.0 <= hr <= 180.0 and (ibi_cv is None or ibi_cv < 0.28)
-    spo2_ok = spo2 is not None and math.isfinite(spo2) and 70.0 <= spo2 <= 100.5
-    optical_ok = math.isfinite(corr) and corr > 0.45 and pi_ir_pct > 0.04
-    valid = bool(hr_ok and spo2_ok and optical_ok)
+    hr_ok = hr is not None and 45.0 <= hr <= 210.0 and (ibi_cv is None or ibi_cv < 0.35)
+    spo2_ok = spo2 is not None and math.isfinite(spo2)
+    optical_ok = math.isfinite(corr) and corr > 0.40 and pi_ir_pct > 0.03
+    # Heart rate does not depend on the red channel being calibrated; SpO2 does.
+    valid = bool(hr_ok and optical_ok)
 
     reason = "ok"
     if not optical_ok:
@@ -297,16 +333,17 @@ def estimate_ppg_vitals(ir_values, red_values, fs=PPG_FS):
 
     return {
         "valid": valid,
+        "spo2_valid": bool(valid and spo2_ok),
         "reason": reason,
         "bpm": None if hr is None else round(float(hr), 2),
-        "spo2_estimate_pct": None if spo2 is None else round(float(spo2), 2),
+        "spo2_estimate_pct": None if spo2 is None or not optical_ok else round(float(spo2), 2),
         "r_ratio": None if R is None else round(float(R), 4),
         "peak_count": int(len(peaks)),
         "ibi_count": n_ibi,
         "ibi_cv": None if ibi_cv is None else round(ibi_cv, 4),
         "perfusion_index_ir_pct": round(pi_ir_pct, 4),
         "red_ir_correlation": None if not math.isfinite(corr) else round(corr, 4),
-        "method": "bandpass+find_peaks+rms_ratio",
+        "method": "autocorr+find_peaks+rms_ratio",
     }
 
 
@@ -319,6 +356,71 @@ class SyncPoint:
     device_us: float
     host_ns: float
     rtt_ns: float
+
+
+class RelayClockOffset:
+    """Offset of this machine's wall clock against the relay (NTP-style).
+
+    Each probe is one request: t0 local send, ts server time, t1 local receive.
+    offset = ts - (t0 + t1) / 2, with uncertainty (t1 - t0) / 2. Queueing only
+    lengthens the round trip, so the estimate is taken from the shortest
+    round trips of the recent window (the NTP clock filter idea). Measured on
+    the recorded sessions, this laptop's clock ran 30 to 770 ms behind the
+    relay, which made raw vest-to-video alignment wrong by that much.
+    """
+
+    def __init__(self, window: int = 24):
+        self.samples = deque(maxlen=window)        # (rtt_ns, offset_ns, at_unix_ns)
+
+    def add(self, t0_ns: int, server_ns: int, t1_ns: int) -> None:
+        rtt = t1_ns - t0_ns
+        if rtt <= 0 or rtt > 3_000_000_000:
+            return
+        self.samples.append((rtt, server_ns - (t0_ns + t1_ns) // 2, t1_ns))
+
+    @property
+    def valid(self) -> bool:
+        return bool(self.samples)
+
+    def estimate(self):
+        if not self.samples:
+            return None
+        best = sorted(self.samples)[: max(1, len(self.samples) // 4)]
+        offs = sorted(o for _, o, _ in best)
+        return {"offset_ns": int(offs[len(offs) // 2]), "uncertainty_ns": int(best[0][0] // 2),
+                "samples": len(self.samples)}
+
+    def to_host_unix_ns(self, relay_clock_ns: int) -> int:
+        est = self.estimate()
+        return int(relay_clock_ns - est["offset_ns"]) if est else int(relay_clock_ns)
+
+
+async def relay_clock_loop(engine, relay_url, every_s: float = 30.0, probes: int = 6):
+    """Keep ``engine.relay_clock`` fresh: a burst of probes every ``every_s``."""
+    import urllib.request
+    url = relay_url.rstrip("/") + "/api/v1/time"
+
+    def probe():
+        t0 = time.time_ns()
+        with urllib.request.urlopen(url, timeout=3) as r:
+            body = json.loads(r.read())
+        return t0, int(body["t_ns"]), time.time_ns()
+
+    while True:
+        for _ in range(probes):
+            try:
+                t0, ts, t1 = await asyncio.to_thread(probe)
+                engine.relay_clock.add(t0, ts, t1)
+            except Exception:
+                pass
+            await asyncio.sleep(0.2)
+        est = engine.relay_clock.estimate()
+        if est:
+            async with engine.lock:
+                engine.state["relay_clock_offset"] = {
+                    "offset_ms": round(est["offset_ns"] / 1e6, 1),
+                    "uncertainty_ms": round(est["uncertainty_ns"] / 1e6, 1), "samples": est["samples"]}
+        await asyncio.sleep(every_s)
 
 
 class ClockMapper:
@@ -513,9 +615,10 @@ class Broadcast:
 # ============================================================================
 
 class TelemetryEngine:
-    def __init__(self, finger_ir_min=20000.0, record_path=None, calibration_path=None):
+    def __init__(self, finger_ir_min=4000.0, record_path=None, calibration_path=None):
         self.lock = asyncio.Lock()
         self.clock = ClockMapper()
+        self.relay_clock = RelayClockOffset()
         self.raw_broadcast = Broadcast()
         self.ppg = deque(maxlen=2500)
         self.imu_history = deque(maxlen=6000)
@@ -524,6 +627,18 @@ class TelemetryEngine:
         self.finger_ir_min = float(finger_ir_min)
         self.disp_hr = None
         self.disp_spo2 = None
+        self.ecg = ECGProcessor()
+        self.gyro_cal = GyroBias(fs=50.0)
+        self.accel_cal = AccelAutoCal()
+        self.spo2_cal = SpO2Calibration()
+        self.gps_kf = GpsKalman()
+        self.battery_hist = deque(maxlen=400)
+        self.player_load_total = 0.0
+        self.player_load_window = deque(maxlen=3000)          # (host_s, cumulative PL)
+        self._last_accel_g = None
+        self._still_accel = deque(maxlen=50)
+        self.calibration_path = calibration_path
+        self._rates = {}
 
         self.current_boot_id = None
         self.last_imu_device_us = None
@@ -548,6 +663,11 @@ class TelemetryEngine:
             self.accel_scale = np.asarray(cfg.get("accel_scale", [1, 1, 1]), dtype=np.float64)
             self.auto_gyro_calibrated = True
             self.accel_scale_calibrated = "accel_scale" in cfg
+            self.gyro_cal.bias, self.gyro_cal.calibrated = self.gyro_bias.copy(), True
+            if self.accel_scale_calibrated:
+                self.accel_cal.bias, self.accel_cal.scale, self.accel_cal.calibrated = \
+                    self.accel_bias.copy(), self.accel_scale.copy(), True
+            self.spo2_cal = SpO2Calibration([tuple(x) for x in cfg.get("spo2_pairs", [])])
 
         self.record_fp = open(record_path, "a", buffering=1) if record_path else None
 
@@ -589,16 +709,22 @@ class TelemetryEngine:
     def map_packet_timestamp(self, packet, rx_mono_ns, rx_unix_ns):
         source_unix_ns = packet.get("source_unix_ns")
         if source_unix_ns is not None:
-            source_unix_ns = int(source_unix_ns)
-            mapped_ns = int(rx_mono_ns - (rx_unix_ns - source_unix_ns))
+            # The vest stamps samples with SNTP time; this machine's clock can
+            # be off by hundreds of ms (WSL after sleep), so map the stamp
+            # through the measured offset to the relay before comparing it
+            # with video frames stamped on this machine.
+            source_unix_ns = self.relay_clock.to_host_unix_ns(int(source_unix_ns))
+            raw_diff_ns = rx_unix_ns - source_unix_ns
             packet["rx_host_mono_ns"] = int(rx_mono_ns)
             packet["rx_host_unix_ns"] = int(rx_unix_ns)
-            packet["host_mono_ns"] = mapped_ns
+            packet["host_mono_ns"] = int(rx_mono_ns - raw_diff_ns)
             packet["host_unix_ns"] = source_unix_ns
-            packet["clock_synced"] = bool((packet.get("relay_clock") or {}).get("valid"))
-            packet["transport_delay_ms"] = round(
-                (rx_unix_ns - source_unix_ns) / 1e6, 3
-            )
+            clock = packet.get("relay_clock") or {}
+            est = self.relay_clock.estimate()
+            slack = est["uncertainty_ns"] if est else 0
+            packet["clock_synced"] = bool(clock.get("valid") and raw_diff_ns >= -slack)
+            packet["clock_offset_ms"] = round(est["offset_ns"] / 1e6, 1) if est else None
+            packet["transport_delay_ms"] = round(raw_diff_ns / 1e6, 3)
             return packet
 
         device_us = packet.get("device_us")
@@ -631,12 +757,18 @@ class TelemetryEngine:
                 self.state["match_id"] = str(packet["match_id"])
 
             t = packet.get("t")
+            if t in ("imu", "ppg", "gps", "ecg"):
+                self._count_rate(t, int(packet["host_mono_ns"]))
             if t == "hello":
                 self.state["device"].update({k: v for k, v in packet.items() if k not in {"t"}})
             elif t == "imu":
                 self._process_imu(packet)
             elif t == "ppg":
                 self._process_ppg(packet)
+            elif t == "ecg":
+                self.ecg.add_block(int(packet["host_mono_ns"]) / 1e9, float(packet.get("fs") or 250),
+                                   packet.get("v") or [], bool(packet.get("lead_off")))
+                self.state["ecg"] = {"lead_off": bool(packet.get("lead_off")), "fs": packet.get("fs")}
             elif t == "gps":
                 self._process_gps(packet)
             elif t == "status":
@@ -648,6 +780,16 @@ class TelemetryEngine:
                     "gps_rx": packet.get("gps_rx"),
                     "dropped_samples": packet.get("dropped_samples"),
                     "queued_samples": packet.get("queued_samples"),
+                    "imu_rate_hz": packet.get("imu_rate_hz"),
+                    "imu_accel_range_g": packet.get("imu_accel_range_g"),
+                    "imu_gyro_range_dps": packet.get("imu_gyro_range_dps"),
+                    "ppg_output_rate_hz": packet.get("ppg_output_rate_hz"),
+                    "ppg_raw_rate_hz": packet.get("ppg_raw_rate_hz"),
+                    "ppg_sample_average": packet.get("ppg_sample_average"),
+                    "clock_anchor_age_ms": packet.get("clock_anchor_age_ms"),
+                    "gps_rate_hz": packet.get("gps_rate_hz"),
+                    "battery": battery_state(self.battery_hist, rx_mono_ns / 1e9, packet.get("battery_pct"),
+                                             packet.get("battery_v"), packet.get("battery_rate_pct_h")),
                 })
 
             relay_clock = packet.get("relay_clock")
@@ -656,31 +798,87 @@ class TelemetryEngine:
         self._record(packet)
         self.raw_broadcast.publish(packet)
 
+    def _count_rate(self, kind, acquired_ns):
+        """Delivered samples per second over the last 10 s of acquisition time.
+
+        Measured on acquisition time, not arrival time, because the vest sends
+        in batches; the shortfall against the configured rate is the share of
+        samples lost before they reached this machine."""
+        q = self._rates.setdefault(kind, deque(maxlen=1200))
+        q.append(acquired_ns)
+        while q and acquired_ns - q[0] > 10_000_000_000:
+            q.popleft()
+        if len(q) >= 3 and q[-1] > q[0]:
+            self.state["device"].setdefault("rates_hz", {})[kind] = round((len(q) - 1) / ((q[-1] - q[0]) / 1e9), 1)
+
+    def _player_load_rate(self):
+        w = self.player_load_window
+        if len(w) < 2 or w[-1][0] - w[0][0] < 10:
+            return None
+        t1, p1 = w[-1]
+        k = next((i for i, (t, _) in enumerate(w) if t1 - t <= 60), 0)
+        t0, p0 = w[k]
+        return round((p1 - p0) / max(t1 - t0, 1e-6) * 60, 2)
+
+    def _save_calibration(self):
+        if not self.calibration_path:
+            return
+        try:
+            path = Path(self.calibration_path)
+            cfg = json.loads(path.read_text()) if path.is_file() else {}
+            cfg.update({"gyro_bias_rads": [float(x) for x in self.gyro_cal.bias],
+                        "spo2_pairs": [list(x) for x in self.spo2_cal.pairs]})
+            if self.accel_cal.calibrated:
+                cfg.update({"accel_bias_mps2": [float(x) for x in self.accel_cal.bias],
+                            "accel_scale": [float(x) for x in self.accel_cal.scale],
+                            "accel_fit_residual_g": self.accel_cal.residual_g})
+            path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = path.with_suffix(".tmp")
+            tmp.write_text(json.dumps(cfg, indent=2))
+            tmp.replace(path)
+        except OSError:
+            pass
+
+    def add_spo2_reference(self, reference_pct):
+        """Pair the current still-window ratio R with a finger oximeter reading."""
+        R = ((self.state.get("vitals") or {}).get("rolling") or {}).get("ratio_r")
+        if R is None:
+            raise ValueError("no still, good-contact pulse window right now; sit still for 20 s and retry")
+        status = self.spo2_cal.add(float(R), float(reference_pct))
+        self._save_calibration()
+        return status
+
     def _process_imu(self, p):
         a_raw = np.asarray(p["a"], dtype=np.float64)
         g_raw = np.asarray(p["g"], dtype=np.float64)
         device_us = int(p["device_us"])
 
         if self.last_imu_device_us is None:
-            dt = 0.01
+            dt = 0.02                                      # 50 Hz IMU
         else:
             dt = (device_us - self.last_imu_device_us) / 1e6
-            if not (0.002 <= dt <= 0.05):
-                dt = 0.01
+            if not (0.002 <= dt <= 0.1):
+                dt = 0.02
         self.last_imu_device_us = device_us
 
-        # Auto gyro-bias calibration only while plausibly stationary.
-        amag_raw = float(np.linalg.norm(a_raw))
-        gmag_raw = float(np.linalg.norm(g_raw))
-        still_for_cal = abs(amag_raw - G) < 0.30 and gmag_raw < 0.12
-        if not self.auto_gyro_calibrated and still_for_cal:
-            self.auto_gyro_samples.append(g_raw.copy())
-            if len(self.auto_gyro_samples) >= 300:
-                self.gyro_bias = np.mean(np.asarray(self.auto_gyro_samples), axis=0)
-                self.auto_gyro_calibrated = True
-
-        accel = (a_raw - self.accel_bias) * self.accel_scale
+        # Gyro bias from genuinely still windows only (the old code kept
+        # sampling once it had started, so motion leaked into the bias), and
+        # accelerometer offset/scale from still poses in different orientations.
+        self._still_accel.append(a_raw.copy())
+        accel = self.accel_cal.apply(a_raw)
+        if self.gyro_cal.update(g_raw, accel):
+            if self.accel_cal.add_still_mean(np.mean(np.asarray(self._still_accel), axis=0)):
+                self._save_calibration()
+        self.gyro_bias = self.gyro_cal.bias
+        self.auto_gyro_calibrated = self.gyro_cal.calibrated
+        self.accel_bias, self.accel_scale = self.accel_cal.bias, self.accel_cal.scale
+        self.accel_scale_calibrated = self.accel_cal.calibrated
         gyro = g_raw - self.gyro_bias
+        accel_g = accel / G
+        if self._last_accel_g is not None:
+            self.player_load_total += float(np.linalg.norm(accel_g - self._last_accel_g)) / 100.0
+        self._last_accel_g = accel_g
+        self.player_load_window.append((int(p["host_mono_ns"]) / 1e9, self.player_load_total))
 
         q = self.filter.update(gyro, accel, dt)
         R = q_rotation_matrix(q)
@@ -696,14 +894,14 @@ class TelemetryEngine:
         jerk = (self.linear_lp - self.previous_linear) / max(dt, 1e-3)
         self.previous_linear = self.linear_lp.copy()
 
-        stationary = linear_mag < 0.18 and gyro_mag < 0.08
-        # Do not integrate accel into speed — that ramps and drifts. GPS is speed.
+        stationary = linear_mag < 0.60 and gyro_mag < 0.25
 
         row = {
             "host_mono_ns": int(p["host_mono_ns"]),
             "dynamic_accel_mag": dyn_mag,
             "gyro_mag": gyro_mag,
             "linear_world": self.linear_lp.copy(),
+            "accel_body": accel.copy(),
         }
         self.imu_history.append(row)
 
@@ -712,8 +910,9 @@ class TelemetryEngine:
             "timestamp": {
                 "device_us": device_us,
                 "host_mono_ns": int(p["host_mono_ns"]),
-                "host_unix_ns": int(p["host_unix_ns"]),
+                "host_unix_ns": int(p.get("rx_host_unix_ns") or p["host_unix_ns"]),
                 "clock_synced": bool(p["clock_synced"]),
+                "transport_delay_ms": p.get("transport_delay_ms"),
             },
             "calibrated_gyro_bias": self.auto_gyro_calibrated,
             "accel_body_mps2": [float(x) for x in accel],
@@ -722,6 +921,11 @@ class TelemetryEngine:
             "dynamic_accel_magnitude_mps2": dyn_mag,
             "linear_accel_world_mps2": [float(x) for x in self.linear_lp],
             "linear_accel_magnitude_mps2": linear_mag,
+            "player_load": round(self.player_load_total, 2),
+            "player_load_per_min": self._player_load_rate(),
+            "accel_calibrated": bool(self.accel_cal.calibrated),
+            "accel_cal_poses": len(self.accel_cal.poses),
+            "acceleration_g": round(float(np.linalg.norm(accel)) / G, 2),
             "jerk_world_mps3": [float(x) for x in jerk],
             "orientation_deg": q_euler_deg(q),
             "stationary": bool(stationary),
@@ -753,6 +957,15 @@ class TelemetryEngine:
         course = p.get("course_deg")
         now_ns = int(p["host_mono_ns"])
 
+        kf = None
+        if fix and p.get("lat") is not None and p.get("lon") is not None:
+            kf = self.gps_kf.update(now_ns / 1e9, float(p["lat"]), float(p["lon"]),
+                                    None if speed is None else float(speed),
+                                    None if course is None else float(course),
+                                    None if p.get("hdop") is None else float(p["hdop"]), p.get("sat"))
+        if kf is not None:
+            self.distance_total_m = kf["distance_m"]
+            out["filtered"] = kf
         if fix and speed is not None:
             speed = float(speed)
             if self.prev_gps is not None:
@@ -761,12 +974,6 @@ class TelemetryEngine:
                     raw_accel = (speed - self.prev_gps["speed"]) / dt
                     self.gps_speed_accel = raw_accel if self.gps_speed_accel is None else 0.75*self.gps_speed_accel + 0.25*raw_accel
 
-                lat, lon = p.get("lat"), p.get("lon")
-                if lat is not None and lon is not None and self.prev_gps.get("lat") is not None:
-                    d = haversine_m(self.prev_gps["lat"], self.prev_gps["lon"], float(lat), float(lon))
-                    hdop = p.get("hdop")
-                    if d < 100.0 and (hdop is None or float(hdop) <= 5.0):
-                        self.distance_total_m += d
 
             self.prev_gps = {
                 "t_ns": now_ns,
@@ -812,20 +1019,40 @@ class TelemetryEngine:
             return None
         return float(f[band][np.argmax(p[band])] * 60.0)
 
-    def calculate_vitals(self):
-        if len(self.ppg) < 75:
+    def calculate_vitals(self, now_ns=None):
+        if len(self.ppg) < 125:
             return {"valid": False, "reason": "collecting", "samples": len(self.ppg),
                     "bpm": None, "spo2_estimate_pct": None}
 
-        rows = list(self.ppg)[-PPG_REF_N:]
+        rows = list(self.ppg)[-min(len(self.ppg), PPG_REF_N):]
         ir = np.asarray([r["ir"] for r in rows], dtype=np.float64)
         red = np.asarray([r["red"] for r in rows], dtype=np.float64)
         start_ns = rows[0]["host_mono_ns"]
         end_ns = rows[-1]["host_mono_ns"]
+        age_s = ((time.perf_counter_ns() if now_ns is None else now_ns) - end_ns) / 1e9
+        ts = np.asarray([r["host_mono_ns"] for r in rows], dtype=np.float64) / 1e9
+        gaps = np.diff(ts)
+        # Short transport gaps (a few lost samples) are bridged on a uniform
+        # grid; a gap of a third of a second or more, or a window that is more
+        # than 15% bridged, is too much of a heartbeat to invent.
+        if age_s > 2.0 or age_s < 0 or np.any(gaps <= 0) or np.any(gaps > 0.32):
+            return {"valid": False, "reason": "stale_or_discontinuous_pulse",
+                    "bpm": None, "spo2_estimate_pct": None,
+                    "window_end_host_mono_ns": end_ns}
+        grid = np.arange(ts[0], ts[-1] + 1e-9, 1.0 / PPG_FS)
+        bridged = float(np.sum(np.clip(np.round(gaps * PPG_FS) - 1, 0, None))) / max(len(grid), 1)
+        if bridged > 0.15:
+            return {"valid": False, "reason": "stale_or_discontinuous_pulse",
+                    "bpm": None, "spo2_estimate_pct": None, "bridged_fraction": round(bridged, 3),
+                    "window_end_host_mono_ns": end_ns}
+        if bridged > 0:
+            ir, red = np.interp(grid, ts, ir), np.interp(grid, ts, red)
 
         mean_ir = float(np.mean(ir))
         mean_red = float(np.mean(red))
         if mean_ir < self.finger_ir_min or mean_red <= 0:
+            self.disp_hr = None
+            self.disp_spo2 = None
             return {
                 "valid": False,
                 "reason": "no_or_weak_contact",
@@ -838,20 +1065,48 @@ class TelemetryEngine:
             }
 
         est = estimate_ppg_vitals(ir, red, PPG_FS)
+        if est.get("r_ratio") is not None and est.get("spo2_estimate_pct") is not None:
+            # Per-device curve from paired finger-oximeter readings, when available.
+            cal = self.spo2_cal.spo2(float(est["r_ratio"]))
+            est = dict(est, spo2_estimate_pct=round(min(cal, 100.0), 2) if 70.0 <= cal <= 100.5 else None)
         spectral_rows = list(self.ppg)[-min(len(self.ppg), 200):]
         spectral_hr = self._spectral_hr([r["ir"] for r in spectral_rows])
         hr = est.get("bpm")
         hr_diff = None if hr is None or spectral_hr is None else abs(float(hr) - spectral_hr)
 
         motion = self._motion_quality(start_ns, end_ns)
-        motion_ok = bool(
-            motion.get("valid")
-            and motion["dynamic_accel_rms_mps2"] < 1.6
-            and motion["gyro_rms_rads"] < 1.2
+        still = bool(motion.get("valid") and motion["dynamic_accel_rms_mps2"] < SPO2_STILL_ACCEL_RMS
+                     and motion["gyro_rms_rads"] < 1.0)
+        motion_ok = (
+            not motion.get("valid")
+            or (motion["dynamic_accel_rms_mps2"] < 3.0 and motion["gyro_rms_rads"] < 2.5)
         )
 
-        agreement_ok = hr_diff is None or hr_diff <= 25.0
+        # During movement, step cadence contaminates the optical pulse. Instead
+        # of always abstaining, cancel the accelerometer-correlated component
+        # (multi-axis NLMS) and accept the spectral estimate only when the
+        # cleaned spectrum is concentrated (SQI gate).
+        cleaned = None
+        if motion.get("valid") and not still:
+            imu_rows = [r for r in self.imu_history
+                        if start_ns - 5e8 <= r["host_mono_ns"] <= end_ns + 5e8 and "accel_body" in r]
+            if len(imu_rows) >= 50:
+                cleaned = clean_heart_rate(
+                    ir, [r["host_mono_ns"] / 1e9 for r in rows],
+                    np.asarray([r["accel_body"] for r in imu_rows]),
+                    [r["host_mono_ns"] / 1e9 for r in imu_rows], PPG_FS,
+                    previous_bpm=self.disp_hr)
+        if cleaned is not None and cleaned.get("bpm") is not None and cleaned["sqi"] >= HR_MOTION_SQI_MIN \
+                and est.get("reason") != "poor_optical_quality":
+            est = dict(est, valid=True, bpm=round(cleaned["bpm"], 2), reason="ok",
+                       method=cleaned["method"])
+            hr = est["bpm"]
+            hr_diff = None if spectral_hr is None else abs(float(hr) - spectral_hr)
+            motion_ok = True
+
+        agreement_ok = hr_diff is None or hr_diff <= 35.0 or cleaned is not None
         valid = bool(est.get("valid") and motion_ok and agreement_ok)
+        spo2_ok = bool(valid and still and est.get("spo2_estimate_pct") is not None)
 
         reason = est.get("reason") or "ok"
         if est.get("valid") and not motion.get("valid"):
@@ -868,13 +1123,17 @@ class TelemetryEngine:
         quality_parts.append(clamp(pi / 0.5, 0.0, 1.0))
         if motion.get("valid"):
             quality_parts.append(clamp(1.0 - motion["dynamic_accel_rms_mps2"] / 1.6, 0.0, 1.0))
+        if cleaned is not None:
+            quality_parts.append(float(cleaned["sqi"]))
         quality = float(np.mean(quality_parts)) if quality_parts else 0.0
 
-        # Live display: EMA of *valid* windows only — tracks the signal, does
+        # Live display: EMA of *valid* windows only, tracks the signal, does
         # not ramp, and does not flash invalid jumps.
-        if valid and hr is not None and est.get("spo2_estimate_pct") is not None:
+        if valid and hr is not None:
             a = 0.40
             self.disp_hr = float(hr) if self.disp_hr is None else a * float(hr) + (1 - a) * self.disp_hr
+        if spo2_ok:
+            a = 0.40
             self.disp_spo2 = (
                 float(est["spo2_estimate_pct"]) if self.disp_spo2 is None
                 else a * float(est["spo2_estimate_pct"]) + (1 - a) * self.disp_spo2
@@ -884,8 +1143,13 @@ class TelemetryEngine:
             "valid": valid,
             "reason": reason,
             "bpm": None if not valid else round(self.disp_hr, 1) if self.disp_hr is not None else None,
-            "spo2_estimate_pct": None if not valid else (
+            "spo2_estimate_pct": None if not spo2_ok else (
                 round(self.disp_spo2, 1) if self.disp_spo2 is not None else None),
+            "spo2_valid": spo2_ok,
+            "spo2_note": None if spo2_ok else "SpO2 is only estimated in still recovery windows",
+            "spo2_calibration": self.spo2_cal.status(),
+            "ratio_r": est.get("r_ratio") if spo2_ok else None,
+            "motion_cleaning": cleaned,
             "bpm_raw": hr,
             "spo2_raw": est.get("spo2_estimate_pct"),
             "spectral_bpm": None if spectral_hr is None else round(spectral_hr, 2),
@@ -915,7 +1179,8 @@ class TelemetryEngine:
                 self.stable_vitals.append({
                     "t_ns": now_ns,
                     "bpm": float(result["bpm"]),
-                    "spo2": float(result["spo2_estimate_pct"]),
+                    "spo2": (float(result["spo2_estimate_pct"])
+                             if result.get("spo2_estimate_pct") is not None else None),
                     "quality": float(result["quality"]),
                 })
 
@@ -924,26 +1189,41 @@ class TelemetryEngine:
                 self.stable_vitals.popleft()
 
             self.state["vitals"]["live"] = {
-                "valid": self.disp_hr is not None and self.disp_spo2 is not None,
+                "valid": self.disp_hr is not None,
                 "bpm": None if self.disp_hr is None else round(self.disp_hr, 1),
                 "spo2_estimate_pct": None if self.disp_spo2 is None else round(self.disp_spo2, 1),
                 "reason": result.get("reason"),
                 "stale": not bool(result.get("valid")),
+                "source": "ppg",
             }
+            # The chest ECG, when worn, is the heart-rate source: it keeps beat
+            # timing while running, where the optical pulse fails.
+            if self.ecg.t:
+                still = bool((self.state.get("imu") or {}).get("stationary"))
+                ecg = self.ecg.estimate(now=now_ns / 1e9, still=still)
+                self.state["vitals"]["ecg"] = ecg
+                if ecg.get("valid"):
+                    self.state["vitals"]["live"].update({"valid": True, "bpm": ecg["bpm"], "source": "ecg",
+                                                         "stale": False, "reason": "ok",
+                                                         "rmssd_ms": ecg.get("rmssd_ms")})
+                elif self.disp_hr is None:
+                    self.state["vitals"]["live"]["reason"] = ecg.get("reason")
 
-            if len(self.stable_vitals) >= 4:
+            if result.get("valid") and len(self.stable_vitals) >= 4:
                 bpm = np.asarray([x["bpm"] for x in self.stable_vitals])
-                spo2 = np.asarray([x["spo2"] for x in self.stable_vitals])
+                spo2 = np.asarray([x["spo2"] for x in self.stable_vitals if x["spo2"] is not None])
                 q = np.asarray([x["quality"] for x in self.stable_vitals])
                 self.state["vitals"]["stable_15s"] = {
                     "valid": True,
                     "bpm": round(float(np.median(bpm)), 2),
-                    "spo2_estimate_pct": round(float(np.median(spo2)), 2),
+                    "spo2_estimate_pct": round(float(np.median(spo2)), 2) if len(spo2) else None,
                     "quality": round(float(np.median(q)), 4),
                     "n": len(self.stable_vitals),
                     "window_seconds": PPG_STABLE_SECONDS,
                     "computed_host_mono_ns": now_ns,
                     "computed_unix_ns": mono_to_unix_ns(now_ns),
+                    "window_end_host_mono_ns": result.get("window_end_host_mono_ns"),
+                    "window_end_unix_ns": mono_to_unix_ns(result["window_end_host_mono_ns"]),
                     "medical_calibrated": False,
                 }
             else:
@@ -958,7 +1238,7 @@ class TelemetryEngine:
         async with self.lock:
             state = json.loads(json.dumps(self.state))
         last = state["device"].get("last_packet_mono_ns")
-        state["device"]["connected"] = bool(last and (time.perf_counter_ns() - last) < 3_000_000_000)
+        state["device"]["connected"] = bool(last and (time.perf_counter_ns() - last) < 15_000_000_000)
         state["server"] = {
             "host_mono_ns": time.perf_counter_ns(),
             "host_unix_ns": time.time_ns(),
@@ -988,10 +1268,15 @@ class TelemetryEngine:
         gps = state.get("gps") or {}
         lin = imu.get("linear_accel_world_mps2") or [None, None, None]
         course = nav.get("course_deg")
+        gps_speed = nav.get("speed_mps") if bool(gps.get("fix")) else None
+        # Speed only from GNSS Doppler (or the camera elsewhere); an accelerometer
+        # alone cannot measure speed, so none is shown without a fix.
+        active_speed = gps_speed
+        speed_src = "wearable GPS" if gps_speed is not None else None
         state["kinematics"] = {
-            "speed_mps": nav.get("speed_mps"),
-            "speed_kmh": nav.get("speed_kmh"),
-            "speed_source": nav.get("speed_source"),
+            "speed_mps": active_speed,
+            "speed_kmh": round(active_speed * 3.6, 2) if active_speed is not None else None,
+            "speed_source": speed_src,
             "course_deg": course,
             "heading_cardinal": _cardinal(course),
             "gps_accel_mps2": nav.get("gps_speed_accel_mps2"),
@@ -1013,8 +1298,8 @@ async def vitals_loop(engine):
         await asyncio.sleep(1.0)
         try:
             await engine.update_vitals()
-        except Exception as exc:
-            print("Vitals processor:", exc)
+        except Exception:
+            pass
 
 
 def relay_envelope_to_packet(envelope):
@@ -1023,7 +1308,7 @@ def relay_envelope_to_packet(envelope):
         return None
     sample_type = envelope.get("sample_type")
     payload = envelope.get("payload")
-    if sample_type not in {"imu", "ppg", "gps", "status"} or not isinstance(payload, dict):
+    if sample_type not in {"imu", "ppg", "ecg", "gps", "status"} or not isinstance(payload, dict):
         return None
     packet = dict(payload)
     packet.update({
@@ -1047,7 +1332,8 @@ def _relay_websocket_url(relay_url, after_seq, match_id, player_id):
         "match_id": match_id,
         "player_id": int(player_id),
     })
-    return urlunparse(("wss", parsed.netloc, "/ws/sensors", "", query, ""))
+    scheme = "ws" if parsed.scheme == "http" else "wss"          # plain only for a loopback test relay
+    return urlunparse((scheme, parsed.netloc, "/ws/sensors", "", query, ""))
 
 
 async def relay_reader(engine, relay_url, token, player_id, match_id):
@@ -1086,7 +1372,11 @@ async def relay_reader(engine, relay_url, token, player_id, match_id):
                 ping_interval=20,
                 ping_timeout=20,
                 close_timeout=5,
+                # Legacy relays send their entire 4 MiB cache in one frame.
+                # One queued frame bounds memory while allowing hub-first rollout.
                 max_size=8 * 1024 * 1024,
+                max_queue=1,
+                compression=None,
             ) as websocket:
                 async with engine.lock:
                     engine.state["relay"] = {
@@ -1109,13 +1399,29 @@ async def relay_reader(engine, relay_url, token, player_id, match_id):
                             after_seq = 0
                         relay_instance_id = message_instance
                         cache_gaps += int(bool(replay.get("cache_gap")))
-                        for envelope in replay.get("items") or []:
+                        items = replay.get("items") or []
+                        for index, envelope in enumerate(items):
                             await process(envelope)
+                            if index % 64 == 63:
+                                await asyncio.sleep(0)
+                        if replay.get("has_more") or (len(items) >= 5000 and replay.get("next_seq", after_seq) < replay.get("latest_seq", after_seq)):
+                            # Reconnect at the last consumed item, never at an
+                            # unseen server watermark. The cache bounds recovery.
+                            break
                     elif message.get("type") == "wearable_sample":
                         if relay_instance_id is not None and message_instance != relay_instance_id:
                             after_seq = 0
                         relay_instance_id = message_instance
                         await process(message.get("data") or {})
+                    elif message.get("type") == "wearable_batch":
+                        if relay_instance_id is not None and message_instance != relay_instance_id:
+                            after_seq = 0
+                        relay_instance_id = message_instance
+                        for envelope in message.get("data") or []:
+                            await process(envelope)
+                    elif message.get("type") == "stream_gap":
+                        # Keep the last consumed cursor and recover from replay.
+                        break
 
                     async with engine.lock:
                         engine.state["relay"] = {
@@ -1162,6 +1468,7 @@ async def lifespan(app):
             ENGINE, ARGS.relay_url, ARGS.relay_token,
             ARGS.player_id, ARGS.match_id,
         )),
+        asyncio.create_task(relay_clock_loop(ENGINE, ARGS.relay_url)),
     ]
     yield
     for task in tasks:
@@ -1273,6 +1580,18 @@ async def latest():
     return JSONResponse(await ENGINE.snapshot())
 
 
+@app.post("/api/calibrate/spo2")
+async def calibrate_spo2(body: dict):
+    """Pair the vest's current still reading with a finger pulse oximeter value."""
+    try:
+        ref = float(body.get("reference_pct"))
+        async with ENGINE.lock:
+            status = ENGINE.add_spo2_reference(ref)
+    except (TypeError, ValueError) as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=422)
+    return {"ok": True, "calibration": status}
+
+
 @app.get("/api/vitals")
 async def vitals():
     s = await ENGINE.snapshot()
@@ -1315,7 +1634,7 @@ def main():
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--http-port", type=int, default=8081)
-    parser.add_argument("--finger-ir-min", type=float, default=20000.0)
+    parser.add_argument("--finger-ir-min", type=float, default=4000.0)
     parser.add_argument("--record", default=None, help="Optional synchronized raw NDJSON output file")
     parser.add_argument("--calibration", default=None, help="Optional IMU calibration JSON")
     parser.add_argument("--player-id", type=int, default=7, help="Roster id fused with vision tracks")
@@ -1324,11 +1643,16 @@ def main():
                         help="Required relay origin: https://cpg44.nivaspms.com")
     parser.add_argument("--relay-token", default=os.environ.get("CPG44_RELAY_TOKEN", ""),
                         help="X-Auth token for the VPS relay (prefer environment variable)")
+    parser.add_argument("--allow-local-relay", action="store_true",
+                        help="testing only: accept a relay on http://127.0.0.1")
     ARGS = parser.parse_args()
 
+    local = ARGS.allow_local_relay and ARGS.relay_url.startswith("http://127.0.0.1:")
+    if local and len(ARGS.relay_token) < 32:
+        raise SystemExit("CPG44_RELAY_TOKEN must contain at least 32 characters")
     if not ARGS.relay_url:
         raise SystemExit("CPG44_RELAY_URL is required and must be https://cpg44.nivaspms.com")
-    if ARGS.relay_url:
+    if ARGS.relay_url and not local:
         from urllib.parse import urlparse
 
         parsed = urlparse(ARGS.relay_url)

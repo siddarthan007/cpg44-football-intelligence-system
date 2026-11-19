@@ -11,7 +11,6 @@ export function useLive(_matchId: string) {
     let cancelled = false;
     let socket: WebSocket | null = null;
     let retry: number | undefined;
-    let lastCommit = 0;
     const pull = () =>
       api
         .live()
@@ -31,12 +30,11 @@ export function useLive(_matchId: string) {
       socket = new WebSocket(websocketUrl('/ws/live'));
       socket.onopen = () => { if (!cancelled) { setConnected(true); setError(null); } };
       socket.onmessage = (event) => {
-        if (cancelled || Date.now() - lastCommit < 180) return;
+        if (cancelled) return;
         try {
           setData(JSON.parse(event.data) as LivePayload);
           setConnected(true);
           setError(null);
-          lastCommit = Date.now();
         } catch {
           setError('Live feed returned invalid JSON');
         }

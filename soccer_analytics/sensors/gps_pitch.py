@@ -8,7 +8,7 @@ coordinates (105m x 68m) without perspective distortion.
 from __future__ import annotations
 
 import math
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Dict, Optional, Sequence, Tuple
 import numpy as np
 
 EARTH_RADIUS_M = 6371000.0
@@ -78,15 +78,17 @@ class GPSPitchTransformer:
     def gps_to_pitch(self, lat: float, lon: float) -> Tuple[float, float]:
         """Transforms a single (lat, lon) GPS fix to (x_pitch, y_pitch) in meters."""
         if self.H_gps_to_pitch is None:
-            return 52.5, 34.0
+            return float("nan"), float("nan")
+        if not np.isfinite([lat, lon]).all() or not (-90 <= lat <= 90 and -180 <= lon <= 180):
+            return float("nan"), float("nan")
 
         lx, ly = self._latlon_to_local_m(lat, lon)
         from ..view import apply_homography
         res = apply_homography(self.H_gps_to_pitch, [[lx, ly]])[0]
         x, y = float(res[0]), float(res[1])
 
-        x = max(-5.0, min(self.pitch_length + 5.0, x))
-        y = max(-5.0, min(self.pitch_width + 5.0, y))
+        if not np.isfinite([x, y]).all() or not (-5 <= x <= self.pitch_length + 5 and -5 <= y <= self.pitch_width + 5):
+            return float("nan"), float("nan")
         return round(x, 2), round(y, 2)
 
     def generate_density_grid(
