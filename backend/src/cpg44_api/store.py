@@ -251,7 +251,7 @@ class ProductStore:
             f"PLAYER_{player_id}" if player_id is not None else None
         )
         metrics = dict(body.get("metrics") or {})
-        for key in ("hr", "spo2", "player_load", "gps", "speed_mps", "acceleration"):
+        for key in ("hr", "rmssd_ms", "player_load", "gps", "speed_mps", "acceleration"):
             if key in body and key not in metrics:
                 metrics[key] = body[key]
         row = {

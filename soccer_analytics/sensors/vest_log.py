@@ -61,10 +61,9 @@ def load(path: str, vitals_every_s: float = 1.0) -> VestLog:
                 acc.append(eng.state["imu"]["accel_body_mps2"])
                 lt.append(t)
                 pl.append(eng.player_load_total)
-            elif kind in ("ppg", "ecg") and (last_v is None or t - last_v >= vitals_every_s):
+            elif kind == "ecg" and (last_v is None or t - last_v >= vitals_every_s):
                 last_v = t
-                # chest ECG first; optical pulse only when no ECG is worn
-                r = eng.ecg.estimate(now=t) if eng.ecg.t else eng.calculate_vitals(now_ns=int(src))
+                r = eng.ecg.estimate(now=t)
                 ok = bool(r.get("valid")) and r.get("bpm") is not None
                 hr_t.append(t)
                 hr.append(float(r["bpm"]) if ok else np.nan)
@@ -73,8 +72,7 @@ def load(path: str, vitals_every_s: float = 1.0) -> VestLog:
                 gt.append(t)
                 gl.append([p.get("lat", np.nan) if p.get("fix") else np.nan,
                            p.get("lon", np.nan) if p.get("fix") else np.nan])
-        cal = {"gyro_bias_rads": [float(x) for x in eng.gyro_cal.bias], "accel_calibrated": eng.accel_cal.calibrated,
-               "spo2": eng.spo2_cal.status()}
+        cal = {"gyro_bias_rads": [float(x) for x in eng.gyro_cal.bias], "accel_calibrated": eng.accel_cal.calibrated}
         f = lambda x, d=1: np.asarray(x, float).reshape(-1, d) if d > 1 else np.asarray(x, float)
         return VestLog(pid, f(imu_t), f(acc, 3), f(hr_t), f(hr), f(q), f(lt), f(pl), f(gt), f(gl, 2), cal)
 

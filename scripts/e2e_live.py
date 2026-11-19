@@ -8,7 +8,7 @@ product API reading from the hub, then plays a simulated vest into the relay
 exactly as the firmware sends it (batched HTTPS-style posts of IMU 50 Hz,
 ECG 250 Hz in blocks of 50, GNSS 5 Hz and status every 2 s). It checks what
 arrives at each stage: delivery rates, ECG heart rate against the simulated
-one, GNSS speed, battery, clock offset. With ``--camera`` it also pairs a
+one, the ECG trace the vest page draws, GNSS speed, battery, clock offset. With ``--camera`` it also pairs a
 Chromium tab with a fake camera through the relay and reads frames from it.
 
 Exit code 0 means every stage passed.
@@ -110,7 +110,7 @@ class FakeVest:
                                                           "course_deg": 0.0, "hdop": 0.9}))
                 next_gps += 0.2
             while next_st <= now:
-                batch.append(self.event("status", next_st, {"rssi_dbm": -58, "heap": 180000, "mpu6050": True, "max30102": False,
+                batch.append(self.event("status", next_st, {"rssi_dbm": -58, "heap": 180000, "mpu6050": True, "magnetometer": True,
                                                             "gps_rx": True, "imu_rate_hz": 50, "gps_rate_hz": 5.0, "ecg": True,
                                                             "ecg_rate_hz": 250.0, "battery_v": 3.95, "battery_pct": 82.0,
                                                             "dropped_samples": 0, "queued_samples": 0}))
@@ -154,25 +154,27 @@ def main():
         th = threading.Thread(target=vest.run, args=(a.seconds,), daemon=True)
         th.start()
         time.sleep(min(a.seconds - 2, 35))
-        hub = get(f"http://127.0.0.1:{HUB}/api/latest")
         st = get(f"http://127.0.0.1:{API}/api/v1/wearables/status")
         rates = st.get("rates_hz") or {}
-        pulse = st.get("pulse") or {}
+        heart = st.get("heart") or {}
         gps = (st.get("gps") or {}).get("filtered") or {}
         checks = {
             "vest posts accepted": vest.sent > 0,
             "IMU arrives at >= 95 % of 50 Hz": rates.get("imu", 0) >= 47.5,
             "ECG blocks arrive at 5 per s": rates.get("ecg", 0) >= 4.5,
             "GNSS arrives at 5 Hz": rates.get("gps", 0) >= 4.5,
-            f"ECG heart rate within 3 bpm of {BPM:.0f}": pulse.get("bpm") is not None and abs(pulse["bpm"] - BPM) <= 3,
-            "heart rate source is the ECG": pulse.get("source") == "ecg",
+            f"ECG heart rate within 3 bpm of {BPM:.0f}": heart.get("bpm") is not None and abs(heart["bpm"] - BPM) <= 3,
+            "electrodes reported on": heart.get("electrodes") == "on",
             f"GNSS speed within 0.5 m/s of {SPEED}": gps.get("speed_mps") is not None and abs(gps["speed_mps"] - SPEED) <= 0.5,
             "battery reported": (st.get("battery") or {}).get("pct") == 82.0,
             "clock offset measured": st.get("clock_offset") is not None,
             "API sees the vest connected": st.get("connected") is True,
         }
+        trace = get(f"http://127.0.0.1:{API}/api/v1/wearables/ecg?seconds=4")
+        beats = len(trace.get("beats") or [])
+        checks["ECG trace for the screen shows the beats"] = bool(trace.get("ok")) and abs(beats - BPM / 15) <= 2
         results.update(checks)
-        print(f"[e2e] rates {rates}, pulse {pulse.get('bpm')} ({pulse.get('source')}), gnss {gps.get('speed_mps')}, "
+        print(f"[e2e] rates {rates}, ECG heart rate {heart.get('bpm')}, gnss {gps.get('speed_mps')}, "
               f"battery {(st.get('battery') or {}).get('pct')}, clock {st.get('clock_offset')}")
         vest.stop = True
 

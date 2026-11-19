@@ -72,3 +72,15 @@ def test_rmssd_only_when_still():
     assert "rmssd_ms" not in p.estimate(still=False)
     r = p.estimate(still=True)
     assert 10 < r["rmssd_ms"] < 80                       # 3 % beat jitter at 60 bpm is about 40 ms
+
+
+def test_display_trace_marks_the_true_beats():
+    t, x, beats = synth_ecg(120, secs=12.0, seed=3)
+    p = ECGProcessor()
+    for k in range(0, len(x), 50):
+        p.add_block(t[k], FS, x[k:k + 50], lead_off=False)
+    tr = p.trace(4.0)
+    assert tr["ok"] and not tr["lead_off"] and abs(len(tr["values"]) - 4.0 * tr["fs"]) <= 2
+    shown = beats[beats >= tr["t0"]] - tr["t0"]
+    assert len(tr["beats"]) == len(shown)
+    assert np.max(np.abs(np.asarray(tr["beats"]) - shown)) < 0.03

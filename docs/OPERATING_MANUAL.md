@@ -67,7 +67,7 @@ statistics. No sample is generated when a source is missing.
 
 - Confirm relay and wearable status are live.
 - Confirm the match ID and player ID agree with the flashed values.
-- Wait for valid contact before presenting BPM or SpO2.
+- Wet the ECG electrode pads and wait for Electrodes: On before reading heart rate.
 - Confirm the wearable clock says Synced before joining it with vision.
 - Keep the reported vision alignment within the accepted test window.
 - Confirm the pitch file matches the video.
@@ -81,8 +81,8 @@ peak. Report the measured result, not a claimed value.
 ## 6. Training and evaluation
 
 Split datasets by match, not by nearby frames. Report detector AP, ball recall,
-tracking IDF1/HOTA and identity switches separately. Validate HR and SpO2 with
-reference devices as described in `docs/CAPSTONE_ACCURACY_PROTOCOL.md`.
+tracking IDF1/HOTA and identity switches separately. Validate heart rate against a
+chest strap as described in `docs/CAPSTONE_ACCURACY_PROTOCOL.md`.
 
 The injury-related model stays locked until enough reviewed player-sessions and
 outcome labels exist. Until then, the dashboard shows explained workload

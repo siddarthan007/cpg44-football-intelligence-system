@@ -21,7 +21,7 @@ flowchart TD
   C --> P[Pitch positions and innovation-gated filtering]
   I --> P
   P --> A[Observed occupancy, kinematics and tactical candidates]
-  W[ESP32-S3 IMU, PPG and GNSS] --> R[Required HTTPS memory relay]
+  W[ESP32-S3 IMU, ECG and GNSS] --> R[Required HTTPS memory relay]
   R --> H[Local sensor hub and quality gates]
   H --> S[Source-time alignment and roster binding]
   I --> S
@@ -72,7 +72,7 @@ model binaries, and reference trees.
 | Execution | `realtime.py`, `pipeline.py`, `modes.py`, `hub.py` | Streaming execution, offline two-phase analysis, subprocess jobs and legacy orchestration |
 | Training/evaluation | `train.py`, `data_split.py`, `evaluation.py` | Detector training, deterministic sequence splits, and metric-space diagnostics |
 | Sensor input | `sensors/hub.py`, `hub_bridge.py`, `server.py`, `source.py`, `schema.py` | Relay consumption, raw processing, transport interfaces, units and timestamped samples |
-| Sensor inference | `sensors/ppg.py`, `gps_pitch.py`, `sync.py`, `fusion.py` | Optical processing, surveyed GPS conversion, clock/identity alignment and load fusion |
+| Sensor inference | `sensors/ecg.py`, `gps_pitch.py`, `sync.py`, `fusion.py` | ECG beat detection, surveyed GPS conversion, clock/identity alignment and load fusion |
 | Decision support | `sensors/injury.py`, `sensors/recommend.py` | Transparent workload review and optional outcome-labelled models, with evidence requirements |
 | API state | `cpg44_api/main.py`, `store.py` | Routes, WebSocket/MJPEG, current/recorded provenance and source freshness |
 | API services | `training_manager.py`, `tagger.py`, `flasher.py`, `usb_bridge.py`, `hostinger_sensor_relay.py` | Training jobs, operator corrections, hardware setup and memory-only relay |
@@ -147,7 +147,7 @@ New components: `BoardPitch.tsx`, `MatchStrip.tsx`, `Replay3D.tsx` (three.js),
     and re-entry location, preventing rapid boundary jitter from spamming events.
 11. Added team-qualified jersey keys, exclusive wearable identity mapping, and
     protection of manual bindings and simultaneously visible identities.
-12. Withheld invalid raw optical values, stale IMU values even after long network
+12. Withheld invalid heart-rate values, stale IMU values even after long network
     delay, and stale aligned sensor rows. Nearest-time lookup tolerates reordered
     delivery. Recorded video needs a capture epoch anchor before wearable fusion.
 13. Removed an invented uncalibrated GPS centre pin and outlier edge clamping.

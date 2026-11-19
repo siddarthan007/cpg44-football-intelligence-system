@@ -1,8 +1,8 @@
 """Controlled synthetic evaluation of the 3D ball and vest heart-rate methods.
 
 These are *method-correctness* checks with known ground truth, not field
-accuracy: real footage adds calibration error and detector noise, and real PPG
-adds skin contact and tissue effects. Results: data/benchmarks/physics_synthetic.json
+accuracy: real footage adds calibration error and detector noise, and a real
+chest ECG adds electrode movement and sweat. Results: data/benchmarks/physics_synthetic.json
 
     PYTHONPATH=. python scripts/evaluate_physics.py
 """
@@ -13,7 +13,9 @@ from pathlib import Path
 import numpy as np
 
 from soccer_analytics.ball3d import _ballistic, reconstruct
-from soccer_analytics.sensors.motion_artifact import _bandpass, clean_heart_rate, spectral_hr
+from scipy.signal import find_peaks
+
+from soccer_analytics.sensors.ecg import ECGProcessor, detect_r_peaks
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -89,32 +91,61 @@ def false_flight_sweep(trials=60):
     return out
 
 
-def nlms_sweep():
+def synth_ecg(bpm, secs, rng, fs=250.0, motion=0.0, noise=0.04):
+    """PQRST on a jittered beat train in AD8232 counts; ``motion`` scales step
+    impacts, baseline wander and muscle noise (0 at rest, 1 hard running)."""
+    t = np.arange(0, secs, 1 / fs)
+    beats = [0.4]
+    while beats[-1] < secs:
+        beats.append(beats[-1] + 60 / bpm * (1 + rng.normal(0, 0.03)))
+    beats = np.asarray(beats[:-1])
+    x = np.zeros_like(t)
+    for b in beats:
+        for dt, amp, wid in ((-0.2, 0.12, 0.025), (-0.03, -0.15, 0.010), (0.0, 1.2, 0.012),
+                             (0.03, -0.25, 0.010), (0.25, 0.3, 0.045)):
+            x += amp * np.exp(-0.5 * ((t - b - dt) / wid) ** 2)
+    cad = 2.4 + 0.8 * motion                                   # steps per second
+    x += (0.3 + 0.6 * motion) * np.sin(2 * np.pi * 0.3 * t) + rng.normal(0, noise, len(t))
+    x += motion * (0.5 * np.sin(np.pi * cad * t) ** 10 + rng.normal(0, 0.12, len(t)) * (np.sin(2 * np.pi * cad / 2 * t) > 0))
+    return t, np.clip(2048 + 124 * x, 0, 4095), beats
+
+
+def ecg_sweep():
+    """Beat detection and heart rate on synthetic ECG from rest to hard running.
+
+    The baseline is what a naive monitor does: count peaks above half the
+    signal range. The method is the Pan-Tompkins detector and interval
+    cleaning used by the hub."""
     rng = np.random.default_rng(0)
-    fs, t, ta = 25, np.arange(0, 8, 1 / 25), np.arange(0, 8, 1 / 50)
-    rows = []
-    for hr_bpm in (70, 95, 120, 150, 175):
-        for cad in (1.6, 2.2, 2.8, 3.2):
-            acc = np.column_stack([3 * np.sin(2 * np.pi * cad * ta), 1.5 * np.sin(2 * np.pi * cad * ta + .7),
-                                   .8 * np.sin(2 * np.pi * 2 * cad * ta)]) + .2 * rng.standard_normal((len(ta), 3))
-            ap = np.column_stack([np.interp(t, ta, acc[:, k]) for k in range(3)])
-            ir = 80000 + 120 * np.sin(2 * np.pi * hr_bpm / 60 * t) + 500 * ap[:, 0] + 300 * ap[:, 1] + 200 * ap[:, 2] \
-                + 5 * rng.standard_normal(len(t))
-            base = spectral_hr(_bandpass(ir, fs), fs)["bpm"]
-            clean = clean_heart_rate(ir, t, acc, ta, fs)
-            rows.append((hr_bpm, cad * 60, abs(base - hr_bpm), abs(clean["bpm"] - hr_bpm), clean["sqi"]))
-    a = np.asarray(rows)
-    gated = a[a[:, 4] >= 0.5]
-    return {"cases": len(a), "bandpass_only_mae_bpm": round(float(a[:, 2].mean()), 2),
-            "nlms_mae_bpm": round(float(a[:, 3].mean()), 2),
-            "nlms_within_5bpm": f"{int((a[:, 3] <= 5).sum())}/{len(a)}",
-            "bandpass_within_5bpm": f"{int((a[:, 2] <= 5).sum())}/{len(a)}",
-            "sqi_gate_0.5_yield": f"{len(gated)}/{len(a)}",
-            "nlms_mae_after_gate_bpm": round(float(gated[:, 3].mean()), 2) if len(gated) else None}
+    fs, rows = 250.0, []
+    for bpm in (60, 90, 120, 150, 175, 190):
+        for motion in (0.0, 0.5, 1.0):
+            t, x, beats = synth_ecg(bpm, 30.0, rng, fs, motion)
+            peaks = detect_r_peaks(x, fs)
+            found = t[peaks]
+            inside = beats[(beats > 0.5) & (beats < t[-1] - 0.5)]
+            tp = sum(np.min(np.abs(found - b)) < 0.05 for b in inside) if len(found) else 0
+            sens, ppv = tp / len(inside), tp / max(len(found), 1)
+            p = ECGProcessor()
+            for k in range(0, len(x), 50):
+                p.add_block(t[k], fs, x[k:k + 50], lead_off=False)
+            est = p.estimate(window_s=10.0)
+            true = 60 / np.median(np.diff(beats[beats >= t[-1] - 10.0]))
+            naive_peaks, _ = find_peaks(x, height=np.percentile(x, 50) + 0.5 * (x.max() - np.percentile(x, 50)), distance=int(0.25 * fs))
+            naive = 60 / np.median(np.diff(t[naive_peaks][t[naive_peaks] >= t[-1] - 10.0])) if len(naive_peaks) > 3 else np.nan
+            err = abs(est["bpm"] - true) if est.get("valid") else np.nan
+            rows.append((bpm, motion, sens, ppv, err, abs(naive - true)))
+    a = np.asarray(rows, float)
+    ok = ~np.isnan(a[:, 4])
+    return {"cases": len(a), "beat_sensitivity": round(float(a[:, 2].mean()), 3), "beat_ppv": round(float(a[:, 3].mean()), 3),
+            "hr_mae_bpm": round(float(np.nanmean(a[:, 4])), 2), "hr_within_3bpm": f"{int((a[ok, 4] <= 3).sum())}/{len(a)}",
+            "hr_reported": f"{int(ok.sum())}/{len(a)}",
+            "naive_peak_mae_bpm": round(float(np.nanmean(a[:, 5])), 2),
+            "hard_running_mae_bpm": round(float(np.nanmean(a[a[:, 1] == 1.0, 4])), 2)}
 
 
 if __name__ == "__main__":
-    res = {"ball3d_monocular": ball3d_sweep(), "ball3d_false_flights": false_flight_sweep(), "ppg_motion_artifact": nlms_sweep(),
+    res = {"ball3d_monocular": ball3d_sweep(), "ball3d_false_flights": false_flight_sweep(), "ecg_heart_rate": ecg_sweep(),
            "note": "Synthetic ground truth: verifies the methods; field accuracy needs the protocol in docs/CAPSTONE_ACCURACY_PROTOCOL.md"}
     out = ROOT / "data" / "benchmarks" / "physics_synthetic.json"
     out.parent.mkdir(parents=True, exist_ok=True)

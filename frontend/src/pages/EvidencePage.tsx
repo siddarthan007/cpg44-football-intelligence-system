@@ -70,7 +70,7 @@ export const EvidencePage = () => {
     {old && now && <div className="ev-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))' }}>
       <Tile g="squad" value={`${Math.round((1 - now.IDSW / old.IDSW) * 100)}% fewer`} label={`ID switches (${old.IDSW} to ${now.IDSW})`} />
       <Tile g="eye" value={`${old.pred_ids} to ${now.pred_ids}`} label={`identities created, true ${now.gt_ids}`} />
-      {phys && <Tile g="pulse" value={`${phys.ppg_motion_artifact.bandpass_only_mae_bpm} to ${phys.ppg_motion_artifact.nlms_mae_bpm}`} label="heart rate error while running, bpm" />}
+      {phys?.ecg_heart_rate && <Tile g="pulse" value={`${phys.ecg_heart_rate.naive_peak_mae_bpm} to ${phys.ecg_heart_rate.hr_mae_bpm}`} label="ECG heart rate error, bpm" />}
       {b3 && <Tile g="ball" value={`${b3['noise_1.0px'].median_3d_error_m} m`} label="3D ball error at 1 px noise" />}
     </div>}
 
@@ -90,13 +90,20 @@ export const EvidencePage = () => {
         <p className="muted" style={{ margin: 0, fontSize: 12.5 }}>median error, 40 synthetic shots per noise level</p>
       </section>}
 
-      {vest && <section className="panel"><div className="panel-head"><h2>Recorded vest sessions</h2><span className="muted">{vest.sessions} sessions, {vest.active_minutes} min</span></div>
+      {phys?.ecg_heart_rate && <section className="panel"><div className="panel-head"><h2>Chest ECG</h2><span className="muted">{phys.ecg_heart_rate.cases} recordings, rest to hard running</span></div>
+        <div className="ev-grid" style={{ gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 10 }}>
+          <Tile g="pulse" value={`${Math.round(phys.ecg_heart_rate.beat_sensitivity * 100)}%`} label="beats found" />
+          <Tile g="check" value={phys.ecg_heart_rate.hr_within_3bpm} label="heart rate within 3 bpm" />
+          <Tile g="run" value={`${phys.ecg_heart_rate.hard_running_mae_bpm} bpm`} label="error while sprinting" />
+          <Tile g="x" value={`${phys.ecg_heart_rate.naive_peak_mae_bpm} bpm`} label="simple peak counting" />
+        </div></section>}
+
+      {vest && <section className="panel"><div className="panel-head"><h2>First prototype on the bench</h2><span className="muted">{vest.sessions} sessions, {vest.active_minutes} min</span></div>
         <div className="ev-grid" style={{ gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 10 }}>
           <Tile g="chip" value={`${Math.round(vest.imu_completeness_median * 100)}%`} label="motion samples arrived" />
-          <Tile g="pulse" value={`${Math.round(vest.ppg_completeness_median * 100)}%`} label="pulse samples arrived" />
-          <Tile g="target" value={`${Math.round(vest.gps_fix_share_max * 100)}%`} label="GNSS fix (indoor bench)" />
-          <Tile g="vest" value={`${vest.hr_valid_windows_total} of ${vest.hr_windows_with_data_total}`} label="heart rate windows usable" />
-        </div></section>}
+          <Tile g="sources" value={`${Math.round(vest.transport_delay_ms_p50_median / 1000)} s`} label="median delay to the laptop" />
+        </div>
+        <p className="muted" style={{ margin: '10px 0 0', fontSize: 12.5 }}>Why the firmware now sends 96 samples per post and the vest uses a chest ECG.</p></section>}
     </div>
   </div>;
 };

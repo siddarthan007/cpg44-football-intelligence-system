@@ -16,7 +16,7 @@ Metrics produced per player:
   * high acceleration / deceleration efforts
   * metabolic power (avg / peak), high-metabolic-power distance, energy (kcal)
   * vision acceleration-load proxy and, if worn, tri-axial IMU PlayerLoad
-  * HR average / drift, min SpO2, and cross-session ACWR
+  * HR average / drift, Edwards TRIMP from the chest ECG, and cross-session ACWR
 
 Pure NumPy, unit-testable.
 """
@@ -98,10 +98,23 @@ class _Acc:
         self.hr_sum = 0.0
         self.hr_count = 0
         self.hr_max = 0.0
-        self.spo2_min = None
+        self.trimp = 0.0
+        self.hr_time = 0.0
         self.t = 0.0
         self._last_a = None      # last positional accel vector
         self._last_imu = None    # last IMU accel vector
+
+
+# Edwards (1993) summated heart-rate zones: minutes in 50-60, 60-70, 70-80,
+# 80-90 and 90-100 % of maximum heart rate weighted 1 to 5. Without a measured
+# maximum, 200 bpm (a typical value for players around 20) is used, raised to
+# the highest valid ECG reading seen.
+HR_MAX_DEFAULT = 200.0
+
+
+def trimp_weight(hr: float, hr_max: float) -> int:
+    pct = hr / hr_max
+    return 0 if pct < 0.5 else min(5, int((pct - 0.5) * 10) + 1)
 
 
 class LoadEngine:
@@ -122,7 +135,7 @@ class LoadEngine:
 
     def update(self, player_id: int, dt: float,
                vel: Tuple[float, float], acc: Tuple[float, float],
-               hr: Optional[float] = None, spo2: Optional[float] = None,
+               hr: Optional[float] = None,
                imu_accel: Optional[Tuple[float, float, float]] = None):
         """Fold one frame of smoothed (Kalman) motion + optional wearable data."""
         a = self._acc[player_id]
@@ -192,8 +205,8 @@ class LoadEngine:
             a.hr_sum += hr
             a.hr_count += 1
             a.hr_max = max(a.hr_max, hr)
-        if spo2 is not None:
-            a.spo2_min = spo2 if a.spo2_min is None else min(a.spo2_min, spo2)
+            a.trimp += dt / 60.0 * trimp_weight(hr, max(HR_MAX_DEFAULT, a.hr_max))
+            a.hr_time += dt
 
     def features(self, player_id: int) -> WorkloadFeatures:
         a = self._acc[player_id]
@@ -220,8 +233,8 @@ class LoadEngine:
             if n >= 6:
                 # Descriptive trend only. ReadinessEngine controls for speed.
                 f.hr_drift = round(float(np.mean(a.hr) - np.mean(a.hr_early)), 1)
-        if a.spo2_min is not None:
-            f.min_spo2 = round(a.spo2_min, 1)
+        if a.hr_time > 0:
+            f.trimp = round(a.trimp, 1)
         f.acwr = self._acwr(player_id, a.dist)
         return f
 

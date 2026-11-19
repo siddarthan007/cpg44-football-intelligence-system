@@ -68,7 +68,7 @@ the source as processed footage while it publishes current tracking frames.
 1. Live page: annotated footage, readable player IDs, ball state and pitch
    markings.
 2. Player tagging: team colour and the link between track, jersey and wearable.
-3. Wearables: packet age, BPM, SpO2 estimate, motion and signal quality.
+3. Vest readings: live ECG trace, heart rate, electrode contact, motion and delivery.
 4. Analytics: distance, speed, team shape, possession evidence, open pass lanes
    and workload.
 5. Data quality: explain one blank or warning instead of hiding it.

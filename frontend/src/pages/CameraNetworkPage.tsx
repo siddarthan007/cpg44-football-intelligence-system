@@ -72,7 +72,7 @@ export const CameraNetworkPage = () => {
   const phoneLive = room?.phone?.mode;
 
   return <div className="page">
-    <header className="page-header"><h1>Camera sources</h1></header>
+    <header className="page-header"><h1>Cameras</h1></header>
     {error && <div className="notice bad">{error}</div>}
 
     <div className="setup">

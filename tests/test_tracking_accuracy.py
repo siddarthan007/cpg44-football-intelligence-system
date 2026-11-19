@@ -177,15 +177,15 @@ def test_automatic_jersey_binding_cannot_steal_a_manual_binding():
     assert sync.player_of(9) == 101 and sync.player_of(1) is None
 
 
-def test_raw_invalid_optical_values_and_delayed_stale_imu_stay_unavailable():
+def test_raw_invalid_ecg_values_and_delayed_stale_imu_stay_unavailable():
     from soccer_analytics.sensors.hub_bridge import snapshot_to_sample
     state = {"device": {"connected": True},
-             "vitals": {"rolling": {"valid": False, "bpm_raw": 155., "spo2_raw": 97.}},
+             "vitals": {"rolling": {"valid": False, "bpm": 155., "rmssd_ms": 40.}},
              "imu": {"valid": True, "accel_body_mps2": [0, 0, 9.8],
                      "timestamp": {"host_unix_ns": 1_000_000_000, "transport_delay_ms": 6000.}},
              "server": {"host_unix_ns": 9_000_000_000}}
     sample = snapshot_to_sample(state, 7)
-    assert sample.hr is None and sample.spo2 is None and sample.accel is None
+    assert sample.hr is None and sample.rmssd is None and sample.accel is None
 
 
 def test_sensor_alignment_handles_out_of_order_delivery():

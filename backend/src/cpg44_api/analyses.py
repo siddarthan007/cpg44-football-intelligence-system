@@ -52,11 +52,17 @@ class AnalysisLibrary:
                     "duration_s": a.get("match", {}).get("duration_s"),
                     "generated_at": a.get("provenance", {}).get("generated_at"),
                     "metric": q.get("metric"), "ball_seen": q.get("ball_seen"),
-                    "checks_pending": q.get("checks_pending"),
+                    "checks_pending": self._pending(d, a),
                     "has_video": (d / "annotated.mp4").is_file(),
                 })
         rows.sort(key=lambda r: r.get("generated_at") or 0, reverse=True)
         return rows
+
+    def _pending(self, d: Path, a: dict) -> int:
+        """Events still waiting for a coach decision (the stored count goes
+        stale as soon as a decision is made)."""
+        decided = {k for k, v in self._decisions(d).items() if v.get("decision") in ("confirm", "dismiss")}
+        return sum(1 for e in a.get("events", []) if e.get("status") == "check" and e.get("id") not in decided)
 
     def get(self, analysis_id: str) -> Optional[dict]:
         d = self._dir(analysis_id)

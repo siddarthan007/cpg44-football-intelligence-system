@@ -12,7 +12,7 @@ import time
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Callable, Dict, Optional
+from typing import Callable, Dict, List, Optional
 
 
 class MatchMode(str, Enum):
@@ -249,6 +249,8 @@ class EngineManager:
         calibration_path: Optional[str] = None,
         weights_path: Optional[str] = None,
         on_complete: Optional[Callable[[dict], None]] = None,
+        name: str = "",
+        vest_logs: Optional[List[str]] = None,
     ):
         video = Path(video_path).resolve()
         weights = Path(weights_path).expanduser().resolve() if weights_path else self._default_weights()
@@ -275,7 +277,7 @@ class EngineManager:
 
         thread = threading.Thread(
             target=self._run_upload_pipeline,
-            args=(match_id, video, weights, calibration, on_complete),
+            args=(match_id, video, weights, calibration, on_complete, name or match_id, list(vest_logs or [])),
             daemon=True,
         )
         thread.start()
@@ -287,6 +289,8 @@ class EngineManager:
         weights: Path,
         calibration: Optional[Path],
         on_complete: Optional[Callable[[dict], None]],
+        name: str = "",
+        vest_logs: Optional[List[str]] = None,
     ):
         import cv2
         capture = cv2.VideoCapture(str(video))
@@ -314,10 +318,12 @@ class EngineManager:
             "--imgsz",
             str(upload_imgsz),
             "--name",
-            match_id,
+            name or match_id,
         ]
         if calibration:
             command.extend(["--calibration", str(calibration)])
+        for log in vest_logs or []:
+            command.extend(["--vest", str(log)])
 
         started = time.time()
         try:

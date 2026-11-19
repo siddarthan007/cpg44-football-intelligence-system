@@ -310,7 +310,7 @@ class TrainingManager:
                 INSERT INTO multimodal_samples (
                     match_id, player_id, timestamp, speed_mps, distance_m, hsr_m,
                     sprints, accel_efforts, decel_efforts, metabolic_power, hr,
-                    hr_drift, spo2, player_load, acwr, signal_quality, frame_index,
+                    hr_drift, trimp, player_load, acwr, signal_quality, frame_index,
                     recorded_at, injury_label, label_source
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
@@ -327,7 +327,7 @@ class TrainingManager:
                     external_metrics.get("metabolic_power"),
                     internal_metrics.get("hr"),
                     internal_metrics.get("hr_drift"),
-                    internal_metrics.get("spo2"),
+                    internal_metrics.get("trimp"),
                     internal_metrics.get("player_load"),
                     internal_metrics.get("acwr"),
                     internal_metrics.get("signal_quality"),
@@ -349,7 +349,7 @@ class TrainingManager:
                 timestamp REAL NOT NULL,
                 speed_mps REAL, distance_m REAL, hsr_m REAL, sprints INTEGER,
                 accel_efforts INTEGER, decel_efforts INTEGER,
-                metabolic_power REAL, hr REAL, hr_drift REAL, spo2 REAL,
+                metabolic_power REAL, hr REAL, hr_drift REAL, trimp REAL,
                 player_load REAL, acwr REAL, signal_quality REAL,
                 frame_index INTEGER, recorded_at REAL,
                 injury_label INTEGER NULL, label_source TEXT NULL
@@ -375,6 +375,7 @@ class TrainingManager:
             ("signal_quality", "REAL"),
             ("frame_index", "INTEGER"),
             ("recorded_at", "REAL"),
+            ("trimp", "REAL"),          # ECG training load; replaces the old optical SpO2 column
         ):
             if name not in existing:
                 connection.execute(f"ALTER TABLE multimodal_samples ADD COLUMN {name} {kind}")
@@ -419,9 +420,9 @@ class TrainingManager:
                 self._last_multimodal_capture[capture_key] = source_timestamp
             quality = wearable.get("signal_quality")
             try:
-                optical_ok = quality is None or float(quality) >= 0.35
+                hr_ok = quality is None or float(quality) >= 0.35
             except (TypeError, ValueError):
-                optical_ok = False
+                hr_ok = False
             self.record_multimodal_sample(
                 match_id=match_id,
                 player_id=player_id,
@@ -438,8 +439,8 @@ class TrainingManager:
                     "metabolic_power": load.get("metabolic_power_wkg"),
                 },
                 internal_metrics={
-                    "hr": wearable.get("hr") if optical_ok else None,
-                    "spo2": wearable.get("spo2") if optical_ok else None,
+                    "hr": wearable.get("hr") if hr_ok else None,
+                    "trimp": load.get("trimp"),
                     "signal_quality": wearable.get("signal_quality"),
                     "hr_drift": load.get("hr_drift"),
                     "player_load": load.get("player_load_imu")
@@ -558,7 +559,7 @@ class TrainingManager:
                 top_speed=float(row["speed_mps"] or 0),
                 avg_hr=float(row["hr"] or float("nan")),
                 hr_drift=float(row["hr_drift"] or 0),
-                min_spo2=float(row["spo2"] or float("nan")),
+                trimp=float(row["trimp"]) if row["trimp"] is not None else float("nan"),
                 acwr=float(row["acwr"] or float("nan")),
             )
             for row in rows

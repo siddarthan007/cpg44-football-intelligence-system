@@ -1,6 +1,6 @@
 """Map the ESP32 sensor hub into the vision fusion layer.
 
-The firmware (`firmware/wearable_stream`) sends raw IMU / PPG / GPS batches to
+The firmware (`firmware/wearable_stream`) sends raw IMU, ECG and GNSS batches to
 the public relay. `soccer_analytics.sensors.hub` consumes the relay and turns
 that data into processed vitals. This module is
 the last hop: a :class:`SensorSource` the realtime pipeline can drain each frame,
@@ -33,7 +33,7 @@ def _triple(values) -> Optional[tuple]:
 def snapshot_to_sample(state: Dict[str, Any], player_id: int) -> Optional[SensorSample]:
     """Convert one hub `/api/latest` snapshot into a fusion :class:`SensorSample`.
 
-    Heart rate / SpO2 prefer the 15-second stable estimate (motion-gated). IMU
+    Heart rate prefers the 12-second stable ECG estimate. IMU
     acceleration is converted from m/s² to g so :class:`LoadEngine` PlayerLoad
     matches the Catapult convention used elsewhere in the pipeline.
     """
@@ -47,22 +47,23 @@ def snapshot_to_sample(state: Dict[str, Any], player_id: int) -> Optional[Sensor
     imu = state.get("imu") or {}
     gps = state.get("gps") or {}
 
-    hr = spo2 = quality = None
+    hr = quality = None
+    rmssd = (rolling.get("rmssd_ms") if rolling.get("valid") else None)
     pulse_window = {}
     if stable.get("valid"):
-        hr, spo2 = stable.get("bpm"), stable.get("spo2_estimate_pct")
+        hr = stable.get("bpm")
         quality = stable.get("quality")
         pulse_window = stable
     elif rolling.get("valid"):
-        hr, spo2 = rolling.get("bpm"), rolling.get("spo2_estimate_pct")
+        hr = rolling.get("bpm")
         quality = rolling.get("quality")
         pulse_window = rolling
     elif live_vit.get("valid") and not live_vit.get("stale"):
-        hr, spo2 = live_vit.get("bpm"), live_vit.get("spo2_estimate_pct")
+        hr = live_vit.get("bpm")
         quality = live_vit.get("quality")
         pulse_window = live_vit
     if quality is not None and float(quality) < 0.35:
-        hr = spo2 = None
+        hr = rmssd = None
     pulse_ns = pulse_window.get("window_end_unix_ns")
     if pulse_ns is None and pulse_window.get("window_end_host_mono_ns"):
         server = state.get("server") or {}
@@ -72,7 +73,7 @@ def snapshot_to_sample(state: Dict[str, Any], player_id: int) -> Optional[Sensor
     server_epoch = (state.get("server") or {}).get("host_unix_ns")
     if pulse_ns is not None and server_epoch is not None:
         if not 0 <= (server_epoch - pulse_ns) / 1e9 <= 2.0:
-            hr = spo2 = None
+            hr = rmssd = None
 
     accel_g = None
     ts = imu.get("timestamp") or {}
@@ -114,7 +115,7 @@ def snapshot_to_sample(state: Dict[str, Any], player_id: int) -> Optional[Sensor
         player_id=int(player_id),
         t=t,
         hr=None if hr is None else float(hr),
-        spo2=None if spo2 is None else float(spo2),
+        rmssd=None if rmssd is None else float(rmssd),
         accel=_triple(accel_g),
         gyro=_triple(gyro_dps),
         altitude=None if gps.get("alt_m") is None else float(gps["alt_m"]),
@@ -159,14 +160,13 @@ def sample_to_observation(sample: SensorSample, match_id: str = "live") -> Dict[
         "timestamp": float(sample.t),
         "source": "wearable",
         "hr": sample.hr,
-        "spo2": sample.spo2,
+        "rmssd_ms": sample.rmssd,
         "playerLoad": load,
         "speed": speed_val,
         "metrics": {
             "hr": sample.hr,
             "heart_rate_bpm": sample.hr,
-            "spo2": sample.spo2,
-            "spo2_pct": sample.spo2,
+            "rmssd_ms": sample.rmssd,
             "player_load": load,
             "player_load_imu": load,
             "playerLoad": load,

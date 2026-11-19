@@ -40,7 +40,7 @@ MAX_BODY_BYTES = max(
 )
 MATCH_PATTERN = re.compile(r"^[A-Za-z0-9._:-]{1,64}$")
 SOURCE_VALUES = {"synchronized_local_hub", "wearable"}
-RAW_SAMPLE_TYPES = {"imu", "ppg", "ecg", "gps", "status"}
+RAW_SAMPLE_TYPES = {"imu", "ecg", "gps", "status"}
 RELAY_INSTANCE_ID = secrets.token_hex(8)
 
 
@@ -103,14 +103,6 @@ def _raw_payload(sample_type: Optional[str], value: Any) -> Optional[Dict[str, A
             clean["temp_c"] = temperature
         return clean
 
-    if sample_type == "ppg":
-        red = _integer(value.get("red"), 0, 262_143)
-        infrared = _integer(value.get("ir"), 0, 262_143)
-        if red is None or infrared is None:
-            return None
-        clean.update({"red": red, "ir": infrared})
-        return clean
-
     if sample_type == "ecg":
         # one block of single-lead ECG: raw 12-bit ADC counts at a fixed rate
         rate = _integer(value.get("fs"), 50, 1000)
@@ -155,24 +147,19 @@ def _raw_payload(sample_type: Optional[str], value: Any) -> Optional[Dict[str, A
         "rssi_dbm": rssi,
         "heap": heap,
         "mpu6050": bool(value.get("mpu6050")),
-        "max30102": bool(value.get("max30102")),
+        "barometer": bool(value.get("barometer")),
         "gps_rx": bool(value.get("gps_rx")),
         "dropped_samples": _integer(value.get("dropped_samples"), 0, 4_294_967_295) or 0,
         "queued_samples": _integer(value.get("queued_samples"), 0, 100_000) or 0,
         "imu_rate_hz": _integer(value.get("imu_rate_hz"), 1, 3200),
         "imu_accel_range_g": _integer(value.get("imu_accel_range_g"), 2, 32),
         "imu_gyro_range_dps": _integer(value.get("imu_gyro_range_dps"), 125, 4000),
-        "ppg_output_rate_hz": _integer(value.get("ppg_output_rate_hz"), 1, 3200),
-        "ppg_raw_rate_hz": _integer(value.get("ppg_raw_rate_hz"), 1, 3200),
-        "ppg_sample_average": _integer(value.get("ppg_sample_average"), 1, 32),
         "clock_anchor_age_ms": _integer(value.get("clock_anchor_age_ms"), 0, 300_000),
         "ecg": bool(value.get("ecg")),
         "magnetometer": bool(value.get("magnetometer")),
-        "fuel_gauge": bool(value.get("fuel_gauge")),
     })
     # battery and GNSS rate were silently dropped here before: keep them
-    for key, low, high in (("battery_v", 2.5, 4.5), ("battery_pct", 0.0, 100.0),
-                           ("battery_rate_pct_h", -200.0, 200.0), ("gps_rate_hz", 0.0, 20.0),
+    for key, low, high in (("battery_v", 2.5, 4.5), ("battery_pct", 0.0, 100.0), ("gps_rate_hz", 0.0, 20.0),
                            ("ecg_rate_hz", 0.0, 1000.0)):
         number = _float(value.get(key), low, high)
         if number is not None:
@@ -213,7 +200,6 @@ class RelayEnvelope:
     sample_type: Optional[str]
     payload: Optional[Dict[str, Any]]
     hr: Optional[float]
-    spo2: Optional[float]
     accel: Optional[List[float]]
     accel_unit: Optional[str]
     gyro: Optional[List[float]]
@@ -351,7 +337,6 @@ class MemoryRelay:
                 sample_type=sample_type,
                 payload=payload,
                 hr=_float(raw.get("hr"), 25.0, 240.0),
-                spo2=_float(raw.get("spo2"), 50.0, 100.0),
                 accel=_vector(raw.get("accel"), 3, accel_limit),
                 accel_unit=accel_unit,
                 gyro=_vector(raw.get("gyro"), 3, 4000.0),

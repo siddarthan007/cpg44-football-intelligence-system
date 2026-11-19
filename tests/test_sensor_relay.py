@@ -20,7 +20,6 @@ def valid_payload(sequence: int = 1):
         "match_id": "training-01",
         "source": "synchronized_local_hub",
         "hr": 154.0,
-        "spo2": 97.1,
         "accel": [0.1, 0.2, 1.02],
         "accel_unit": "g",
         "gyro": [12.0, -2.0, 4.0],

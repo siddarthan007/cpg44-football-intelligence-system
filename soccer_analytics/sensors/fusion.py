@@ -3,9 +3,9 @@
 The vision pipeline supplies, per frame, each track's **Kalman-smoothed velocity
 and acceleration** (not raw positions, accuracy matters for metabolic power).
 This maps tracks to players, attaches the time-aligned wearable reading (HR /
-SpO2 / IMU), and feeds the :class:`LoadEngine`. Everything downstream (injury,
+IMU), and feeds the :class:`LoadEngine`. Everything downstream (injury,
 recommendations) reads from ``load``. Vision-only operation is first-class: with
-no wearable bound, all external-load metrics still compute; only HR/SpO2 and true
+no wearable bound, all external-load metrics still compute; only heart rate and true
 IMU PlayerLoad stay empty.
 """
 
@@ -32,19 +32,19 @@ class FusionEngine:
 
         External (vision) load is computed for EVERY track, so a demo with only
         1-2 wearables still gets full per-player performance for all players. For
-        tracks bound to a wearable player, the time-aligned HR/SpO2/IMU are also
+        tracks bound to a wearable player, the time-aligned heart rate and IMU are also
         attached (internal load + true IMU PlayerLoad). Load is keyed by track id."""
         self.aligned.clear()
         self.alignment.clear()
         for track_id, (vel, acc) in vision_state.items():
-            hr = spo2 = imu = None
+            hr = imu = None
             pid = self.sync.player_of(track_id)
             self.aligned.pop(track_id, None)
             if pid is not None and video_t is not None:
                 s, offset = self.sync.sample_at_with_offset(pid, video_t)
                 clock_ok = s is not None and s.clock_synced is not False
                 if s is not None and clock_ok:
-                    hr, spo2, imu = s.hr, s.spo2, s.accel
+                    hr, imu = s.hr, s.accel
                     self.aligned[track_id] = s
                 self.alignment[track_id] = {
                     "matched": bool(s is not None and clock_ok),
@@ -64,10 +64,10 @@ class FusionEngine:
                 self._last_load_sample[track_id] = stamp
             hr_stamp = None if sensor is None else (pid, sensor.hr_timestamp or sensor.t)
             if hr_stamp is None or hr_stamp == self._last_hr_sample.get(track_id):
-                hr = spo2 = None
+                hr = None
             else:
                 self._last_hr_sample[track_id] = hr_stamp
-            self.load.update(track_id, dt, vel, acc, hr=hr, spo2=spo2, imu_accel=imu)
+            self.load.update(track_id, dt, vel, acc, hr=hr, imu_accel=imu)
 
     def ingest_sensors(self, samples):
         self.sync.ingest(samples)

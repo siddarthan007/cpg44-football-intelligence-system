@@ -16,7 +16,6 @@ def measured_snapshot(timestamp: float = 1_800_000_000.0) -> dict:
                 "distance_m": 1540.2,
                 "wearable_metrics": {
                     "hr": 166.0,
-                    "spo2": 96.8,
                     "signal_quality": 0.91,
                 },
                 "load": {
@@ -87,8 +86,8 @@ def test_collection_rejects_unsynced_rows_and_withholds_weak_optical_values(tmp_
     assert manager.record_live_snapshot(snapshot | {"timestamp": snapshot["timestamp"] + 6}) == 1
 
     with sqlite3.connect(tmp_path / "data" / "multimodal_dataset.db") as connection:
-        hr, spo2, quality = connection.execute(
-            "SELECT hr, spo2, signal_quality FROM multimodal_samples"
+        hr, quality = connection.execute(
+            "SELECT hr, signal_quality FROM multimodal_samples"
         ).fetchone()
-    assert hr is None and spo2 is None
+    assert hr is None
     assert quality == 0.2

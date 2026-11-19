@@ -76,8 +76,9 @@ input resolution and runtime compatibility to be respected.
 
 The installed firmware uses a 20,000 microsecond IMU period, or 50 Hz, while
 older hardware prose said 100 Hz. The hardware guide now follows the source.
-Retain the tested 25 Hz PPG and source-time relay design while validating packet
-loss, sample intervals, attachment and reference measurements in the field.
+Keep the source-time relay design and the 250 Hz chest ECG while validating
+packet loss, sample intervals, electrode attachment and reference measurements
+in the field.
 
 The [u-blox NEO-6 data sheet](https://content.u-blox.com/sites/default/files/products/documents/NEO-6_DataSheet_%28GPS.G6-HW-09005%29.pdf)
 lists metre-scale horizontal position accuracy under specified conditions.

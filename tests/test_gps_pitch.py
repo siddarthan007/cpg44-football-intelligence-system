@@ -1,9 +1,8 @@
-"""Tests for GPS 4-corner pitch transformation, density heatmaps, and PPG digital filtering."""
+"""Tests for GPS 4-corner pitch transformation and density heatmaps."""
 
 import numpy as np
 import pytest
 from soccer_analytics.sensors.gps_pitch import GPSPitchTransformer
-from soccer_analytics.sensors.ppg import PPGProcessor
 
 
 def test_gps_4_corner_transformation():
@@ -57,22 +56,3 @@ def test_gps_density_grid():
     assert grid.shape[0] > 0
     assert grid.shape[1] > 0
     assert grid.max() <= 1.0
-
-
-def test_ppg_processor_extracts_vitals():
-    fs = 25.0
-    duration_s = 6.0
-    t = np.arange(0, duration_s, 1.0 / fs)
-    target_bpm = 150.0  # High intensity running HR
-    hr_hz = target_bpm / 60.0
-
-    ir_raw = 140000 + 5000 * np.sin(2 * np.pi * hr_hz * t) + np.random.normal(0, 100, len(t))
-    red_raw = 110000 + 2600 * np.sin(2 * np.pi * hr_hz * t) + np.random.normal(0, 100, len(t))
-
-    processor = PPGProcessor(fs=fs)
-    res = processor.process(ir_raw, red_raw)
-
-    assert res["valid"] is True
-    assert abs(res["bpm"] - target_bpm) <= 5.0
-    assert 92.0 <= res["spo2_pct"] <= 100.0
-    assert res["quality"] > 0.6

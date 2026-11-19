@@ -11,11 +11,6 @@ Each piece fixes a measured or well-documented error source:
   MEMS accelerometers", IEEE TIM). At rest the true reading has magnitude g in
   any orientation, so still poses in several orientations constrain the six
   unknowns; a least-squares fit runs once the poses span enough directions.
-* ``SpO2Calibration``: the ratio-of-ratios R maps to SpO2 through a curve
-  that depends on the LEDs, photodiode and site. Maxim's reference curve is a
-  starting point; paired readings against a finger pulse oximeter at rest
-  give a per-device offset (one pair) or line (three or more pairs spanning at
-  least 3 %). Without pairs SpO2 is labelled uncalibrated.
 * ``player_load``: PlayerLoad as defined by Barrett, Midgley & Lovell (2014):
   the accumulated change of acceleration in g, scaled by 1/100.
 * ``GpsKalman``: constant-velocity Kalman filter in local metres. Speed comes
@@ -115,52 +110,6 @@ class AccelAutoCal:
         return (np.asarray(a_raw, float) - self.bias) * self.scale
 
 
-# --------------------------------------------------------------------- SpO2 --
-def maxim_curve(R: float) -> float:
-    return -45.060 * R * R + 30.354 * R + 94.845
-
-
-class SpO2Calibration:
-    def __init__(self, pairs: Optional[List[Tuple[float, float]]] = None):
-        self.pairs: List[Tuple[float, float]] = list(pairs or [])   # (R, reference %)
-        self.mode = "uncalibrated"
-        self.coef: Tuple[float, float] = (0.0, 0.0)
-        self.residual_pct: Optional[float] = None
-        self._fit()
-
-    def add(self, R: float, reference_pct: float) -> dict:
-        if not (0.2 < R < 3.0) or not (70.0 <= reference_pct <= 100.0):
-            raise ValueError("R or reference outside the physiological range")
-        self.pairs.append((float(R), float(reference_pct)))
-        self._fit()
-        return self.status()
-
-    def _fit(self) -> None:
-        if not self.pairs:
-            self.mode = "uncalibrated"
-            return
-        P = np.asarray(self.pairs)
-        spread = P[:, 1].max() - P[:, 1].min()
-        if len(P) >= 3 and spread >= 3.0:
-            b, a = np.polyfit(P[:, 0], P[:, 1], 1)       # SpO2 = a + b R
-            self.mode, self.coef = "line", (float(a), float(b))
-            pred = a + b * P[:, 0]
-        else:
-            off = float(np.median(P[:, 1] - np.asarray([maxim_curve(r) for r in P[:, 0]])))
-            self.mode, self.coef = "offset", (off, 0.0)
-            pred = np.asarray([maxim_curve(r) + off for r in P[:, 0]])
-        self.residual_pct = float(np.sqrt(np.mean((pred - P[:, 1]) ** 2)))
-
-    def spo2(self, R: float) -> float:
-        if self.mode == "line":
-            return self.coef[0] + self.coef[1] * R
-        return maxim_curve(R) + (self.coef[0] if self.mode == "offset" else 0.0)
-
-    def status(self) -> dict:
-        return {"mode": self.mode, "pairs": len(self.pairs),
-                "residual_pct": None if self.residual_pct is None else round(self.residual_pct, 2)}
-
-
 # ---------------------------------------------------------------- PlayerLoad --
 def player_load(accel_g: np.ndarray) -> float:
     """PlayerLoad (Barrett et al. 2014) of an (n,3) accelerometer series in g.
@@ -256,11 +205,12 @@ class GpsKalman:
 
 
 def battery_state(history: deque, now_s: float, pct: Optional[float], volts: Optional[float],
-                  rate_pct_h: Optional[float]) -> Optional[Dict[str, object]]:
-    """Battery percentage, time left and a warning level from the fuel gauge.
+                  rate_pct_h: Optional[float] = None) -> Optional[Dict[str, object]]:
+    """Battery percentage, time left and a warning level.
 
-    The gauge's own rate is noisy minute to minute, so time left is the slope
-    of the last 10 minutes of SoC when enough history exists."""
+    The vest reads the cell through a 100k/100k divider and converts voltage to
+    charge with a LiPo curve, so single readings wobble with load; time left is
+    the slope of the last 10 minutes of charge once enough history exists."""
     if pct is None or not np.isfinite(pct):
         return None
     history.append((now_s, float(pct)))

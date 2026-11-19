@@ -90,8 +90,8 @@ export function MatchStrip({ analysis, t, onSeek, focus, onEvent }: Props) {
         if (e.key === 'ArrowRight') onSeek(Math.min(dur, t + (e.shiftKey ? 10 : 1)));
         if (e.key === 'ArrowLeft') onSeek(Math.max(0, t - (e.shiftKey ? 10 : 1)));
       }}>
-      {ticks.map(s => <g key={s}><line x1={x(s)} x2={x(s)} y1={10} y2={H} className="strip-grid" />
-        <text x={x(s)} y={9} className="strip-tick" textAnchor="middle">{clock(s)}</text></g>)}
+      {ticks.map((s, i) => <g key={s}><line x1={x(s)} x2={x(s)} y1={10} y2={H} className="strip-grid" />
+        <text x={x(s)} y={9} className="strip-tick" textAnchor={i === ticks.length - 1 ? 'end' : 'middle'}>{clock(s)}</text></g>)}
       {LANES.map((l, i) => <g key={l.key}>
         <rect x={LABEL_W} y={tops[i]} width={W - LABEL_W - 8} height={l.h} className="strip-lane" />
         <text x={4} y={tops[i] + l.h / 2 + 3.5} className="strip-label">{l.label}</text>

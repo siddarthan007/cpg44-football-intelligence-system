@@ -26,7 +26,7 @@ ESP32-S3 vest ─▶ HTTPS relay ─▶ hub: NLMS pulse, PlayerLoad, clock map �
 | Re-identification | colour histogram, mAP 0.29 | ResNet-18 BNNeck trained on SoccerNet train, mAP 0.79 | 9 held-out clips |
 | Team separation | frame voting, 77 % | identity-level trimmed 2-means, 97 % | 9 held-out clips |
 | Ball | best box per frame, unbounded interpolation | dynamic-programming path, bounded gap fill, 3D arcs | test clips + synthetic 3D truth |
-| Vest pulse | withheld whenever moving; SpO2 clamped to 94-98.8 % | 3-axis NLMS + quality gate; SpO2 only at rest, never invented | synthetic truth, 21 real sessions |
+| Vest heart rate | optical pulse: no valid heart rate in any recorded session | AD8232 chest ECG, Pan-Tompkins beats and interval cleaning: 0.5 bpm mean error from rest to sprinting, 11.2 bpm for simple peak counting | 18 synthetic recordings, end-to-end check |
 | IMU firmware | ±8 g, DLPF 44 Hz at 50 Hz sampling (aliasing) | ±16 g, ±2000 °/s, DLPF 21 Hz | data sheet |
 | Vest delivery | 35 of 75 samples/s arrived; up to 106k dropped per boot; no valid heart rate in any recorded session | 96 samples per POST (relay limit 100), gap bridging under 0.32 s | 21 recorded sessions, [SENSOR_PIPELINE.md](docs/hardware/SENSOR_PIPELINE.md) |
 | Vest and video clocks | laptop clock 27 to 767 ms behind the relay, uncorrected | NTP-style offset against the relay, plus lag measured by vest/track correlation | recorded sessions, synthetic test |
@@ -94,12 +94,12 @@ npm run lint --prefix frontend && npm run build --prefix frontend
 ## Documents
 
 - [Tracking, ReID, team and ball benchmark](docs/TRACKING_BENCHMARK.md)
-- [Sensor vest design](docs/hardware/VEST_DESIGN.md) and [wiring](HARDWARE.md)
+- [Building the vest](docs/hardware/BUILD_GUIDE.md) and [wiring](HARDWARE.md)
 - [Campus guide: camera, calibration, adaptation](docs/CAMPUS_GUIDE.md)
 - [Interface design rationale](docs/DESIGN_RATIONALE.md)
 - [References for the report](docs/REFERENCES.md)
 - [Project atlas](docs/PROJECT_ATLAS.md), [accuracy protocol](docs/CAPSTONE_ACCURACY_PROTOCOL.md), [operating manual](docs/OPERATING_MANUAL.md)
 - [RT-DETR and Replayfield study](docs/RTDETR_AND_REPLAYFIELD.md), [2026 research notes](docs/RESEARCH_2026.md)
 
-Workload findings are coaching cues, not medical diagnoses. MAX30102 SpO2 is
-an uncalibrated estimate and is shown only in still recovery windows.
+Workload findings are coaching cues, not medical diagnoses. The AD8232 is a
+monitoring front end, not a medical ECG.

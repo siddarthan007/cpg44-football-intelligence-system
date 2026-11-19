@@ -37,10 +37,10 @@ The firmware in `firmware/wearable_stream` already matches the wiring below.
 
 ### Not needed
 
-- The MAX30102 optical sensor, if you only need heart rate: the ECG does that better.
-  Keep it **only** if the report must show SpO2 (Objective 2 names a pulse
-  oximeter). The firmware detects it automatically, and SpO2 is then measured
-  in still recovery windows.
+- The MAX30102 pulse oximeter from the first prototype. The chest ECG gives
+  heart rate and heart-rate variability directly, keeps beat timing while
+  running (the optical pulse failed in every recorded session) and the
+  firmware no longer reads it.
 - Any 5 V boost module or the DevKit's 5 V pin: everything runs at 3.3 V.
 - Level shifters: every module here is 3.3 V compatible.
 - The MAX17048 fuel gauge from the earlier design: the divider on GPIO 1 measures
@@ -195,9 +195,12 @@ and landing much more precisely. It is left unread to save I2C time.
 1. **Power only.** Connect the battery, TP4056, switch and TPS63020 with nothing
    else. Switch on: VOUT should read 3.28 to 3.35 V. Switch off: 0 V.
 2. **ESP32.** Wire 3V3 and GND with the capacitors. Flash from *Flash a vest*
-   (USB plugged in, battery switched off). The serial monitor should print
-   `CPG44 ESP32-S3 RELAY WEARABLE V3`.
-3. **GY-87.** The serial monitor lists `MPU6050 ready` and the magnetometer type.
+   (USB plugged in, battery switched off). The sketch needs the esp32 core 3.x
+   and four libraries from the Arduino library manager: Adafruit MPU6050 (with
+   Adafruit Unified Sensor and BusIO), ArduinoJson 7 and TinyGPSPlus. The
+   serial monitor should print `CPG44 ESP32-S3 VEST: ECG, IMU, GNSS`.
+3. **GY-87.** The serial monitor lists `GY-87 MPU6050 0x68: FOUND`,
+   `GY-87 BMP180 0x77: FOUND`, `MPU6050 ready` and the magnetometer type.
 4. **GPS.** `NEO-6M UART started`. Outdoors, the vest page shows satellites
    within a minute and "GNSS fixes" close to 100 %.
 5. **ECG.** Put on three gel electrodes. The vest page shows a heart rate within
@@ -228,4 +231,5 @@ state: calibrated, waiting, or why it is missing.
 - Use only a LiPo with its own protection board, in a padded pocket on the back.
   Replace any cell that swells.
 - No hard edges facing the body. The pod goes between the shoulder blades,
-  where players rarely land (see `VEST_DESIGN.md`).
+  where players rarely land, and where vest-worn GNSS units sit in
+  professional football.

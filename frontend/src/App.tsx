@@ -35,9 +35,10 @@ export const App: React.FC = () => {
   };
   // After a navigation, move focus to the new page's heading so keyboard and
   // screen-reader users land on the new content, not on a vanished link.
-  const first = React.useRef(true);
+  const prevPath = React.useRef(loc.pathname);
   useEffect(() => {
-    if (first.current) { first.current = false; return; }
+    if (prevPath.current === loc.pathname) return;
+    prevPath.current = loc.pathname;
     const id = requestAnimationFrame(() => {
       const h = document.querySelector<HTMLElement>('#main h1');
       if (h) { h.tabIndex = -1; h.focus({ preventScroll: true }); }
@@ -52,7 +53,7 @@ export const App: React.FC = () => {
     [{ to: '/', label: 'Home', g: 'home' }],
     // in the order a coach works: set up, play, the vest, then the lab
     [
-      { to: '/workshop/cameras', label: 'Connect camera', g: 'sources' },
+      { to: '/workshop/cameras', label: 'Cameras', g: 'sources' },
       { to: '/prepare/camera', label: 'Camera position', g: 'camera' },
       { to: '/prepare/pitch', label: 'Pitch setup', g: 'pitch' },
       { to: '/prepare/kits', label: 'Kits', g: 'kits' },

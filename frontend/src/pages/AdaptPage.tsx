@@ -84,15 +84,20 @@ export const AdaptPage = () => {
   const upload = (f: File) => run('Sampling frames', async () => { const form = new FormData(); form.append('file', f); form.append('frames', '60'); await call(`/api/v1/adapt/${PROJECT}/videos`, { method: 'POST', body: form }); });
   const reviewed = frames.filter(f => f.reviewed).length;
   const res = status.results;
+  const trained = status.state === 'done';
+  const stages = [
+    { label: 'Clips', done: frames.length > 0, current: !frames.length },
+    { label: frames.length ? `Review ${reviewed}/${frames.length}` : 'Review', done: reviewed >= 10, current: frames.length > 0 && reviewed < 10 },
+    { label: 'Train', done: trained, current: reviewed >= 10 && !trained },
+    { label: 'Compare', done: false, current: trained },
+  ];
 
   return <div className="page">
     <div className="top"><h1>Adapt to your ground</h1>
-      <div className="steps" aria-label="Progress">
-        <button className={frames.length ? 'done' : ''} aria-current={!frames.length ? 'step' : undefined}><b>1</b>Clips</button><span className="sep" />
-        <button className={reviewed >= 10 ? 'done' : ''} aria-current={frames.length && reviewed < 10 ? 'step' : undefined}><b>2</b>Review {reviewed}/{frames.length}</button><span className="sep" />
-        <button className={status.state === 'done' ? 'done' : ''} aria-current={reviewed >= 10 && status.state !== 'done' ? 'step' : undefined}><b>3</b>Train</button><span className="sep" />
-        <button aria-current={status.state === 'done' ? 'step' : undefined}><b>4</b>Compare</button>
-      </div>
+      <ol className="steps" aria-label="Progress">
+        {stages.map((st, i) => <li key={i}>{i > 0 && <span className="sep" aria-hidden="true" />}
+          <span className={`step ${st.done ? 'done' : ''}`} aria-current={st.current ? 'step' : undefined}><b>{st.done ? <Glyph g="check" size={13} /> : i + 1}</b>{st.label}</span></li>)}
+      </ol>
     </div>
     {error && <p className="notice bad">{error}</p>}
     <div className="setup">
@@ -102,6 +107,12 @@ export const AdaptPage = () => {
           : <Annotator frame={frames[current]} onSaved={() => { refresh(); setCurrent(c => Math.min(frames.length - 1, c + 1)); }} />}
       </section>
       <aside className="panel">
+        {!frames.length && <ol className="adapt-how">
+          <li><Glyph g="upload" size={18} /><span><strong>Add a clip</strong>a minute of play from your camera</span></li>
+          <li><Glyph g="eye" size={18} /><span><strong>Check the boxes</strong>at least 10 frames</span></li>
+          <li><Glyph g="model" size={18} /><span><strong>Train</strong>runs on this computer</span></li>
+          <li><Glyph g="check" size={18} /><span><strong>Keep the better model</strong>scored on frames it never saw</span></li>
+        </ol>}
         {frames.length > 0 && <>
           <div className="panel-head"><h2>Frames</h2><span className="num muted">{reviewed} reviewed</span></div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>{frames.map((f, i) => <button key={f.id} onClick={() => setCurrent(i)} title={f.id}

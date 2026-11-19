@@ -132,3 +132,22 @@ class ECGProcessor:
             if len(d) >= 20:
                 out["rmssd_ms"] = round(float(np.sqrt(np.mean(d * d)) * 1000), 1)
         return out
+
+    def trace(self, seconds: float = 4.0) -> dict:
+        """The last ``seconds`` of signal for display, thinned to about 125 Hz,
+        with the beats found in it (seconds from the start of the trace)."""
+        if not self.t:
+            return {"ok": False, "reason": "no_ecg"}
+        t = np.asarray(self.t)
+        v = np.asarray(self.v)
+        ctx = t >= self.last_t - max(seconds, 10.0)          # beat detection needs a little context
+        t, v = t[ctx], v[ctx]
+        peaks = detect_r_peaks(v, self.fs) if len(v) >= self.fs * 2 else np.zeros(0, int)
+        show = t >= self.last_t - seconds
+        step = max(1, int(round(self.fs / 125)))
+        t0 = float(t[show][0]) if show.any() else float(t[0])
+        vs = v[show][::step]
+        lo, hi = (float(np.percentile(vs, 1)), float(np.percentile(vs, 99))) if len(vs) else (0.0, 1.0)
+        return {"ok": True, "fs": self.fs / step, "t0": t0, "values": [round(float(x), 1) for x in vs],
+                "range": [lo, hi], "beats": [round(float(t[p] - t0), 3) for p in peaks if t[p] >= t0],
+                "lead_off": self.lead_off_until > self.last_t - 0.5}

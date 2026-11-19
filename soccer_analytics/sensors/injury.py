@@ -22,13 +22,13 @@ from .schema import InjuryRisk, WorkloadFeatures
 FEATURE_ORDER = ["total_distance", "hsr_distance", "sprint_count", "accel_efforts",
                  "decel_efforts", "player_load", "metabolic_power_avg",
                  "high_metabolic_distance", "energy_kcal", "top_speed",
-                 "avg_hr", "hr_drift", "min_spo2", "acwr"]
+                 "avg_hr", "hr_drift", "trimp", "acwr"]
 
 
 def features_to_array(f: WorkloadFeatures) -> np.ndarray:
     v = f.to_vector()
     # Model-only neutral imputation. Missing readings remain null in the API/UI.
-    defaults = {"avg_hr": 150.0, "hr_drift": 0.0, "min_spo2": 97.0, "acwr": 1.0}
+    defaults = {"avg_hr": 150.0, "hr_drift": 0.0, "trimp": 0.0, "acwr": 1.0}
     return np.array([defaults.get(k, 0.0) if (v[k] is None or np.isnan(v[k])) else v[k]
                      for k in FEATURE_ORDER], dtype=float)
 
@@ -54,9 +54,13 @@ class HeuristicInjuryModel:
         if not np.isnan(f.hr_drift) and f.hr_drift > 8:
             factors["cardiac_drift"] = float(np.clip((f.hr_drift - 8) / 22, 0, 1))
 
-        # desaturation
-        if not np.isnan(f.min_spo2) and f.min_spo2 < 94:
-            factors["low_spo2"] = float(np.clip((94 - f.min_spo2) / 6, 0, 1))
+        # sustained cardiac load: TRIMP per minute of 3 means a 70-80 % HRmax
+        # average, 4 means 80-90 %
+        minutes = f.duration_s / 60.0
+        if not np.isnan(f.trimp) and minutes >= 5:
+            rate = f.trimp / minutes
+            if rate > 3.0:
+                factors["cardiac_load"] = float(np.clip((rate - 3.0) / 1.5, 0, 1))
 
         # high external load (HSR + sprints), relative to typical match maxima
         hsr_r = np.clip(f.hsr_distance / 1200.0, 0, 1)          # ~1.2 km HSR = heavy
@@ -77,7 +81,7 @@ class HeuristicInjuryModel:
 
         # weighted aggregation
         weights = {"acwr_high": 0.3, "acwr_low": 0.12, "cardiac_drift": 0.16,
-                   "low_spo2": 0.12, "high_intensity_load": 0.12,
+                   "cardiac_load": 0.12, "high_intensity_load": 0.12,
                    "accel_decel_load": 0.1, "metabolic_load": 0.08}
         risk = float(np.clip(sum(factors.get(k, 0) * w for k, w in weights.items())
                              / max(sum(weights[k] for k in factors), 1e-9)

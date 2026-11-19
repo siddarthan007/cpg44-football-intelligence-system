@@ -5,8 +5,7 @@ from collections import deque
 
 import numpy as np
 
-from soccer_analytics.sensors.calibration import (G, AccelAutoCal, GpsKalman, GyroBias, SpO2Calibration,
-                                                  battery_state, maxim_curve, player_load)
+from soccer_analytics.sensors.calibration import (G, AccelAutoCal, GpsKalman, GyroBias, battery_state, player_load)
 
 
 def test_gyro_bias_learnt_only_when_still():
@@ -32,18 +31,6 @@ def test_accel_autocal_recovers_bias_and_scale_from_still_poses():
     assert cal.calibrated
     assert np.allclose(cal.bias, b, atol=0.02) and np.allclose(cal.scale, s, atol=0.004)
     assert abs(np.linalg.norm(cal.apply(G * np.array([0, 0, 1]) / s + b)) - G) < 0.02
-
-
-def test_spo2_offset_then_line_calibration():
-    cal = SpO2Calibration()
-    assert cal.status()["mode"] == "uncalibrated"
-    truth = lambda R: 112.0 - 22.0 * R                         # this sensor's real curve
-    cal.add(0.70, truth(0.70))
-    assert cal.status()["mode"] == "offset"
-    for R in (0.55, 0.85, 1.0):
-        cal.add(R, truth(R))
-    assert cal.status()["mode"] == "line" and abs(cal.spo2(0.8) - truth(0.8)) < 0.2
-    assert abs(maxim_curve(0.8) - truth(0.8)) > 1.0             # the reference curve alone is off
 
 
 def test_player_load_is_zero_at_rest_and_grows_with_impacts():

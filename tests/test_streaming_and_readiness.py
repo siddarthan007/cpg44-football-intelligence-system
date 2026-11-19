@@ -17,11 +17,15 @@ from soccer_analytics.sensors.hub_bridge import snapshot_to_sample
 from soccer_analytics.sensors.schema import SensorSample
 
 
+T0_NS = time.time_ns() - 60_000_000_000
+
+
 def observation(index):
+    """One 0.2 s ECG block, as the vest sends them."""
     return {"source": "wearable", "match_id": "stream-test", "player_id": 7,
-            "source_seq": index, "source_timestamp_ns": time.time_ns(),
-            "device_boot_id": "test-boot", "sample_type": "ppg",
-            "payload": {"device_us": index * 40000, "red": 90000, "ir": 120000},
+            "source_seq": index, "source_timestamp_ns": T0_NS + index * 200_000_000,
+            "device_boot_id": "test-boot", "sample_type": "ecg",
+            "payload": {"device_us": index * 200000, "fs": 250, "v": [2048] * 50, "lead_off": False},
             "clock": {"valid": True}}
 
 
@@ -53,7 +57,7 @@ def test_slow_client_gets_an_explicit_recovery_marker():
     asyncio.run(check())
 
 
-def test_relay_reader_consumes_every_replayed_ppg_sample(monkeypatch):
+def test_relay_reader_consumes_every_replayed_ecg_block(monkeypatch):
     import soccer_analytics.sensors.hub as hub
     relay = MemoryRelay()
     for index in range(180):
@@ -73,7 +77,7 @@ def test_relay_reader_consumes_every_replayed_ppg_sample(monkeypatch):
     async def check():
         with pytest.raises(asyncio.CancelledError):
             await relay_reader(engine, "https://cpg44.nivaspms.com", "test", 7, "stream-test")
-        assert len(engine.ppg) == 180
+        assert len(engine.ecg.v) == 180 * 50
         assert engine.state["device"]["last_relay_seq"] == 180
     asyncio.run(check())
 
@@ -89,13 +93,13 @@ def test_source_epoch_and_unclamped_age_are_preserved(age_ms, valid):
     assert packet["clock_synced"] is valid
 
 
-def test_ppg_old_or_gapped_data_is_not_a_valid_live_pulse():
+def test_stale_ecg_is_not_a_live_heart_rate():
+    """Old ECG (the vest stopped sending) must not be shown as a current heart rate."""
     engine = TelemetryEngine()
-    now = time.perf_counter_ns()
-    for index in range(150):
-        engine.ppg.append({"host_mono_ns": now - 20_000_000_000 + index * 40_000_000,
-                           "ir": 120000., "red": 90000.})
-    assert engine.calculate_vitals()["reason"] == "stale_or_discontinuous_pulse"
+    t0 = time.perf_counter_ns() / 1e9 - 20.0
+    for k in range(50):
+        engine.ecg.add_block(t0 + k * 0.2, 250.0, [2048.0 + 300.0 * ((i % 125) == 0) for i in range(50)], False)
+    assert engine.calculate_vitals()["reason"] == "ecg_stale"
 
 
 def test_old_pulse_is_not_attached_to_a_fresh_imu_sample():

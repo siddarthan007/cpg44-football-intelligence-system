@@ -452,7 +452,7 @@ def test_hardware_chain_end_to_end():
     for i in range(1500):                              # 60 s @ 25 fps
         t = i * 0.04
         if i % 3 == 0:                                 # wearable ~8 Hz, worsening HR
-            fe.ingest_sensors([SensorSample(7, t, hr=125 + i * 0.04, spo2=96.0,
+            fe.ingest_sensors([SensorSample(7, t, hr=125 + i * 0.04,
                                             accel=(0.1, 0.2, 1.0 + math.sin(i) * 0.4))])
         speed = 7.5 if i < 700 else 3.0                # sprints early, fades late
         fe.step(0.04, t, {3: ((speed, 0.0), (0.0, 0.0))})
@@ -460,7 +460,7 @@ def test_hardware_chain_end_to_end():
             adv.update(t, fe.load.all_features())
     f = fe.load.features(3)
     assert f.total_distance > 200 and f.avg_hr > 125   # fused vision + wearable
-    assert not np.isnan(f.min_spo2)
+    assert f.trimp > 0                                  # 60 s at 125-185 bpm: zones 3 to 5
     r = inj.predict(f)
     assert 0.0 <= r.risk <= 1.0
     ranked = adv.advise({3: r.risk})
@@ -476,7 +476,7 @@ def test_fusion_rejects_explicitly_unsynced_wearable_sample():
     sync.bind(3, 7)
     fusion = FusionEngine(sync)
     fusion.ingest_sensors([
-        SensorSample(7, 10.0, hr=180.0, spo2=90.0, accel=(1.0, 1.0, 1.0), clock_synced=False)
+        SensorSample(7, 10.0, hr=180.0, accel=(1.0, 1.0, 1.0), clock_synced=False)
     ])
     fusion.step(0.04, 10.0, {3: ((4.0, 0.0), (0.0, 0.0))})
     assert 3 not in fusion.aligned

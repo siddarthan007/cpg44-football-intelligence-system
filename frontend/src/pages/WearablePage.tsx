@@ -5,24 +5,43 @@ import { api, apiUrl } from '../lib/api';
 
 type Status = {
   connected?: boolean; clock_synced?: boolean; transport_delay_ms?: number | null; dropped_samples?: number | null;
-  gyro_calibrated?: boolean; accel_scale_calibrated?: boolean; ppg_reason?: string | null; rssi_dbm?: number | null;
+  gyro_calibrated?: boolean; accel_scale_calibrated?: boolean; rssi_dbm?: number | null;
   rates_hz?: Record<string, number>; expected_hz?: Record<string, number | null | undefined>;
   clock_offset?: { offset_ms: number; uncertainty_ms: number; samples: number } | null;
   battery?: { pct: number; volts: number | null; minutes_left: number | null; level: string } | null;
   gps?: { fix?: boolean; sat?: number; hdop?: number; filtered?: { speed_mps: number; distance_m: number; pos_sigma_m: number } };
   imu?: { accel_cal_poses?: number; accel_calibrated?: boolean; player_load?: number; player_load_per_min?: number | null; stationary?: boolean };
-  pulse?: { bpm?: number | null; spo2?: number | null; quality?: number | null; reason?: string | null; spo2_calibration?: { mode: string; pairs: number } };
+  heart?: { bpm?: number | null; steady_bpm?: number | null; rmssd_ms?: number | null; quality?: number | null; reason?: string | null; electrodes?: 'on' | 'off' | null };
+};
+type Trace = { ok: boolean; fs?: number; values?: number[]; range?: [number, number]; beats?: number[]; lead_off?: boolean };
+
+const DESIGN = { imu: 50, ecg: 5, gps: 5 };
+const REASON: Record<string, string> = {
+  electrode_off: 'an electrode is off the skin',
+  flat_signal: 'no signal: check the cable into the ECG board',
+  noisy_ecg: 'too much interference for clean beats',
+  too_few_beats: 'finding the first beats',
+  ecg_stale: 'the ECG stopped arriving',
+  no_ecg: 'waiting for the ECG',
 };
 
-const DESIGN = { imu: 50, ppg: 25, gps: 5 };
-const REASON: Record<string, string> = {
-  stale_or_discontinuous_pulse: 'samples missing in the pulse window',
-  no_or_weak_contact: 'sensor not pressed on the skin',
-  poor_optical_quality: 'weak optical signal',
-  motion_artifact: 'too much movement for a clean pulse',
-  hr_estimators_disagree: 'two pulse estimates disagree',
-  collecting: 'collecting the first seconds',
-};
+/** Live chest ECG on a paper grid, with each detected beat marked. */
+function EcgStrip({ trace }: { trace?: Trace }) {
+  const W = 1000, H = 220, pad = 18;
+  if (!trace?.ok || !trace.values?.length) return <div className="ecg-strip empty"><span>Waiting for the ECG</span></div>;
+  const [lo, hi] = trace.range ?? [Math.min(...trace.values), Math.max(...trace.values)];
+  const span = Math.max(hi - lo, 1), n = trace.values.length, secs = n / (trace.fs || 125);
+  const x = (i: number) => (i / Math.max(n - 1, 1)) * W;
+  const y = (v: number) => H - pad - ((Math.min(Math.max(v, lo), hi) - lo) / span) * (H - 2 * pad);
+  const points = trace.values.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
+  return <div className={`ecg-strip ${trace.lead_off ? 'off' : ''}`}>
+    <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" role="img" aria-label={`Chest ECG, last ${secs.toFixed(0)} seconds, ${trace.beats?.length ?? 0} beats`}>
+      {(trace.beats ?? []).map(b => <line key={b} x1={(b / secs) * W} x2={(b / secs) * W} y1={4} y2={12} className="beat" />)}
+      <polyline points={points} className="trace" />
+    </svg>
+    <span className="ecg-scale">{secs.toFixed(0)} s</span>
+  </div>;
+}
 
 function Tile({ label, value, unit, why, accent }: { label: string; value?: string | null; unit?: string; why?: string; accent?: boolean }) {
   return <div className={`vtile ${value ? '' : 'missing'}`}>
@@ -35,7 +54,7 @@ function Tile({ label, value, unit, why, accent }: { label: string; value?: stri
 function Rate({ kind, got, want }: { kind: string; got?: number; want: number }) {
   const share = got == null ? 0 : Math.min(1, got / want);
   const tone = got == null ? 'off' : share >= 0.95 ? 'ok' : share >= 0.7 ? 'warn' : 'bad';
-  return <div className="rate" title={`${kind}: ${got ?? 0} of ${want} samples per second arrive`}>
+  return <div className="rate" title={`${kind}: ${got ?? 0} of ${want} per second arrive`}>
     <span>{kind}</span>
     <div className="rate-bar"><i className={tone} style={{ width: `${share * 100}%` }} /></div>
     <b className="num">{got == null ? 'none' : `${Math.round(share * 100)} %`}</b>
@@ -44,9 +63,8 @@ function Rate({ kind, got, want }: { kind: string; got?: number; want: number })
 
 export const WearablePage = () => {
   const [s, setS] = useState<Status>({});
+  const [trace, setTrace] = useState<Trace>();
   const [down, setDown] = useState(false);
-  const [ref, setRef] = useState('');
-  const [calMsg, setCalMsg] = useState<{ ok: boolean; text: string }>();
 
   useEffect(() => {
     let live = true;
@@ -55,26 +73,24 @@ export const WearablePage = () => {
     const t = window.setInterval(pull, 1000);
     return () => { live = false; window.clearInterval(t); };
   }, []);
-
   const on = Boolean(s.connected) && !down;
-  const want = { imu: s.expected_hz?.imu || DESIGN.imu, ppg: s.expected_hz?.ppg || DESIGN.ppg, gps: s.expected_hz?.gps || DESIGN.gps };
+  useEffect(() => {
+    if (!on) return;
+    let live = true;
+    const pull = () => fetch(apiUrl('/api/v1/wearables/ecg?seconds=5')).then(r => r.json()).then(tr => { if (live) setTrace(tr as Trace); }).catch(() => undefined);
+    void pull();
+    const t = window.setInterval(pull, 500);
+    return () => { live = false; window.clearInterval(t); };
+  }, [on]);
+
+  const want = { imu: s.expected_hz?.imu || DESIGN.imu, ecg: s.expected_hz?.ecg || DESIGN.ecg, gps: s.expected_hz?.gps || DESIGN.gps };
   const off = s.clock_offset;
   const poses = s.imu?.accel_cal_poses ?? 0;
-  const cal = s.pulse?.spo2_calibration;
-  const still = Boolean(s.imu?.stationary);
-
-  const calibrate = async () => {
-    setCalMsg(undefined);
-    const r = await fetch(apiUrl('/api/v1/wearables/calibrate/spo2'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reference_pct: Number(ref) }) });
-    const body = await r.json().catch(() => ({}));
-    setCalMsg(r.ok ? { ok: true, text: `Saved. ${body.calibration?.pairs ?? 1} reading${(body.calibration?.pairs ?? 1) > 1 ? 's' : ''} paired.` }
-      : { ok: false, text: (body as { detail?: string }).detail ?? 'Not saved' });
-    if (r.ok) setRef('');
-  };
+  const h = s.heart ?? {};
+  const electrodesOff = h.electrodes === 'off' || trace?.lead_off;
 
   return <div className="page">
-    <header className="page-header"><h1>Vest readings</h1>
-      <p>What the vest measures right now, and whether each number can be trusted.</p></header>
+    <header className="page-header"><h1>Vest readings</h1></header>
 
     <section className="panel" aria-label="Link">
       <div className="chain">
@@ -90,25 +106,39 @@ export const WearablePage = () => {
       {!on && <div className="notice" style={{ marginTop: 14 }}>
         {down ? 'Start the system with scripts/start_system.sh.' : <>No vest data yet. Switch the vest on near Wi-Fi; it sends through the relay within a few seconds. A new vest needs <Link to="/vest/setup">flashing</Link> first.</>}
       </div>}
-      {on && <div className="rates">
-        <h3>Samples arriving</h3>
-        <Rate kind="Movement (IMU)" got={s.rates_hz?.imu} want={want.imu} />
-        <Rate kind="Pulse (PPG)" got={s.rates_hz?.ppg} want={want.ppg} />
-        <Rate kind="GNSS fixes" got={s.rates_hz?.gps} want={want.gps} />
-        {(s.dropped_samples ?? 0) > 0 && <p className="muted" style={{ fontSize: 12.5 }}>The vest reports {s.dropped_samples} samples dropped since it started.</p>}
-      </div>}
     </section>
 
+    {on && <section className="panel heart-panel" aria-label="Heart">
+      <div className="heart-figures">
+        <div className="heart-now"><small>Heart rate</small>
+          <b className="num">{h.bpm != null ? Math.round(h.bpm) : '--'}<i>bpm</i></b>
+          <span>{h.bpm != null ? (h.steady_bpm != null ? `steady ${Math.round(h.steady_bpm)} bpm` : 'settling') : REASON[h.reason ?? ''] ?? 'waiting for clean beats'}</span></div>
+        <div><small>Variability</small><b className="num">{h.rmssd_ms != null ? Math.round(h.rmssd_ms) : '--'}<i>ms</i></b>
+          <span>{h.rmssd_ms != null ? 'RMSSD, still' : 'measured when still for 30 s'}</span></div>
+        <div><small>Electrodes</small><b className={electrodesOff ? 'state-bad' : h.electrodes === 'on' ? 'state-ok' : ''}>{electrodesOff ? 'Off' : h.electrodes === 'on' ? 'On' : '--'}</b>
+          <span>{electrodesOff ? 'press the three pads onto the skin' : h.quality != null ? `${Math.round(h.quality * 100)} % clean beats` : ''}</span></div>
+      </div>
+      <EcgStrip trace={trace} />
+    </section>}
+
     {on && <div className="vgrid">
-      <Tile label="Heart rate" accent value={s.pulse?.bpm != null ? `${Math.round(s.pulse.bpm)}` : null} unit=" bpm"
-        why={s.pulse?.bpm != null ? `signal quality ${Math.round((s.pulse.quality ?? 0) * 100)} %` : on ? REASON[s.pulse?.reason ?? ''] ?? 'waiting for a clean pulse window' : undefined} />
-      <Tile label="SpO2" accent value={s.pulse?.spo2 != null ? `${s.pulse.spo2.toFixed(0)}` : null} unit=" %"
-        why={s.pulse?.spo2 != null ? (cal?.mode === 'uncalibrated' ? 'uncalibrated estimate' : `calibrated, ${cal?.pairs} readings`) : on ? 'only measured while standing still' : undefined} />
       <Tile label="PlayerLoad per minute" value={s.imu?.player_load_per_min != null ? s.imu.player_load_per_min.toFixed(1) : null}
         why={s.imu?.player_load != null ? `${s.imu.player_load.toFixed(1)} this session` : undefined} />
       <Tile label="Speed" value={s.gps?.filtered ? (s.gps.filtered.speed_mps * 3.6).toFixed(1) : null} unit=" km/h"
-        why={s.gps?.fix ? `${s.gps.sat ?? 0} satellites, HDOP ${s.gps.hdop ?? '?'}` : on ? 'GNSS has no fix; the camera still measures speed' : undefined} />
+        why={s.gps?.fix ? `${s.gps.sat ?? 0} satellites, HDOP ${s.gps.hdop ?? '?'}` : 'no GNSS fix; the camera still measures speed'} />
+      <Tile label="Distance" value={s.gps?.filtered ? s.gps.filtered.distance_m.toFixed(0) : null} unit=" m"
+        why={s.gps?.filtered ? `position within ${s.gps.filtered.pos_sigma_m.toFixed(1)} m` : undefined} />
     </div>}
+
+    {on && <section className="panel" aria-label="Samples arriving">
+      <div className="panel-head"><h2>Samples arriving</h2></div>
+      <div className="rates">
+        <Rate kind="Movement" got={s.rates_hz?.imu} want={want.imu} />
+        <Rate kind="ECG" got={s.rates_hz?.ecg} want={want.ecg} />
+        <Rate kind="GNSS fixes" got={s.rates_hz?.gps} want={want.gps} />
+        {(s.dropped_samples ?? 0) > 0 && <p className="muted" style={{ fontSize: 12.5 }}>The vest reports {s.dropped_samples} samples dropped since it started.</p>}
+      </div>
+    </section>}
 
     <section className="panel" aria-label="Calibration">
       <div className="panel-head"><h2>Calibration</h2></div>
@@ -118,15 +148,8 @@ export const WearablePage = () => {
         <div className="cal-row"><Glyph g={s.accel_scale_calibrated ? 'check' : 'warn'} size={16} />
           <div><b>Accelerometer</b><span>{s.accel_scale_calibrated ? 'Offset and scale fitted from resting poses.' : `Rest the pod still on each of its six faces for two seconds. ${poses} of 6 poses so far.`}</span>
             {!s.accel_scale_calibrated && <div className="poses" aria-hidden="true">{Array.from({ length: 6 }, (_, k) => <i key={k} className={k < poses ? 'got' : ''} />)}</div>}</div></div>
-        <div className="cal-row"><Glyph g={cal && cal.mode !== 'uncalibrated' ? 'check' : 'warn'} size={16} />
-          <div><b>SpO2</b><span>{cal && cal.mode !== 'uncalibrated' ? `Matched to a finger oximeter (${cal.pairs} reading${cal.pairs > 1 ? 's' : ''}).` : 'Clip a finger pulse oximeter on, sit still, and enter its reading.'}</span>
-            <div className="cal-form">
-              <input aria-label="Finger oximeter reading" inputMode="decimal" placeholder="98" value={ref} onChange={e => setRef(e.target.value)} />
-              <button className="btn small" disabled={!on || !still || !ref} onClick={() => void calibrate()} title={!still ? 'The player must be still' : undefined}>Pair reading</button>
-              {calMsg && <span className={calMsg.ok ? 'state-ok' : 'state-bad'}>{calMsg.text}</span>}
-            </div></div></div>
       </div>
     </section>
-    <p className="muted" style={{ fontSize: 12 }}>Coaching measurements, not medical readings. SpO2 from a chest sensor is an estimate even when calibrated.</p>
+    <p className="muted" style={{ fontSize: 12 }}>Coaching measurements, not medical readings.</p>
   </div>;
 };

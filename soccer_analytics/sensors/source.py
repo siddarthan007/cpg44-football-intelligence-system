@@ -77,7 +77,7 @@ class SensorSource:
 class SerialSensorSource(SensorSource):
     """Reads newline-delimited JSON from a serial port (e.g. ESP32 over USB).
 
-    Each line: ``{"player_id":7,"t":1699...,"hr":142,"spo2":97,"accel":[..],...}``
+    Each line: ``{"player_id":7,"t":1699...,"hr":142,"accel":[..],...}``
     """
 
     def __init__(self, port: str, baud: int = 115200):

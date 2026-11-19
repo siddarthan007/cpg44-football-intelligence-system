@@ -695,7 +695,7 @@ class RealtimePipeline:
                 "wearable": wearable is not None,
                 "wearable_metrics": ({
                     "hr": wearable.hr,
-                    "spo2": wearable.spo2,
+                    "rmssd_ms": wearable.rmssd,
                     "signal_quality": wearable.signal_quality,
                     "clock_synced": wearable.clock_synced,
                     "alignment_offset_ms": alignment.get("offset_ms"),
@@ -725,7 +725,7 @@ class RealtimePipeline:
                     "energy_kcal": finite(load.energy_kcal),
                     "avg_hr": finite(load.avg_hr),
                     "hr_drift": finite(load.hr_drift),
-                    "min_spo2": finite(load.min_spo2),
+                    "trimp": finite(load.trimp),
                     "acwr": finite(load.acwr),
                 } if load is not None else None),
                 "load_indicator": {
@@ -1062,7 +1062,7 @@ class RealtimePipeline:
         for tid, pid in bound.items():
             s = self.fusion.sync.latest(pid)
             if s is not None:
-                wvit[int(pid)] = {"hr": s.hr, "spo2": s.spo2}
+                wvit[int(pid)] = {"hr": s.hr}
         state = DashboardState(fps=fps_disp, possession=poss, metric=self.metric,
                                recommendations=recs, tagged_count=len(bound),
                                wearable_vitals=wvit)

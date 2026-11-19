@@ -154,7 +154,7 @@ export const PitchSetupPage = () => {
       <aside className="panel" aria-label="Setup controls">
         {step <= 1 && <>
           <div className="panel-head"><h2>Pitch size</h2></div>
-          <div className="seg" role="group" aria-label="Pitch size preset" style={{ marginBottom: 10 }}>
+          <div className="seg seg-wrap" role="group" aria-label="Pitch size preset" style={{ marginBottom: 10 }}>
             {PRESETS.map(p => <button key={p.label} aria-pressed={size.l === p.l && size.w === p.w && size.kind === p.kind} onClick={() => setSize({ l: p.l, w: p.w, kind: p.kind })}>{p.label}</button>)}
           </div>
           <div className="kv">

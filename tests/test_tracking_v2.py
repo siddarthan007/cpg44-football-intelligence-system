@@ -10,7 +10,6 @@ from soccer_analytics.ball_tracking import ball_path_metrics, select_ball_path
 from soccer_analytics.coach_engine import CoachEngine, Sample, VestSeries
 from soccer_analytics.imm_tracker import IMMTracker, expanded_iou
 from soccer_analytics.mot_eval import evaluate
-from soccer_analytics.sensors.motion_artifact import clean_heart_rate
 from soccer_analytics.tracklet_link import TrackletLinker, tracklets_from_frames
 
 
@@ -106,24 +105,6 @@ def test_ballistic_arc_reconstructed_in_3d():
     assert r.segments[0].kind == "air"
     assert abs(r.segments[0].peak_height_m - X[:, 2].max()) < 0.6
     assert np.nanmean(np.linalg.norm(r.xyz - X, axis=1)) < 1.0
-
-
-def test_nlms_removes_cadence_from_heart_rate():
-    fs, t, ta = 25, np.arange(0, 8, 1 / 25), np.arange(0, 8, 1 / 50)
-    acc = np.column_stack([3 * np.sin(2 * np.pi * 2.8 * ta), 1.5 * np.sin(2 * np.pi * 2.8 * ta + .7), .8 * np.sin(2 * np.pi * 5.6 * ta)])
-    ap = np.column_stack([np.interp(t, ta, acc[:, k]) for k in range(3)])
-    ir = 80000 + 120 * np.sin(2 * np.pi * 2.5 * t) + 500 * ap[:, 0] + 300 * ap[:, 1]
-    est = clean_heart_rate(ir, t, acc, ta, fs)
-    assert abs(est["bpm"] - 150) < 4
-
-
-def test_spo2_never_defaults_to_healthy_value():
-    from soccer_analytics.sensors.hub import estimate_ppg_vitals
-    fs, t = 25.0, np.arange(0, 8, 1 / 25)
-    ir = 120000 + 4000 * np.sin(2 * np.pi * 1.2 * t)
-    red = 90000 + 9000 * np.sin(2 * np.pi * 1.2 * t)      # R ~ 3: outside the curve
-    out = estimate_ppg_vitals(ir, red, fs)
-    assert out["spo2_estimate_pct"] is None and out["valid"]   # HR still reported
 
 
 def test_coach_engine_flags_cardiac_drift_with_evidence():

@@ -154,17 +154,6 @@ export const clock = (s: number | null | undefined) => {
 
 export const clockFine = (s: number) => `${clock(s)}.${Math.floor((s % 1) * 10)}`;
 
-/** Binary search for the timeline sample at or just before t. */
-export const sampleAt = (frames: TimelineSample[], t: number): TimelineSample | undefined => {
-  if (!frames.length) return undefined;
-  let lo = 0, hi = frames.length - 1;
-  while (lo < hi) {
-    const mid = (lo + hi + 1) >> 1;
-    if (frames[mid].t <= t) lo = mid; else hi = mid - 1;
-  }
-  return frames[lo];
-};
-
 export const TEAM_INK: Record<number, string> = { 1: 'var(--team-a)', 2: 'var(--team-b)', 0: 'var(--team-none)' };
 export const TEAM_HEX: Record<number, string> = { 1: '#2251a3', 2: '#d1492e', 0: '#6b706b', 3: '#1b2320' };
 
@@ -198,4 +187,44 @@ export function pitchControl(sample: TimelineSample, team: number, L: number, W:
     grid.push(row);
   }
   return grid;
+}
+
+/* ---------------- interpolation, shared by the 2D board and the 3D replay ---------------- */
+export type BallRow = [number, number, number, number, number];
+
+/** Rows of the full-rate ball track with t0 < t <= t1 (binary search, no full scan). */
+export function trackWindow(track: BallRow[], t0: number, t1: number): BallRow[] {
+  const first = (t: number) => { let lo = 0, hi = track.length; while (lo < hi) { const m = (lo + hi) >> 1; if (track[m][0] <= t) lo = m + 1; else hi = m; } return lo; };
+  return track.slice(first(t0), first(t1));
+}
+
+/** Ball at time t from the full-rate track: linear between frames 40 ms apart,
+ *  nothing across a real gap (the ball was not located there). */
+export function ballAt(track: BallRow[], t: number): [number, number, number] | null {
+  if (!track.length || t < track[0][0] || t > track[track.length - 1][0]) return null;
+  let lo = 0, hi = track.length - 1;
+  while (hi - lo > 1) { const m = (lo + hi) >> 1; if (track[m][0] <= t) lo = m; else hi = m; }
+  const a = track[lo], b = track[hi];
+  if (b[0] - a[0] > 0.12) return Math.abs(t - a[0]) < 0.02 ? [a[1], a[2], a[3]] : Math.abs(t - b[0]) < 0.02 ? [b[1], b[2], b[3]] : null;
+  const u = b[0] > a[0] ? (t - a[0]) / (b[0] - a[0]) : 0;
+  return [a[1] + (b[1] - a[1]) * u, a[2] + (b[2] - a[2]) * u, a[3] + (b[3] - a[3]) * u];
+}
+
+/** Players and ball at time t, linear between the two timeline samples around it. */
+export function interpolateAt(frames: TimelineSample[], t: number) {
+  let lo = 0, hi = frames.length - 1;
+  if (hi < 0) return null;
+  while (lo < hi) { const m = (lo + hi + 1) >> 1; if (frames[m].t <= t) lo = m; else hi = m - 1; }
+  const a = frames[lo], b = frames[Math.min(frames.length - 1, lo + 1)];
+  const u = b.t > a.t ? Math.min(1, Math.max(0, (t - a.t) / (b.t - a.t))) : 0;
+  const nb = new Map(b.p.map(p => [p[0], p]));
+  const players = a.p.map(p => {
+    const q = nb.get(p[0]);
+    const x = q ? p[1] + (q[1] - p[1]) * u : p[1], y = q ? p[2] + (q[2] - p[2]) * u : p[2];
+    const dx = q ? q[1] - p[1] : 0, dy = q ? q[2] - p[2] : 0;
+    return { id: p[0], x, y, team: p[3], sp: p[4] ?? 0, dx, dy };
+  });
+  let ball = a.b;
+  if (a.b && b.b) ball = [a.b[0] + (b.b[0] - a.b[0]) * u, a.b[1] + (b.b[1] - a.b[1]) * u, a.b[2] + (b.b[2] - a.b[2]) * u];
+  return { players, ball, holder: a.h };
 }

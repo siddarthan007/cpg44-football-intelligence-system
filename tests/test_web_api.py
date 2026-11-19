@@ -150,3 +150,45 @@ def test_live_frame_carries_pitch_geometry():
     store.ingest_live_frame({"players": [], "pitch": {"kind": "football", "length_m": 4000, "width_m": "x"}})
     m = store.live_frame_snapshot()["match"]
     assert m["pitch_length_m"] == 40.0
+
+
+def test_upload_passes_name_and_vest_logs(tmp_path, monkeypatch):
+    """The coach's match name and chosen vest recordings reach the analysis command."""
+    import subprocess
+    from soccer_analytics import modes
+
+    seen = {}
+
+    class FakeProc:
+        stdout = iter(["[analyze] 1/1 frames\n"])
+        pid = 1
+        def wait(self):
+            return 1
+        def poll(self):
+            return 1
+
+    def fake_popen(cmd, **kw):
+        seen["cmd"] = cmd
+        return FakeProc()
+
+    monkeypatch.setattr(subprocess, "Popen", fake_popen)
+    eng = modes.EngineManager(tmp_path)
+    eng.jobs["m1"] = modes.ProcessingProgress(match_id="m1", mode=modes.MatchMode.UPLOAD, status="queued", started_at=0.0)
+    eng._run_upload_pipeline("m1", tmp_path / "v.mp4", tmp_path / "w.pt", None, None, "Saturday friendly", ["/x/vest.ndjson"])
+    cmd = seen["cmd"]
+    assert cmd[cmd.index("--name") + 1] == "Saturday friendly"
+    assert cmd[cmd.index("--vest") + 1] == "/x/vest.ndjson"
+
+
+def test_vest_sessions_listing(tmp_path, monkeypatch):
+    import json
+    from cpg44_api import main
+    monkeypatch.setattr(main, "ROOT", tmp_path)
+    d = tmp_path / "data" / "live_sessions" / "20260821T131001Z"
+    d.mkdir(parents=True)
+    (d / "wearable_raw.ndjson").write_text(json.dumps({"player_id": 3, "t": "imu"}) + "\n")
+    (tmp_path / "data" / "live_sessions" / "20260821T120000Z").mkdir()        # empty: not listed
+    rows = main._vest_sessions()
+    assert [r["id"] for r in rows] == ["20260821T131001Z"]
+    assert rows[0]["vests"] == [3] and abs(rows[0]["start_unix"] - 1787317801.0) < 1
+    assert main._vest_session_log("../../etc") is None

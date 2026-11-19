@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import type { Analysis, TimelineSample } from '../lib/analysis';
-import { pitchControl, TEAM_HEX } from '../lib/analysis';
+import { ballAt, interpolateAt, pitchControl, TEAM_HEX, trackWindow } from '../lib/analysis';
 
 export type BoardMode = 'moment' | 'options' | 'shape' | 'heat' | 'links';
 const REF = 3;
@@ -93,7 +93,13 @@ export function BoardPitch({ analysis, t, mode, team, selected, onSelect }: Prop
     return out;
   }, [frames, idx, mode]);
 
-  const ballTrail = useMemo(() => frames.slice(Math.max(0, idx - 6), idx + 1).filter(f => f.b).map(f => f.b!), [frames, idx]);
+  // Same interpolation as the 3D replay: players between the two samples around t,
+  // the ball from the full-rate track, so both views agree at every moment.
+  const track = analysis.ball_track;
+  const lerp = useMemo(() => new Map((interpolateAt(frames, t)?.players ?? []).map(p => [p.id, [p.x, p.y] as [number, number]])), [frames, t]);
+  const ballNow = track?.length ? ballAt(track, t) : now?.b ?? null;
+  const ballTrail = useMemo(() => track?.length ? trackWindow(track, t - 1.2, t).map(r => [r[1], r[2], r[3]] as [number, number, number])
+    : frames.slice(Math.max(0, idx - 6), idx + 1).filter(f => f.b).map(f => f.b!), [track, frames, idx, t]);
 
   const heat = useMemo(() => {
     if (mode !== 'heat') return null;
@@ -154,7 +160,7 @@ export function BoardPitch({ analysis, t, mode, team, selected, onSelect }: Prop
     <PitchLines L={L} W={W} kind={analysis.match.pitch_kind} />
 
     {mode === 'shape' && now && [1, 2].filter(k => !team || team === k).map(k => {
-      const pts = now.p.filter(p => p[3] === k).map(p => [p[1], p[2]] as [number, number]);
+      const pts = now.p.filter(p => p[3] === k).map(p => lerp.get(p[0]) ?? [p[1], p[2]] as [number, number]);
       if (pts.length < 3) return null;
       const dir = analysis.teams[String(k) as '1' | '2'].attack_dir;
       const xs = pts.map(p => p[0]).sort((a, b) => dir > 0 ? a - b : b - a);
@@ -197,18 +203,18 @@ export function BoardPitch({ analysis, t, mode, team, selected, onSelect }: Prop
     })()}
     {(mode === 'moment' || mode === 'shape' || mode === 'options') && refs.map(([id, x, y]) => <g key={`r${id}`} className="ref" transform={`translate(${x},${y}) scale(${k})`}>
       <circle r={0.8} /><title>Match official</title></g>)}
-    {(mode === 'moment' || mode === 'shape' || mode === 'options') && live.map(([id, x, y, tm, sp]) => <g key={id} transform={`translate(${x},${y}) scale(${k})`}
+    {(mode === 'moment' || mode === 'shape' || mode === 'options') && live.map(([id, x0, y0, tm, sp]) => { const [x, y] = lerp.get(id) ?? [x0, y0]; return <g key={id} transform={`translate(${x},${y}) scale(${k})`}
       className={`chip ${selected === id ? 'selected' : ''}`} onClick={() => onSelect?.(id)} role="button"
       aria-label={`Player ${id}${sp != null ? `, ${(sp * 3.6).toFixed(0)} km/h` : ''}`}>
       {now?.h === id && <circle r={2.6} className="holder-ring" />}
       {vestIds.has(id) && <circle r={2.05} className="vest-ring"><title>Wearing vest {vestIds.get(id)}</title></circle>}
       <circle r={1.45} className="body" style={{ fill: TEAM_HEX[tm] }} /><text y={0.5} textAnchor="middle">{shirt.get(id) ?? id}</text>
       <title>{names.get(id) ?? `Player ${id}`}</title>
-    </g>)}
+    </g>; })}
     {mode === 'moment' && ballTrail.length > 1 && <polyline className="ball-trail" points={ballTrail.map(b => `${b[0]},${b[1]}`).join(' ')} />}
-    {(mode === 'moment' || mode === 'shape' || mode === 'options') && now?.b && <g transform={`translate(${now.b[0]},${now.b[1]}) scale(${k})`}>
+    {(mode === 'moment' || mode === 'shape' || mode === 'options') && ballNow && <g transform={`translate(${ballNow[0]},${ballNow[1]}) scale(${k})`}>
       <ellipse rx={0.9} ry={0.5} className="ball-shadow" />
-      <circle cy={-Math.min(now.b[2], 8) * 0.35} r={0.75 + Math.min(now.b[2], 6) * 0.06} className="ball" />
+      <circle cy={-Math.min(ballNow[2], 8) * 0.35} r={0.75 + Math.min(ballNow[2], 6) * 0.06} className="ball" />
     </g>}
     <g transform={`translate(${L / 2 + (analysis.teams['1'].attack_dir > 0 ? 6 : -6) * k},${-1.6 * k}) scale(${k})`}>
       <path d={analysis.teams['1'].attack_dir > 0 ? 'M-3,0 H3 M1.5,-1 L3,0 L1.5,1' : 'M3,0 H-3 M-1.5,-1 L-3,0 L-1.5,1'}

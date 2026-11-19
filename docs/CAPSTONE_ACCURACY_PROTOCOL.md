@@ -47,18 +47,13 @@ nominal frame rate.
 
 ### Heart rate
 
-Compare the MAX30102 output with an ECG chest strap during stillness, warm-up
-and post-exercise recovery. Align clocks first. Report valid-window coverage,
-MAE, median absolute error, bias, 95% limits of agreement and error by motion
-band. Running windows rejected by the motion/optical gate count against coverage
-but not as invented measurements.
-
-### SpO2
-
-Compare only in still or low-motion conditions against a certified pulse
-oximeter. Report bias, MAE, 95% limits of agreement and coverage across the
-observed saturation range. The platform must continue to label MAX30102 SpO2 as
-an uncalibrated estimate unless a device-specific validation justifies otherwise.
+Compare the vest's AD8232 heart rate with a validated chest strap (for
+example a Polar H10) worn at the same time, during stillness, warm-up, running
+drills and recovery. Align clocks first. Report valid-window coverage, MAE,
+median absolute error, bias, 95% limits of agreement and error by motion band.
+Windows withheld for electrode-off or noisy signal count against coverage but
+not as invented measurements. Repeat RMSSD only in seated still windows of at
+least a minute, against the strap's beat intervals.
 
 ### IMU
 
@@ -127,7 +122,7 @@ A session is demo-ready only when:
 - camera frame age and wearable last-seen age are visible and acceptable;
 - pitch and team calibrations match the current setup;
 - identity fragmentation and ball-observation warnings are reviewed;
-- invalid PPG values are blank rather than carried forward indefinitely;
+- invalid heart-rate values are blank rather than carried forward indefinitely;
 - the raw and fused NDJSON files are growing;
 - stopping the launcher closes every process and writes final statistics;
 - disconnecting the wearable or relay produces an offline state without

@@ -122,10 +122,8 @@ def _wearable_strip(img, y, vitals: Dict[int, dict]):
         return y + 28
     for pid, v in list(vitals.items())[:4]:
         hr = v.get("hr")
-        spo2 = v.get("spo2")
         hr_s = "--" if hr is None else f"{hr:.0f}"
-        spo2_s = "--" if spo2 is None else f"{spo2:.0f}"
-        _text(img, f"P{pid}  HR {hr_s} bpm   SpO2 {spo2_s}%", (22, y), 0.56, (255, 255, 0))
+        _text(img, f"P{pid}  ECG heart rate {hr_s} bpm", (22, y), 0.56, (255, 255, 0))
         y += 22
     return y + 10
 

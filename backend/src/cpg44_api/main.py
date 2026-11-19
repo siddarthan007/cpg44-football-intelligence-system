@@ -32,6 +32,46 @@ from cpg44_api.usb_bridge import ensure_esp32_usb_attached
 from soccer_analytics.modes import EngineManager
 
 ROOT = Path(__file__).resolve().parents[3]
+SESSION_ID = re.compile(r"^\d{8}T\d{6}Z$")
+
+
+def _vest_session_log(session_id: str) -> Optional[Path]:
+    if not SESSION_ID.match(session_id):
+        return None
+    raw = ROOT / "data" / "live_sessions" / session_id / "wearable_raw.ndjson"
+    return raw if raw.is_file() and raw.stat().st_size > 0 else None
+
+
+def _vest_sessions(limit: int = 40) -> list:
+    base = ROOT / "data" / "live_sessions"
+    rows = []
+    for d in sorted(base.iterdir(), reverse=True) if base.is_dir() else []:
+        raw = _vest_session_log(d.name)
+        if raw is None:
+            continue
+        summary = ROOT / "data" / "vest_sessions" / f"{d.name}.json"
+        try:
+            meta = json.loads(summary.read_text(encoding="utf-8")) if summary.is_file() else {}
+        except (OSError, ValueError):
+            meta = {}
+        vests = set()
+        try:
+            with raw.open(encoding="utf-8") as fh:
+                for _, line in zip(range(200), fh):
+                    pid = json.loads(line).get("player_id")
+                    if isinstance(pid, int):
+                        vests.add(pid)
+        except (OSError, ValueError):
+            pass
+        start = meta.get("start_unix")
+        if start is None:          # the folder name is the UTC start time
+            from datetime import datetime, timezone
+            start = datetime.strptime(d.name, "%Y%m%dT%H%M%SZ").replace(tzinfo=timezone.utc).timestamp()
+        rows.append({"id": d.name, "start_unix": start, "duration_s": meta.get("duration_s"),
+                     "active_s": (meta.get("sampling") or {}).get("active_s"), "vests": sorted(vests)})
+        if len(rows) >= limit:
+            break
+    return rows
 STATIC_DIR = ROOT / "backend" / "src" / "cpg44_api" / "static"
 STATIC_DIR.mkdir(parents=True, exist_ok=True)
 CAMERA_FRAME_DIR = STATIC_DIR / "camera_frames"
@@ -589,7 +629,14 @@ def create_app() -> FastAPI:
         mode: str = Form("inference"),
         calibration: Optional[UploadFile] = File(None),
         calibration_id: str = Form(""),
+        vest_sessions: str = Form(""),
     ):
+        vest_logs = []
+        for sid in filter(None, (v.strip() for v in vest_sessions.split(","))):
+            raw = _vest_session_log(sid)
+            if raw is None:
+                raise HTTPException(status_code=404, detail=f"vest recording {sid} not found")
+            vest_logs.append(str(raw))
         safe_name = Path(file.filename or "match.mp4").name
         if Path(safe_name).suffix.lower() not in {".mp4", ".mov", ".mkv", ".avi", ".webm"}:
             raise HTTPException(status_code=415, detail="unsupported video type")
@@ -627,6 +674,8 @@ def create_app() -> FastAPI:
             video_path=str(file_path),
             calibration_path=calibration_path,
             on_complete=activate_result,
+            name=match_name.strip()[:80] or match_id,
+            vest_logs=vest_logs,
         )
 
         job = ENGINE.get_progress(match_id)
@@ -646,6 +695,11 @@ def create_app() -> FastAPI:
             "error": job.error_message if job else "processing job was not created",
             "metric_calibration": calibration_path is not None,
         }
+
+    @app.get("/api/v1/vest-sessions")
+    async def list_vest_sessions():
+        """Recorded vest sessions that can be paired with uploaded footage."""
+        return await run_in_threadpool(_vest_sessions)
 
     @app.get("/api/v1/matches/{match_id}/progress")
     async def get_processing_progress(match_id: str):
@@ -957,51 +1011,48 @@ def create_app() -> FastAPI:
         stable = vitals.get("stable_15s") or {}
         rolling = vitals.get("rolling") or {}
         live_v = vitals.get("live") or {}
-        ppg_contact = bool((state.get("ppg") or {}).get("contact"))
+        ecg_state = state.get("ecg") or {}
+        ecg_hz = device.get("ecg_rate_hz") or 250
         return {
             "connected": bool(device.get("connected")),
             "clock_synced": bool(clock.get("valid") or (imu.get("timestamp") or {}).get("clock_synced")),
             "transport_delay_ms": (imu.get("timestamp") or {}).get("transport_delay_ms"),
             "gyro_calibrated": bool(imu.get("calibrated_gyro_bias")),
             "accel_scale_calibrated": bool(imu.get("accel_scale_calibrated")),
-            "ppg_valid": bool(stable.get("valid") or rolling.get("valid") or live_v.get("valid") or ppg_contact),
-            "ppg_reason": live_v.get("reason") or rolling.get("reason") or stable.get("reason"),
-            "signal_quality": stable.get("quality") if stable.get("valid") else rolling.get("quality"),
             "dropped_samples": device.get("dropped_samples"),
             "queued_samples": device.get("queued_samples"),
             "gps_fix": bool((state.get("gps") or {}).get("fix")),
-            "medical_calibrated": bool(vitals.get("medical_calibrated")),
             # delivery and timing: what arrived against what the vest was set to send
+            # (ECG arrives in blocks of 50 samples, so 250 Hz is 5 blocks a second)
             "rates_hz": device.get("rates_hz") or {},
-            "expected_hz": {"imu": device.get("imu_rate_hz"), "ppg": device.get("ppg_output_rate_hz"),
-                            "gps": device.get("gps_rate_hz")},
+            "expected_hz": {"imu": device.get("imu_rate_hz"), "ecg": round(ecg_hz / 50, 1) if device.get("ecg") is not False else None,
+                            "gps": 5 if device.get("gps_rx") else None},
             "clock_offset": state.get("relay_clock_offset"),
             "battery": device.get("battery"),
             "rssi_dbm": device.get("rssi_dbm"),
+            "parts": {"imu": device.get("mpu6050"), "magnetometer": device.get("magnetometer"),
+                      "ecg": device.get("ecg"), "gnss": device.get("gps_rx")},
             "gps": {k: (state.get("gps") or {}).get(k) for k in ("fix", "sat", "hdop", "filtered")},
             "imu": {k: imu.get(k) for k in ("accel_cal_poses", "accel_calibrated", "player_load", "player_load_per_min",
                                             "stationary", "temperature_c")},
-            "pulse": {"bpm": live_v.get("bpm") if live_v.get("valid") else None,
-                      "source": live_v.get("source"), "rmssd_ms": live_v.get("rmssd_ms"),
-                      "ecg": vitals.get("ecg"),
-                      "spo2": rolling.get("spo2_estimate_pct") if rolling.get("spo2_valid") else None,
-                      "quality": rolling.get("quality"), "reason": rolling.get("reason"),
-                      "spo2_calibration": rolling.get("spo2_calibration")},
+            "heart": {"bpm": live_v.get("bpm") if live_v.get("valid") else None,
+                      "steady_bpm": stable.get("bpm") if stable.get("valid") else None,
+                      "rmssd_ms": rolling.get("rmssd_ms"), "quality": rolling.get("quality"),
+                      "reason": rolling.get("reason") if not rolling.get("valid") else None,
+                      "electrodes": None if ecg_state.get("lead_off") is None else ("off" if ecg_state["lead_off"] else "on")},
         }
 
-    @app.post("/api/v1/wearables/calibrate/spo2")
-    async def calibrate_spo2(body: dict):
-        """Forward a finger-oximeter reference to the hub (it pairs it with the
-        vest's current still reading)."""
+    @app.get("/api/v1/wearables/ecg")
+    async def wearable_ecg(seconds: float = 4.0):
+        """The last few seconds of the vest's chest ECG with detected beats."""
+        client = getattr(app.state, "hub_client", None)
+        if client is None or client.is_closed:
+            client = app.state.hub_client = httpx.AsyncClient(timeout=0.3, trust_env=False)
         try:
-            async with httpx.AsyncClient(timeout=3.0, trust_env=False) as client:
-                r = await client.post(f"{STORE.hub_url}/api/calibrate/spo2", json={"reference_pct": body.get("reference_pct")})
-        except Exception as exc:
-            raise HTTPException(status_code=503, detail=f"sensor hub unavailable: {exc}") from exc
-        data = r.json()
-        if r.status_code != 200:
-            raise HTTPException(status_code=r.status_code, detail=data.get("error") or "calibration rejected")
-        return data
+            r = await client.get(f"{STORE.hub_url}/api/ecg", params={"seconds": min(max(seconds, 1.0), 10.0)})
+            return r.json() if r.status_code == 200 else {"ok": False, "reason": "hub_error"}
+        except Exception:
+            return {"ok": False, "reason": "hub_unavailable"}
 
     @app.post("/api/v1/observations/wearable")
     async def post_wearable(body: dict):

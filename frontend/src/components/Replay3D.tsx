@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
-import type { Analysis, AnalysisEvent, TimelineSample } from '../lib/analysis';
-import { TEAM_HEX } from '../lib/analysis';
+import type { Analysis, AnalysisEvent } from '../lib/analysis';
+import { ballAt, interpolateAt, TEAM_HEX, trackWindow } from '../lib/analysis';
 import { Glyph } from './Glyph';
 
 type View = 'director' | 'broadcast' | 'behind' | 'keeper' | 'above' | 'ball' | 'shooter';
@@ -245,37 +245,6 @@ function save(f: Figure, u: number, lateral: number) {
   }
 }
 
-/* ---------------- interpolation ---------------- */
-/** Ball at time t from the full-rate track: linear between frames 40 ms apart,
- *  nothing across a real gap (the ball was not located there). */
-function ballAt(track: [number, number, number, number, number][], t: number): [number, number, number] | null {
-  if (!track.length || t < track[0][0] || t > track[track.length - 1][0]) return null;
-  let lo = 0, hi = track.length - 1;
-  while (hi - lo > 1) { const m = (lo + hi) >> 1; if (track[m][0] <= t) lo = m; else hi = m; }
-  const a = track[lo], b = track[hi];
-  if (b[0] - a[0] > 0.12) return Math.abs(t - a[0]) < 0.02 ? [a[1], a[2], a[3]] : Math.abs(t - b[0]) < 0.02 ? [b[1], b[2], b[3]] : null;
-  const u = b[0] > a[0] ? (t - a[0]) / (b[0] - a[0]) : 0;
-  return [a[1] + (b[1] - a[1]) * u, a[2] + (b[2] - a[2]) * u, a[3] + (b[3] - a[3]) * u];
-}
-
-function sampleAt(frames: TimelineSample[], t: number) {
-  let lo = 0, hi = frames.length - 1;
-  if (hi < 0) return null;
-  while (lo < hi) { const m = (lo + hi + 1) >> 1; if (frames[m].t <= t) lo = m; else hi = m - 1; }
-  const a = frames[lo], b = frames[Math.min(frames.length - 1, lo + 1)];
-  const u = b.t > a.t ? Math.min(1, Math.max(0, (t - a.t) / (b.t - a.t))) : 0;
-  const nb = new Map(b.p.map(p => [p[0], p]));
-  const players = a.p.map(p => {
-    const q = nb.get(p[0]);
-    const x = q ? p[1] + (q[1] - p[1]) * u : p[1], y = q ? p[2] + (q[2] - p[2]) * u : p[2];
-    const dx = q ? q[1] - p[1] : 0, dy = q ? q[2] - p[2] : 0;
-    return { id: p[0], x, y, team: p[3], sp: p[4] ?? 0, dx, dy };
-  });
-  let ball = a.b;
-  if (a.b && b.b) ball = [a.b[0] + (b.b[0] - a.b[0]) * u, a.b[1] + (b.b[1] - a.b[1]) * u, a.b[2] + (b.b[2] - a.b[2]) * u];
-  return { players, ball, holder: a.h };
-}
-
 interface Props { analysis: Analysis; t: number; selected?: number; shot?: AnalysisEvent }
 
 export function Replay3D({ analysis, t, selected, shot }: Props) {
@@ -408,7 +377,7 @@ export function Replay3D({ analysis, t, selected, shot }: Props) {
     };
 
     const update = (time: number) => {
-      const s = sampleAt(frames, time);
+      const s = interpolateAt(frames, time);
       const seen = new Set<number>();
       if (s?.players.length) {
         const own = s.players.filter(p => p.team !== REF);
@@ -488,7 +457,7 @@ export function Replay3D({ analysis, t, selected, shot }: Props) {
         ball.position.copy(ballPos); shadow.position.set(ballPos.x, 0.012, ballPos.z);
         // the shadow spreads and fades as the ball rises
         shadow.scale.setScalar(0.45 * (1 + bAt[2] * 0.08)); (shadow.material as THREE.MeshBasicMaterial).opacity = 0.32 / (1 + bAt[2] * 0.15);
-        const pts = (track.length ? track.filter(r => r[0] > time - 1.6 && r[0] <= time).map(r => [r[1], r[2], r[3]])
+        const pts = (track.length ? trackWindow(track, time - 1.6, time).map(r => [r[1], r[2], r[3]])
           : frames.filter(fr => fr.t > time - 1.6 && fr.t <= time && fr.b).map(fr => fr.b!))
           .map(b => new THREE.Vector3(b[0] - L / 2, Math.max(0.11, b[2] + 0.11), b[1] - W / 2));
         scene.remove(arc); arc.geometry.dispose(); arc = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), arcMat); scene.add(arc);

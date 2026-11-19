@@ -96,11 +96,6 @@ named in the last column.
 | ID | Reference | Status | Used in |
 |---|---|---|---|
 | W1 | Widrow, B. et al. "Adaptive Noise Cancelling: Principles and Applications." Proc. IEEE 63(12), 1975 | core | `sensors/motion_artifact.py` |
-| W2 | Zhang, Z., Pi, Z., Liu, B. "TROIKA: A General Framework for Heart Rate Monitoring Using Wrist-Type PPG Signals During Intensive Physical Exercise." IEEE TBME 62(2), 2015 | core | spectral tracking with cadence suppression |
-| W3 | Ram, M. R. et al. "A Novel Approach for Motion Artifact Reduction in PPG Signals Based on AS-LMS Adaptive Filter." IEEE TIM 61(5), 2012 | core | NLMS rationale |
-| W4 | Comparative study of adaptive filters (NLMS/RLS/LMS) for MAX30102 motion artefacts, PMC10881614 | guide | NLMS choice |
-| W5 | Per-axis NLMS for treadmill/cycling PPG, University of Essex EMBC paper, https://repository.essex.ac.uk/24790/ | seen | multi-axis reference |
-| W6 | Maxim Integrated. *MAX30102 datasheet* and reference SpO2 algorithm (RD117 / AN6409) | core | Maxim SpO2 curve in `sensors/hub.py` |
 | W7 | Boyd, L. J., Ball, K., Aughey, R. J. "The Reliability of MinimaxX Accelerometers for Measuring Physical Activity in Australian Football." IJSPP 6(3), 2011 | core | PlayerLoad |
 | W8 | Buchheit, M. "Monitoring Training Status with HR Measures: Do All Roads Lead to Rome?" Frontiers in Physiology 5:73, 2014 | core | `coach_engine` drift and recovery rules |
 | W9 | Impellizzeri, F. M., Marcora, S. M., Coutts, A. J. "Internal and External Training Load: 15 Years On." IJSPP 14(2), 2019 | core | internal/external coupling |
@@ -127,10 +122,9 @@ named in the last column.
 
 | ID | Reference | Status | Used in |
 |---|---|---|---|
-| V1 | Vest-worn 10 Hz GNSS (Catapult OptimEye S5) between the scapulae in English Championship match play; stadium stands degrade GNSS. Int J Performance Analysis in Sport, 2021, doi:10.1080/24748668.2021.1947017 | seen | `hardware/VEST_DESIGN.md` §2 |
+| V1 | Vest-worn 10 Hz GNSS (Catapult OptimEye S5) between the scapulae in English Championship match play; stadium stands degrade GNSS. Int J Performance Analysis in Sport, 2021, doi:10.1080/24748668.2021.1947017 | seen | pod placement, `hardware/BUILD_GUIDE.md` |
 | V2 | Catapult Sports, device wearing guidance (support documentation) | seen | pocket placement |
 | V3 | Review noting scapular placement limits limb-level IMU detail. Frontiers in Physiology 2018, doi:10.3389/fphys.2018.00228 | seen | scope statement |
-| V4 | Wrist PPG motion artefacts under running: W2 and the IEEE Signal Processing Cup 2015 dataset | core | why not the wrist |
 | V5 | IFAB *Laws of the Game*, Law 4 (Players' Equipment, EPTS); FIFA Quality Programme for EPTS | core | safety/competition use |
 | V6 | u-blox. *NEO-6 data sheet* (GPS.G6-HW-09005) | core | 1 Hz, metre-level accuracy |
 | V7 | InvenSense/TDK. *MPU-6000/6050 Register Map and Descriptions* (DLPF, full-scale ranges) | core | firmware DLPF/range fix |
@@ -139,7 +133,7 @@ named in the last column.
 | V10 | Townshend, Worringham & Stewart (2008). Assessment of speed and position during human locomotion using nondifferential GPS. *Med Sci Sports Exerc* 40(1):124-132 | core | Doppler speed in the GNSS Kalman filter |
 | V11 | Cristian (1989). Probabilistic clock synchronization. *Distributed Computing* 3(3):146-158 | core | relay clock offset |
 | V12 | Teixeira, Jung & Savvides (2010). Tasking networked CCTV cameras and mobile phones to identify and localize multiple people. *UbiComp* | core | vest-to-track association |
-| V13 | Maxim Integrated, MAX17048 data sheet (ModelGauge fuel gauge) | core | battery state in firmware |
+| V13 | Edwards, S. *The Heart Rate Monitor Book*. Polar Electro, 1993: summated heart-rate zone training load (TRIMP) | core | `trimp_weight` in `catapult.py`, load indicator |
 
 ## Fatigue, load and player identity
 

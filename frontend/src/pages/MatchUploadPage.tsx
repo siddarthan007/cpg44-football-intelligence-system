@@ -4,6 +4,8 @@ import { Glyph } from '../components/Glyph';
 import { api, apiUrl } from '../lib/api';
 
 type Job = { match_id: string; status: string; progress_pct?: number | null; current_frame?: number; total_frames?: number; fps?: number | null; error_message?: string | null };
+type VestSession = { id: string; start_unix: number | null; duration_s: number | null; active_s: number | null; vests: number[] };
+const stamp = (s: number | null) => s ? new Date(s * 1000).toLocaleString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : 'Unknown time';
 type Calib = { id: string; name: string; pitch?: { length: number; width: number }; camera: string; k1: number; has_thumb: boolean };
 
 export const MatchUploadPage = () => {
@@ -12,9 +14,12 @@ export const MatchUploadPage = () => {
   const [calibs, setCalibs] = useState<Calib[]>([]);
   const [calib, setCalib] = useState('');
   const [job, setJob] = useState<Job | null>(null);
+  const [sessions, setSessions] = useState<VestSession[]>([]);
+  const [picked, setPicked] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  useEffect(() => { fetch(apiUrl('/api/v1/vest-sessions')).then(r => r.ok ? r.json() : []).then(setSessions).catch(() => setSessions([])); }, []);
   useEffect(() => { fetch(apiUrl('/api/v1/calibrations')).then(r => r.json()).then((rows: Calib[]) => { setCalibs(rows); if (rows[0]) setCalib(rows[0].id); }).catch(() => setCalibs([])); }, []);
   useEffect(() => {
     if (!job || ['completed', 'failed'].includes(job.status)) return;
@@ -28,6 +33,7 @@ export const MatchUploadPage = () => {
     const form = new FormData();
     form.append('file', file); form.append('match_name', name);
     if (calib) form.append('calibration_id', calib);
+    if (picked.length) form.append('vest_sessions', picked.join(','));
     try { const r = await api.uploadMatch(form); setJob({ match_id: r.match_id, status: r.status, progress_pct: 0 }); }
     catch (e) { setError(e instanceof Error ? e.message : 'Upload failed'); } finally { setBusy(false); }
   };
@@ -54,12 +60,19 @@ export const MatchUploadPage = () => {
           <input id="mn" value={name} onChange={e => setName(e.target.value)} style={{ width: 170, padding: '6px 8px', border: '1px solid var(--rule-strong)', borderRadius: 7 }} /></div>
         <div className="panel-head"><h2>Pitch calibration</h2><Link className="btn ghost small" to="/prepare/pitch">New</Link></div>
         {!calibs.length ? <p className="muted">None saved. Without one, players are tracked in pixels only.</p>
-          : <div style={{ display: 'grid', gap: 8 }}>{calibs.map(c => <button key={c.id} onClick={() => setCalib(c.id)} className="panel"
+          : <div style={{ display: 'grid', gap: 8 }}>{calibs.map(c => <button key={c.id} onClick={() => setCalib(c.id)} className="panel" aria-pressed={calib === c.id}
             style={{ display: 'flex', gap: 10, alignItems: 'center', textAlign: 'left', cursor: 'pointer', padding: 8, borderColor: calib === c.id ? 'var(--ink)' : undefined }}>
             {c.has_thumb ? <img src={apiUrl(`/api/v1/calibrations/${c.id}/thumb`)} alt="" style={{ width: 72, borderRadius: 6 }} /> : <Glyph g="pitch" size={28} />}
             <span><strong style={{ display: 'block' }}>{c.name}</strong><span className="muted num" style={{ fontSize: 12 }}>{c.pitch ? `${c.pitch.length} x ${c.pitch.width} m` : ''} {c.camera}</span></span>
           </button>)}
             <button className="btn ghost small" onClick={() => setCalib('')} aria-pressed={!calib}>No calibration</button></div>}
+        {sessions.length > 0 && <>
+          <div className="panel-head" style={{ marginTop: 18 }}><h2>Vest recordings</h2>{picked.length > 0 && <span className="muted num">{picked.length} added</span>}</div>
+          <div className="vest-pick">{sessions.slice(0, 8).map(v => <label key={v.id}>
+            <input type="checkbox" checked={picked.includes(v.id)} onChange={e => setPicked(p => e.target.checked ? [...p, v.id] : p.filter(x => x !== v.id))} />
+            <span><strong>{stamp(v.start_unix)}</strong><small className="num">{v.vests.length ? `vest ${v.vests.join(', ')}` : 'vest'}{v.active_s ? `, ${Math.max(1, Math.round(v.active_s / 60))} min of data` : ''}</small></span>
+          </label>)}</div>
+        </>}
         <button className="btn" style={{ marginTop: 16, width: '100%', justifyContent: 'center' }} disabled={!file || busy || running} onClick={upload}>
           <Glyph g="play" size={14} />{busy ? 'Uploading' : running ? 'Analysing' : 'Analyse'}</button>
       </aside>

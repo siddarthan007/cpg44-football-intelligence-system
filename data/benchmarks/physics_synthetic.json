@@ -43,14 +43,15 @@
       "median_invented_peak_m": null
     }
   },
-  "ppg_motion_artifact": {
-    "cases": 20,
-    "bandpass_only_mae_bpm": 47.51,
-    "nlms_mae_bpm": 2.89,
-    "nlms_within_5bpm": "19/20",
-    "bandpass_within_5bpm": "1/20",
-    "sqi_gate_0.5_yield": "14/20",
-    "nlms_mae_after_gate_bpm": 1.19
-  },
-  "note": "Synthetic ground truth: verifies the methods; field accuracy needs the protocol in docs/CAPSTONE_ACCURACY_PROTOCOL.md"
+  "note": "Synthetic ground truth: verifies the methods; field accuracy needs the protocol in docs/CAPSTONE_ACCURACY_PROTOCOL.md",
+  "ecg_heart_rate": {
+    "cases": 18,
+    "beat_sensitivity": 1.0,
+    "beat_ppv": 0.968,
+    "hr_mae_bpm": 0.52,
+    "hr_within_3bpm": "18/18",
+    "hr_reported": "18/18",
+    "naive_peak_mae_bpm": 11.18,
+    "hard_running_mae_bpm": 0.62
+  }
 }

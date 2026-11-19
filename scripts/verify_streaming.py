@@ -49,8 +49,8 @@ async def verify(output):
                         sequence += 1
                         rows.append({"event_id": f"verification:{sequence}", "source": "wearable",
                                      "match_id": "verification", "player_id": 7, "source_seq": sequence,
-                                     "source_timestamp_ns": time.time_ns(), "sample_type": "ppg",
-                                     "payload": {"device_us": sequence * 40000, "red": 90000, "ir": 120000},
+                                     "source_timestamp_ns": time.time_ns(), "sample_type": "ecg",
+                                     "payload": {"device_us": sequence * 200000, "fs": 250, "v": [2048] * 50, "lead_off": False},
                                      "clock": {"valid": True}})
                         started[sequence] = time.perf_counter()
                     response = await client.post("/api/v1/sensors/ingest", json=rows)

@@ -74,7 +74,7 @@ function StartPanel({ vision, onStarted }: { vision: Vision; onStarted: () => vo
 
 function PlayerPanel({ p, team }: { p: LivePlayer; team: string }) {
   const w = p.wearable_metrics ?? {};
-  const hr = num(w.hr), spo2 = num(w.spo2);
+  const hr = num(w.hr), trimp = num(p.load?.trimp);
   const r = p.readiness;
   return <aside className="panel live-player" aria-label="Selected player">
     <div className="panel-head"><h2><i className="dot" style={{ background: TEAM_HEX[p.team] ?? TEAM_HEX[0], marginRight: 8 }} />{label(p)}</h2>
@@ -85,7 +85,7 @@ function PlayerPanel({ p, team }: { p: LivePlayer; team: string }) {
       <div><dt>Distance</dt><dd>{fmt(num(p.distance_m))}<small>m</small></dd></div>
       <div><dt>High speed</dt><dd>{fmt(num(p.load?.hsr_m))}<small>m</small></dd></div>
       {p.wearable && <div><dt>Heart rate</dt><dd>{fmt(hr)}<small>bpm</small></dd></div>}
-      {p.wearable && spo2 != null && <div><dt>SpO2</dt><dd>{fmt(spo2)}<small>%</small></dd></div>}
+      {p.wearable && trimp != null && <div><dt>Heart load</dt><dd>{fmt(trimp)}<small>TRIMP</small></dd></div>}
       {num(p.load?.metabolic_power_wkg) != null && <div><dt>Power</dt><dd>{fmt(num(p.load?.metabolic_power_wkg), 1)}<small>W/kg</small></dd></div>}
     </dl>
     {r && r.status !== 'signal_limited' && <div className={`cue ${r.status}`}><strong>{r.action}</strong><span>{r.reason}</span></div>}

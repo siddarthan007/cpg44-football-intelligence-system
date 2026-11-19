@@ -20,8 +20,9 @@ The full build, power design and checks are in
 | Battery divider (2 x 100 kOhm) | GPIO 1 | ADC1 |
 | TPS63020 3.3 V output | 3V3 pin | not 5V or VIN |
 
-An optional MAX30102 on the same I2C bus (0x57) is detected automatically and
-used only for resting SpO2.
+The BMP180 on the GY-87 (0x77) is detected for the build check and not
+streamed. There is no pulse oximeter and no fuel gauge: heart rate comes from
+the AD8232 chest ECG and battery charge from the divider on GPIO 1.
 
 ## Sampling
 
@@ -73,7 +74,7 @@ arduino-cli upload --port /dev/ttyACM0 \
 
 The wearable design (compression vest, back pod between the shoulder blades,
 optical pad on the left upper chest, harness, enclosure, power budget, BOM and
-validation tests) is in [docs/hardware/VEST_DESIGN.md](docs/hardware/VEST_DESIGN.md).
+validation tests) is in [docs/hardware/BUILD_GUIDE.md](docs/hardware/BUILD_GUIDE.md).
 Replaying 21 recorded bench sessions (`python -m soccer_analytics.sensors.session_report`)
 showed the main field risks: incomplete relay delivery, no GNSS fix indoors and
 the optical sensor rarely on skin, so heart rate was correctly withheld.

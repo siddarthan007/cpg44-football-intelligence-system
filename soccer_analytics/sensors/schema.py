@@ -18,11 +18,11 @@ from ..loadtypes import WorkloadFeatures, InjuryRisk
 @dataclass
 class SensorSample:
     """One reading from a player's wearable. Fields mirror the report's hardware:
-    GY-87 10-DoF (accel/gyro/mag/baro) + NEO-6M GPS + MAX30102 pulse-oximeter."""
+    GY-87 10-DoF (accel/gyro/mag) + AD8232 chest ECG + NEO-6M GPS."""
     player_id: int
     t: float                              # epoch seconds
-    hr: Optional[float] = None            # heart rate, bpm (MAX30102)
-    spo2: Optional[float] = None          # blood oxygen, % (MAX30102)
+    hr: Optional[float] = None            # heart rate, bpm (AD8232 chest ECG)
+    rmssd: Optional[float] = None         # heart-rate variability, ms (ECG, still windows only)
     accel: Optional[Tuple[float, float, float]] = None   # ax, ay, az in g (MPU6050)
     gyro: Optional[Tuple[float, float, float]] = None    # deg/s (MPU6050)
     mag: Optional[Tuple[float, float, float]] = None     # uT (HMC5883L)
@@ -42,7 +42,7 @@ class SensorSample:
             return tuple(float(v) for v in x) if x is not None else None
         return cls(
             player_id=int(d["player_id"]), t=float(d["t"]),
-            hr=d.get("hr"), spo2=d.get("spo2"),
+            hr=d.get("hr"), rmssd=d.get("rmssd"),
             accel=tup(d.get("accel")), gyro=tup(d.get("gyro")), mag=tup(d.get("mag")),
             altitude=d.get("altitude"), gps=tup(d.get("gps")),
             source=d.get("source", "json"),
@@ -74,7 +74,6 @@ class FusedSample:
     y: float = float("nan")
     speed: float = 0.0
     hr: Optional[float] = None
-    spo2: Optional[float] = None
     accel_mag: Optional[float] = None
     matched: bool = False                 # True if a wearable sample was aligned
 

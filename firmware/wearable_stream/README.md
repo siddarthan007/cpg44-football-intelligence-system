@@ -1,49 +1,53 @@
-# ESP32-S3 relay wearable
+# ESP32-S3 vest firmware
 
-This is the supported sensor-tested firmware. It reads MPU6050, MAX30102 and
-NEO-6M data and sends timestamped raw batches only to:
+Reads the GY-87 (MPU6050 motion, HMC5883L or QMC5883L magnetometer), the
+AD8232 chest ECG, the NEO-6M GNSS receiver and the battery voltage, and sends
+timestamped raw batches only to:
 
 ```text
 https://cpg44.nivaspms.com/api/v1/sensors/ingest
 ```
 
-Use Dashboard > ESP32 setup to flash player ID, match ID, Wi-Fi settings, relay
-token and the verified relay CA chain. These values are written to the ignored
-`generated_config.h`.
+Use Flash a vest in the dashboard to write the player number, match ID, Wi-Fi
+settings, relay token and the verified relay CA chain. These values go into the
+ignored `generated_config.h`; a build without it stays offline.
 
-The HTTPS task runs separately from sensor sampling. Failed sends keep a small
-bounded RAM queue. The VPS relay provides the longer few-megabyte reconnect
-window.
+Sampling runs apart from sending: the ECG has its own FreeRTOS task, the HTTPS
+sender another, and a bounded RAM queue covers short Wi-Fi drops. The relay
+keeps a few megabytes for longer reconnects.
 
-## Sampling used by the tested sketch
+## What it sends
 
-| Sensor | Setting | Reason |
+| Stream | Rate | Settings |
 |---|---:|---|
-| MPU6050 accelerometer | 100 Hz, +/-8 g | Keeps running and impact peaks inside range |
-| MPU6050 gyroscope | 100 Hz, +/-1000 degrees/s | Allows fast turns without using the widest range |
-| MPU6050 low-pass filter | 44 Hz | Fits the 100 Hz sample stream |
-| MAX30102 ADC | 100 samples/s, average 4 | Gives a 25 Hz FIFO output for the host filter |
-| MAX30102 pulse | 411 microseconds, 8192 nA range | Uses the high-resolution pulse setting with moderate headroom |
+| Motion (MPU6050) | 50 Hz | ±16 g, ±2000 °/s, on-chip low-pass 21 Hz (below the 25 Hz Nyquist limit) |
+| Magnetometer | with each motion sample | bypass mode through the MPU6050, µT |
+| ECG (AD8232) | 250 Hz in blocks of 50 | 12-bit ADC1 counts, electrode-off flag from LO+ and LO- |
+| GNSS (NEO-6M) | 5 Hz | RMC and GGA only, set over UBX at every boot |
+| Status | every 2 s | Wi-Fi strength, battery voltage and charge, delivered rates, dropped and queued samples |
 
-The ESP32 sends raw optical samples. BPM and SpO2 are calculated on the PC.
-They are left empty when contact, motion, estimator agreement, or optical
-quality checks fail. SpO2 remains an uncalibrated estimate.
+Heart rate, heart-rate variability and electrode quality are worked out on the
+laptop (`soccer_analytics/sensors/ecg.py`), where a whole window of signal can
+be checked before a number is shown.
 
-The clock uses SNTP smooth updates and anchors each acquisition timestamp to
-`esp_timer`. The anchor is refreshed every minute. The relay keeps the source
-timestamp unchanged.
+The clock uses SNTP and anchors every acquisition timestamp to `esp_timer`;
+the anchor is refreshed every minute and the relay keeps the source timestamp
+unchanged.
 
-Primary references:
-
-- [Analog Devices MAX30102 product page and Rev. 1 data sheet](https://www.analog.com/en/products/MAX30102.html)
-- [TDK MPU-6000 and MPU-6050 register map](https://invensense.tdk.com/wp-content/uploads/2015/02/MPU-6000-Register-Map1.pdf)
-- [Espressif system time and SNTP guide](https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-reference/system/system_time.html)
-- [SparkFun MAX3010x driver](https://github.com/sparkfun/SparkFun_MAX3010x_Sensor_Library)
-
-Build check:
+## Build check
 
 ```bash
 conda run -n soccer arduino-cli compile \
-  --build-path /tmp/cpg44-wearable-build \
-  --fqbn esp32:esp32:esp32s3 firmware/wearable_stream
+  --fqbn "esp32:esp32:esp32s3:CDCOnBoot=cdc,FlashSize=16M,PartitionScheme=app3M_fat9M_16MB,PSRAM=opi" \
+  firmware/wearable_stream
 ```
+
+With arduino-esp32 3.3.12 this uses 1,081,499 bytes of flash (34 %) and
+72,796 bytes of static RAM (22 %).
+
+## References
+
+- [Analog Devices AD8232 data sheet](https://www.analog.com/en/products/ad8232.html)
+- [TDK MPU-6000 and MPU-6050 register map](https://invensense.tdk.com/wp-content/uploads/2015/02/MPU-6000-Register-Map1.pdf)
+- [u-blox 6 receiver description (UBX CFG-RATE, CFG-MSG)](https://www.u-blox.com/en/docs/UBX-13003221)
+- [Espressif system time and SNTP guide](https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-reference/system/system_time.html)

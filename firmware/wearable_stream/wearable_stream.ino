@@ -12,7 +12,6 @@
 
 #include <Adafruit_MPU6050.h>
 #include <Adafruit_Sensor.h>
-#include "MAX30105.h"
 #include <TinyGPSPlus.h>
 
 // The dashboard creates this ignored file while flashing. A build without it
@@ -47,31 +46,19 @@ constexpr uint32_t ECG_HZ = 250;
 constexpr size_t ECG_BLOCK = 50;   // 0.2 s per packet
 
 constexpr uint32_t I2C_HZ = 100000;       // stable on the tested board
-constexpr uint32_t IMU_PERIOD_US = 20000; // 50 Hz (industry standard, cuts TLS bandwidth in half)
-constexpr uint32_t PPG_PERIOD_US = 40000; // 25 Hz after FIFO averaging
-constexpr float PPG_HZ = 25.0f;
-
-// MAX30102 settings used by the tested raw stream. The host still calculates
-// HR and SpO2, where motion and optical quality can be checked together.
-constexpr byte PPG_LED_AMPLITUDE = 60;
-constexpr byte PPG_SAMPLE_AVERAGE = 4;
-constexpr byte PPG_LED_MODE = 2;
-constexpr int PPG_ADC_SAMPLE_RATE = 100;
-constexpr int PPG_PULSE_WIDTH_US = 411;
-constexpr int PPG_ADC_RANGE_NA = 8192;
+constexpr uint32_t IMU_PERIOD_US = 20000; // 50 Hz
 
 constexpr size_t RELAY_QUEUE_CAPACITY = 256;
-// Throughput, not latency, limited the recorded sessions: one HTTPS POST
-// through Cloudflare takes 0.5-1 s and carried at most 32 samples, while the
-// vest produces 75 per second (IMU 50 Hz + PPG 25 Hz). The status counter
-// showed up to 106k dropped samples per boot and only 35/s arriving. The
-// relay accepts 100 per POST; 96 per POST (about 34 KB of JSON, 12 KB of
-// RAM) keeps up with the source even at 1.2 s per round trip.
+// Throughput, not latency, limits delivery: one HTTPS POST through Cloudflare
+// takes 0.5-1 s. The earlier prototype sent at most 32 samples per POST and
+// lost half of its data. The vest now produces about 61 events per second
+// (IMU 50 Hz, ECG 5 blocks of 50 samples, GNSS 5 Hz, status 0.5 Hz). The relay
+// accepts 100 per POST; 96 per POST keeps up even at 1.2 s per round trip.
 constexpr size_t RELAY_BATCH_CAPACITY = 96;
 constexpr uint32_t RELAY_BATCH_WINDOW_MS = 25;
 constexpr uint64_t RELAY_MAX_SAMPLE_AGE_US = 2000000ULL;
 
-enum class SampleType : uint8_t { Imu, Ppg, Gps, Status, Ecg };
+enum class SampleType : uint8_t { Imu, Gps, Status, Ecg };
 
 struct SampleRecord {
   SampleType type;
@@ -80,8 +67,6 @@ struct SampleRecord {
   float accel[3];
   float gyro[3];
   float temperatureC;
-  uint32_t red;
-  uint32_t ir;
   bool gpsRx;
   bool gpsFix;
   double latitude;
@@ -102,19 +87,16 @@ struct SampleRecord {
   bool leadOff;
   float batteryV;
   float batteryPct;
-  float batteryRatePctH;
   float gpsRateHz;
   float ecgRateHz;
 };
 
 Adafruit_MPU6050 mpu;
-MAX30105 max30102;
 TinyGPSPlus gps;
 HardwareSerial gpsSerial(1);
 
 bool mpuOK = false;
-bool maxOK = false;
-bool fuelGaugeOK = false;
+bool baroFound = false;     // BMP180 on the GY-87: detected for the build check, not streamed
 enum class MagChip : uint8_t { None, HMC5883L, QMC5883L };
 MagChip magChip = MagChip::None;
 volatile uint32_t ecgBlocks = 0;
@@ -124,7 +106,6 @@ uint32_t gpsFixCount = 0;
 uint32_t gpsFixCountAtStatus = 0;
 uint32_t bootId = 0;
 uint64_t imuSeq = 0;
-uint64_t ppgSeq = 0;
 uint64_t gpsSeq = 0;
 uint64_t statusSeq = 0;
 uint64_t lastIMUScheduleUS = 0;
@@ -150,25 +131,10 @@ bool probeI2C(uint8_t address) {
   return Wire.endTransmission() == 0;
 }
 
-// SparkFun MAX30105::begin() calls Wire.begin() without the board pins. Rebind
-// after library setup so the sensors remain on the tested ESP32-S3 pins 4/5.
+// Some sensor libraries call Wire.begin() without pins; rebinding after each
+// setup keeps the bus on the tested ESP32-S3 pins 4/5.
 void bindI2C() {
   Wire.begin(I2C_SDA, I2C_SCL, I2C_HZ);
-}
-
-// ---- MAX17048 fuel gauge (I2C 0x36, shares the bus with the IMU and PPG) ----
-// ModelGauge estimates state of charge from cell voltage with an internal
-// battery model, so no sense resistor is needed. Registers: VCELL 0x02
-// (78.125 uV/LSB), SOC 0x04 (1/256 %), CRATE 0x16 (0.208 %/h, signed).
-constexpr uint8_t FUEL_GAUGE_ADDR = 0x36;
-
-bool readReg16(uint8_t addr, uint8_t reg, uint16_t &out) {
-  Wire.beginTransmission(addr);
-  Wire.write(reg);
-  if (Wire.endTransmission(false) != 0) return false;
-  if (Wire.requestFrom(addr, static_cast<uint8_t>(2)) != 2) return false;
-  out = (static_cast<uint16_t>(Wire.read()) << 8) | Wire.read();
-  return true;
 }
 
 // Resting LiPo voltage to charge (single cell, light load). Coarse but honest:
@@ -182,26 +148,20 @@ float lipoPercent(float v) {
   return 100;
 }
 
+// Cell voltage through the 100k/100k divider (half the cell voltage at the
+// pin, inside the ADC's range at 11 dB). Median of 15 readings corrected by the
+// chip's eFuse ADC calibration, then the LiPo curve above.
 void readBattery(SampleRecord &sample) {
   sample.batteryV = NAN;
   sample.batteryPct = NAN;
-  sample.batteryRatePctH = NAN;
-  if (!fuelGaugeOK) {
-    // 100k/100k divider: median of 15 calibrated readings (eFuse ADC calibration)
-    uint32_t mv[15];
-    for (int i = 0; i < 15; ++i) mv[i] = analogReadMilliVolts(BATTERY_ADC);
-    std::sort(mv, mv + 15);
-    const float v = 2.0f * mv[7] / 1000.0f;
-    if (v > 2.8f && v < 4.4f) {
-      sample.batteryV = v;
-      sample.batteryPct = lipoPercent(v);
-    }
-    return;
+  uint32_t mv[15];
+  for (int i = 0; i < 15; ++i) mv[i] = analogReadMilliVolts(BATTERY_ADC);
+  std::sort(mv, mv + 15);
+  const float v = 2.0f * mv[7] / 1000.0f;
+  if (v > 2.8f && v < 4.4f) {
+    sample.batteryV = v;
+    sample.batteryPct = lipoPercent(v);
   }
-  uint16_t vcell, soc, crate;
-  if (readReg16(FUEL_GAUGE_ADDR, 0x02, vcell)) sample.batteryV = vcell * 78.125e-6f;
-  if (readReg16(FUEL_GAUGE_ADDR, 0x04, soc)) sample.batteryPct = soc / 256.0f;
-  if (readReg16(FUEL_GAUGE_ADDR, 0x16, crate)) sample.batteryRatePctH = static_cast<int16_t>(crate) * 0.208f;
 }
 
 // ---- u-blox NEO-6M: 5 Hz fixes, only the sentences we parse ----
@@ -316,7 +276,6 @@ bool isClockReady() {
 const char *sampleTypeName(SampleType type) {
   switch (type) {
     case SampleType::Imu: return "imu";
-    case SampleType::Ppg: return "ppg";
     case SampleType::Gps: return "gps";
     case SampleType::Status: return "status";
     case SampleType::Ecg: return "ecg";
@@ -379,12 +338,6 @@ void addPayload(JsonObject event, const SampleRecord &sample) {
     return;
   }
 
-  if (sample.type == SampleType::Ppg) {
-    payload["red"] = sample.red;
-    payload["ir"] = sample.ir;
-    return;
-  }
-
   if (sample.type == SampleType::Gps) {
     payload["rx"] = sample.gpsRx;
     payload["fix"] = sample.gpsFix;
@@ -404,23 +357,18 @@ void addPayload(JsonObject event, const SampleRecord &sample) {
   payload["rssi_dbm"] = sample.rssiDbm;
   payload["heap"] = sample.freeHeap;
   payload["mpu6050"] = mpuOK;
-  payload["max30102"] = maxOK;
   payload["gps_rx"] = sample.gpsReceiving;
   payload["imu_rate_hz"] = 1000000 / IMU_PERIOD_US;
   payload["imu_accel_range_g"] = 16;
   payload["imu_gyro_range_dps"] = 2000;
   payload["imu_dlpf_hz"] = 21;
   payload["gps_rate_hz"] = sample.gpsRateHz;
-  payload["fuel_gauge"] = fuelGaugeOK;
   payload["ecg"] = ECG_ENABLED;
   payload["ecg_rate_hz"] = sample.ecgRateHz;
   payload["magnetometer"] = magChip != MagChip::None;
   if (isfinite(sample.batteryV)) payload["battery_v"] = sample.batteryV;
   if (isfinite(sample.batteryPct)) payload["battery_pct"] = sample.batteryPct;
-  if (isfinite(sample.batteryRatePctH)) payload["battery_rate_pct_h"] = sample.batteryRatePctH;
-  payload["ppg_output_rate_hz"] = static_cast<int>(PPG_HZ);
-  payload["ppg_raw_rate_hz"] = PPG_ADC_SAMPLE_RATE;
-  payload["ppg_sample_average"] = PPG_SAMPLE_AVERAGE;
+  payload["barometer"] = baroFound;
   payload["clock_anchor_age_ms"] = isClockReady() ? millis() - lastClockAnchorMS : 0;
   portENTER_CRITICAL(&stateMux);
   payload["dropped_samples"] = droppedSamples;
@@ -508,7 +456,7 @@ void relayTask(void *) {
     }
 
     // Compact only expired samples. An ordinary HTTP round trip can queue more
-    // than 16 observations; dropping those destroys contiguous PPG windows.
+    // than 16 observations; dropping those leaves holes in the ECG trace.
     size_t retained = 0;
     const uint64_t nowUS = deviceTimeUS();
     for (size_t i = 0; i < relayBatchCount; ++i) {
@@ -653,35 +601,6 @@ void serviceIMU() {
   enqueueSample(sample);
 }
 
-void servicePPG() {
-  if (!maxOK) return;
-  max30102.check();
-
-  constexpr int MAX_FIFO_BATCH = 32;
-  uint32_t redBatch[MAX_FIFO_BATCH];
-  uint32_t irBatch[MAX_FIFO_BATCH];
-  int count = 0;
-  while (max30102.available() && count < MAX_FIFO_BATCH) {
-    redBatch[count] = max30102.getFIFORed();
-    irBatch[count] = max30102.getFIFOIR();
-    max30102.nextSample();
-    ++count;
-  }
-  if (!count) return;
-
-  const uint64_t newestUS = deviceTimeUS();
-  for (int i = 0; i < count; ++i) {
-    const uint64_t ageUS = static_cast<uint64_t>(count - 1 - i) * PPG_PERIOD_US;
-    SampleRecord sample{};
-    sample.type = SampleType::Ppg;
-    sample.sequence = ppgSeq++;
-    sample.deviceUS = newestUS > ageUS ? newestUS - ageUS : newestUS;
-    sample.red = redBatch[i];
-    sample.ir = irBatch[i];
-    enqueueSample(sample);
-  }
-}
-
 bool gpsReceivingNow() {
   return lastGPSByteMS != 0 && millis() - lastGPSByteMS < 3000;
 }
@@ -752,7 +671,7 @@ void setup() {
   bootId = esp_random();
 
   Serial.println();
-  Serial.println("=== CPG44 ESP32-S3 RELAY WEARABLE V3 ===");
+  Serial.println("=== CPG44 ESP32-S3 VEST: ECG, IMU, GNSS ===");
   if (PLAYER_ID <= 0 || WIFI_SSID[0] == '\0' || strlen(RELAY_TOKEN) < 32 ||
       strlen(RELAY_CA_PEM) < 100 || strcmp(RELAY_ENDPOINT, "https://cpg44.nivaspms.com/api/v1/sensors/ingest") != 0) {
     Serial.println("Provisioning required. Flash player, Wi-Fi, relay token and relay CA from the dashboard.");
@@ -766,28 +685,12 @@ void setup() {
   }
 
   bindI2C();
-  Serial.print("MAX30102 0x57: ");
-  Serial.println(probeI2C(0x57) ? "FOUND" : "MISSING");
-  Serial.print("MPU6050  0x68: ");
+  Serial.print("GY-87 MPU6050 0x68: ");
   Serial.println(probeI2C(0x68) ? "FOUND" : "MISSING");
+  baroFound = probeI2C(0x77);
+  Serial.print("GY-87 BMP180  0x77: ");
+  Serial.println(baroFound ? "FOUND" : "MISSING");
 
-  maxOK = max30102.begin(Wire, I2C_SPEED_STANDARD);
-  bindI2C();
-  if (maxOK) {
-    Serial.print("MAX30102 Part ID: 0x");
-    Serial.println(max30102.readPartID(), HEX);
-    max30102.setup(PPG_LED_AMPLITUDE, PPG_SAMPLE_AVERAGE, PPG_LED_MODE,
-                   PPG_ADC_SAMPLE_RATE, PPG_PULSE_WIDTH_US, PPG_ADC_RANGE_NA);
-    bindI2C();
-    max30102.setPulseAmplitudeRed(PPG_LED_AMPLITUDE);
-    max30102.setPulseAmplitudeIR(PPG_LED_AMPLITUDE);
-    max30102.clearFIFO();
-    Serial.println("MAX30102 ready");
-  } else {
-    Serial.println("MAX30102 FAILED");
-  }
-
-  bindI2C();
   mpuOK = mpu.begin(0x68, &Wire);
   bindI2C();
   if (mpuOK) {
@@ -796,8 +699,8 @@ void setup() {
     mpu.setAccelerometerRange(MPU6050_RANGE_16_G);
     mpu.setGyroRange(MPU6050_RANGE_2000_DEG);
     // The sketch reads at 50 Hz (Nyquist 25 Hz). The on-chip DLPF must sit
-    // below Nyquist or impact/vibration energy aliases into the stride band
-    // and the PPG motion reference; 21 Hz is the closest setting.
+    // below Nyquist or impact and vibration energy aliases into the stride
+    // band; 21 Hz is the closest setting.
     mpu.setFilterBandwidth(MPU6050_BAND_21_HZ);
     // Internal rate 1 kHz / (1 + 9) = 100 Hz with DLPF on; polled at 50 Hz.
     mpu.setSampleRateDivisor(9);
@@ -815,11 +718,6 @@ void setup() {
   delay(100);
   configureGPS();
   Serial.println("NEO-6M UART started, 5 Hz RMC+GGA requested");
-
-  bindI2C();
-  uint16_t gaugeVersion = 0;
-  fuelGaugeOK = readReg16(FUEL_GAUGE_ADDR, 0x08, gaugeVersion) && (gaugeVersion & 0xFFF0) == 0x0010;
-  Serial.println(fuelGaugeOK ? "MAX17048 fuel gauge ready" : "No fuel gauge: battery level not reported");
 
   WiFi.mode(WIFI_STA);
   WiFi.persistent(false);
@@ -851,7 +749,6 @@ void setup() {
 }
 
 void loop() {
-  servicePPG();
   serviceIMU();
   serviceGPS();
   serviceStatus();
