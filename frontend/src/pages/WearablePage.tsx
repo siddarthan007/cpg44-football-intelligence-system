@@ -1,158 +1,155 @@
-import { useEffect, useMemo, useState } from 'react';
-import { EmptyState, ErrorBanner, PageHeader, ProvenanceBanner, StatusBadge, Value } from '../components/common';
-import { api, websocketUrl } from '../lib/api';
-import { useLive } from '../lib/useLive';
+import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
+import { Glyph } from '../components/Glyph';
+import { api, apiUrl } from '../lib/api';
 
-type TelemetryRow = {
-  id: string;
-  timestamp?: number;
-  hr?: number;
-  spo2?: number;
-  playerLoad?: number;
-  speed?: number;
-  speedSource?: string;
-  signalQuality?: number;
-  gps?: unknown;
-  source?: string;
+type Status = {
+  connected?: boolean; clock_synced?: boolean; transport_delay_ms?: number | null; dropped_samples?: number | null;
+  gyro_calibrated?: boolean; accel_scale_calibrated?: boolean; rssi_dbm?: number | null;
+  rates_hz?: Record<string, number>; expected_hz?: Record<string, number | null | undefined>;
+  clock_offset?: { offset_ms: number; uncertainty_ms: number; samples: number } | null;
+  battery?: { pct: number; volts: number | null; minutes_left: number | null; level: string } | null;
+  gps?: { fix?: boolean; sat?: number; hdop?: number; filtered?: { speed_mps: number; distance_m: number; pos_sigma_m: number } };
+  imu?: { accel_cal_poses?: number; accel_calibrated?: boolean; player_load?: number; player_load_per_min?: number | null; stationary?: boolean };
+  heart?: { bpm?: number | null; steady_bpm?: number | null; rmssd_ms?: number | null; quality?: number | null; reason?: string | null; electrodes?: 'on' | 'off' | null };
+};
+type Trace = { ok: boolean; fs?: number; values?: number[]; range?: [number, number]; beats?: number[]; lead_off?: boolean };
+
+const DESIGN = { imu: 50, ecg: 5, gps: 5 };
+const REASON: Record<string, string> = {
+  electrode_off: 'an electrode is off the skin',
+  flat_signal: 'no signal: check the cable into the ECG board',
+  noisy_ecg: 'too much interference for clean beats',
+  too_few_beats: 'finding the first beats',
+  ecg_stale: 'the ECG stopped arriving',
+  no_ecg: 'waiting for the ECG',
 };
 
-const number = (value: unknown) => typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+/** Live chest ECG on a paper grid, with each detected beat marked. */
+function EcgStrip({ trace }: { trace?: Trace }) {
+  const W = 1000, H = 220, pad = 18;
+  if (!trace?.ok || !trace.values?.length) return <div className="ecg-strip empty"><span>Waiting for the ECG</span></div>;
+  const [lo, hi] = trace.range ?? [Math.min(...trace.values), Math.max(...trace.values)];
+  const span = Math.max(hi - lo, 1), n = trace.values.length, secs = n / (trace.fs || 125);
+  const x = (i: number) => (i / Math.max(n - 1, 1)) * W;
+  const y = (v: number) => H - pad - ((Math.min(Math.max(v, lo), hi) - lo) / span) * (H - 2 * pad);
+  const points = trace.values.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
+  return <div className={`ecg-strip ${trace.lead_off ? 'off' : ''}`}>
+    <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" role="img" aria-label={`Chest ECG, last ${secs.toFixed(0)} seconds, ${trace.beats?.length ?? 0} beats`}>
+      {(trace.beats ?? []).map(b => <line key={b} x1={(b / secs) * W} x2={(b / secs) * W} y1={4} y2={12} className="beat" />)}
+      <polyline points={points} className="trace" />
+    </svg>
+    <span className="ecg-scale">{secs.toFixed(0)} s</span>
+  </div>;
+}
+
+function Tile({ label, value, unit, why, accent }: { label: string; value?: string | null; unit?: string; why?: string; accent?: boolean }) {
+  return <div className={`vtile ${value ? '' : 'missing'}`}>
+    <small>{label}</small>
+    {value ? <b className={`num ${accent ? 'pulse' : ''}`}>{value}<i>{unit}</i></b> : <b className="num none">no value</b>}
+    {why && <span>{why}</span>}
+  </div>;
+}
+
+function Rate({ kind, got, want }: { kind: string; got?: number; want: number }) {
+  const share = got == null ? 0 : Math.min(1, got / want);
+  const tone = got == null ? 'off' : share >= 0.95 ? 'ok' : share >= 0.7 ? 'warn' : 'bad';
+  return <div className="rate" title={`${kind}: ${got ?? 0} of ${want} per second arrive`}>
+    <span>{kind}</span>
+    <div className="rate-bar"><i className={tone} style={{ width: `${share * 100}%` }} /></div>
+    <b className="num">{got == null ? 'none' : `${Math.round(share * 100)} %`}</b>
+  </div>;
+}
 
 export const WearablePage = () => {
-  const { data, error: liveError } = useLive('live');
-  const [relayRows, setRelayRows] = useState<Record<string, unknown> | unknown[]>([]);
-  const [relayError, setRelayError] = useState<string | null>(null);
+  const [s, setS] = useState<Status>({});
+  const [trace, setTrace] = useState<Trace>();
+  const [down, setDown] = useState(false);
 
   useEffect(() => {
-    let cancelled = false;
-    let socket: WebSocket | null = null;
-    let retry: number | undefined;
-    const pull = () => api.wearables().then((rows) => {
-      if (!cancelled) { setRelayRows(rows); setRelayError(null); }
-    }).catch((error: unknown) => {
-      if (!cancelled) setRelayError(error instanceof Error ? error.message : 'Wearable endpoint unavailable');
-    });
-    const connect = () => {
-      if (cancelled) return;
-      socket = new WebSocket(websocketUrl('/ws/wearables'));
-      socket.onmessage = (event) => {
-        try {
-          const message = JSON.parse(event.data) as { wearables?: Record<string, unknown> | unknown[] };
-          setRelayRows(message.wearables ?? []);
-          setRelayError(null);
-        } catch {
-          setRelayError('Wearable feed returned invalid data');
-        }
-      };
-      socket.onerror = () => socket?.close();
-      socket.onclose = () => {
-        if (cancelled) return;
-        void pull();
-        retry = window.setTimeout(connect, 1500);
-      };
-    };
+    let live = true;
+    const pull = () => api.wearableStatus().then(r => { if (live) { setS(r as Status); setDown(false); } }).catch(() => live && setDown(true));
     void pull();
-    connect();
-    const timer = window.setInterval(() => {
-      if (!socket || socket.readyState !== WebSocket.OPEN) void pull();
-    }, 2000);
-    return () => {
-      cancelled = true;
-      window.clearInterval(timer);
-      if (retry !== undefined) window.clearTimeout(retry);
-      socket?.close();
-    };
+    const t = window.setInterval(pull, 1000);
+    return () => { live = false; window.clearInterval(t); };
   }, []);
+  const on = Boolean(s.connected) && !down;
+  useEffect(() => {
+    if (!on) return;
+    let live = true;
+    const pull = () => fetch(apiUrl('/api/v1/wearables/ecg?seconds=5')).then(r => r.json()).then(tr => { if (live) setTrace(tr as Trace); }).catch(() => undefined);
+    void pull();
+    const t = window.setInterval(pull, 500);
+    return () => { live = false; window.clearInterval(t); };
+  }, [on]);
 
-  const rows = useMemo<TelemetryRow[]>(() => {
-    const byId = new Map<string, TelemetryRow>();
-    for (const player of data?.players ?? []) {
-      const metrics = player.wearable_metrics;
-      if (!metrics) continue;
-      const id = String(player.player_id ?? player.track_id);
-      byId.set(id, {
-        id,
-        timestamp: number(metrics.timestamp),
-        hr: number(metrics.hr ?? metrics.heart_rate_bpm ?? metrics.bpm),
-        spo2: number(metrics.spo2 ?? metrics.spo2_pct ?? metrics.spo2_estimate_pct),
-        playerLoad: number(metrics.player_load_imu ?? metrics.player_load),
-        speed: number(player.speed_mps ?? metrics.speed_mps),
-        speedSource: player.speed_mps == null ? 'wearable' : 'calibrated vision',
-        signalQuality: number(metrics.signal_quality),
-        gps: metrics.gps,
-        source: 'vision-linked vest',
-      });
-    }
-    const candidates = Array.isArray(relayRows)
-      ? relayRows
-      : Object.entries(relayRows).map(([id, value]) => ({ id, ...((value as Record<string, unknown>) ?? {}) }));
-    for (const raw of candidates) {
-      if (!raw || typeof raw !== 'object') continue;
-      const item = raw as Record<string, unknown>;
-      const metrics = (item.metrics as Record<string, unknown> | undefined) ?? item;
-      const id = String(item.player_id ?? item.global_player_id ?? item.id ?? 'unknown');
-      const timestampNs = number(item.source_timestamp_ns);
-      byId.set(id, {
-        id,
-        timestamp: timestampNs === undefined
-          ? number(item.timestamp ?? item.t ?? item.received_at)
-          : timestampNs / 1e9,
-        hr: number(metrics.hr ?? metrics.heart_rate_bpm ?? metrics.bpm),
-        spo2: number(metrics.spo2 ?? metrics.spo2_pct ?? metrics.spo2_estimate_pct),
-        playerLoad: number(metrics.player_load_imu ?? metrics.player_load),
-        speed: number(metrics.speed_mps),
-        speedSource: 'wearable GPS',
-        signalQuality: number(metrics.signal_quality),
-        gps: metrics.gps,
-        source: String(item.source ?? 'wearable endpoint'),
-      });
-    }
-    return [...byId.values()].sort((a, b) => a.id.localeCompare(b.id));
-  }, [data, relayRows]);
+  const want = { imu: s.expected_hz?.imu || DESIGN.imu, ecg: s.expected_hz?.ecg || DESIGN.ecg, gps: s.expected_hz?.gps || DESIGN.gps };
+  const off = s.clock_offset;
+  const poses = s.imu?.accel_cal_poses ?? 0;
+  const h = s.heart ?? {};
+  const electrodesOff = h.electrodes === 'off' || trace?.lead_off;
 
-  return (
-    <div className="page">
-      <PageHeader
-        eyebrow="WEARABLE EVIDENCE"
-        title="Biometrics and external load"
-        description="ESP32 samples are time-stamped, attributed to a player, and kept separate from vision estimates."
-        actions={<StatusBadge status={rows.length ? 'online' : 'offline'} />}
-      />
-      <ErrorBanner message={liveError ?? relayError} />
-      <ProvenanceBanner snapshot={data} />
+  return <div className="page">
+    <header className="page-header"><h1>Vest readings</h1></header>
 
-      <div className="quality-callout neutral">
-        <strong>Decision-support boundary</strong>
-        <p>Wrist or vest optical PPG is motion-sensitive. Load indicators support coaching review; they are not diagnoses or injury probabilities.</p>
+    <section className="panel" aria-label="Link">
+      <div className="chain">
+        <div className={`node ${on ? 'ok' : 'off'}`}><Glyph g="vest" size={22} /><b>Vest</b>
+          <small>{on ? (s.battery ? `${Math.round(s.battery.pct)} % battery${s.battery.minutes_left != null ? `, ${s.battery.minutes_left} min left` : ''}` : 'battery not reported') : 'not heard from'}</small></div>
+        <div className="link"><span>{s.rssi_dbm != null && on ? `Wi-Fi ${s.rssi_dbm} dBm` : ''}</span></div>
+        <div className={`node ${on ? 'ok' : 'off'}`}><Glyph g="sources" size={22} /><b>Relay</b>
+          <small>{s.transport_delay_ms != null && on ? `${Math.round(s.transport_delay_ms)} ms from vest to here` : 'no samples passing'}</small></div>
+        <div className="link"><span>{off ? `clock ${off.offset_ms > 0 ? '+' : ''}${off.offset_ms} ms, ±${off.uncertainty_ms}` : ''}</span></div>
+        <div className={`node ${down ? 'off' : 'ok'}`}><Glyph g="runtime" size={22} /><b>This laptop</b>
+          <small>{down ? 'API not running' : off ? 'clock aligned to the relay' : 'measuring clock offset'}</small></div>
       </div>
+      {!on && <div className="notice" style={{ marginTop: 14 }}>
+        {down ? 'Start the system with scripts/start_system.sh.' : <>No vest data yet. Switch the vest on near Wi-Fi; it sends through the relay within a few seconds. A new vest needs <Link to="/vest/setup">flashing</Link> first.</>}
+      </div>}
+    </section>
 
-      {!rows.length ? (
-        <section className="card-clean"><EmptyState title="No recent wearable samples. Check the relay, match ID and player ID." /></section>
-      ) : (
-        <div className="telemetry-grid">
-          {rows.map((row) => {
-            const age = row.timestamp ? Math.max(0, Date.now() / 1000 - row.timestamp) : undefined;
-            return (
-              <article className="card-clean telemetry-card" key={row.id}>
-                <div className="section-heading">
-                  <div><span className="eyebrow">PLAYER</span><h2>#{row.id}</h2></div>
-                  <StatusBadge status={age !== undefined && age < 10 ? 'live' : 'stale'} />
-                </div>
-                <dl className="definition-grid">
-                  <div><dt>Heart rate</dt><dd><Value value={row.hr} digits={0} /> <small>bpm</small></dd></div>
-                  <div><dt>SpO₂</dt><dd><Value value={row.spo2} digits={1} /> <small>%</small></dd></div>
-                  <div><dt>IMU load</dt><dd><Value value={row.playerLoad} digits={2} /> <small>a.u.</small></dd></div>
-                  <div><dt>Speed</dt><dd><Value value={row.speed} digits={2} /> <small>m/s · {row.speedSource}</small></dd></div>
-                  <div><dt>Signal quality</dt><dd><Value value={row.signalQuality} digits={2} /></dd></div>
-                </dl>
-                <footer className="evidence-footer">
-                  <span>{row.source}</span><span>{age === undefined ? 'timestamp unavailable' : `${age.toFixed(1)}s old`}</span>
-                </footer>
-              </article>
-            );
-          })}
-        </div>
-      )}
-    </div>
-  );
+    {on && <section className="panel heart-panel" aria-label="Heart">
+      <div className="heart-figures">
+        <div className="heart-now"><small>Heart rate</small>
+          <b className="num">{h.bpm != null ? Math.round(h.bpm) : '--'}<i>bpm</i></b>
+          <span>{h.bpm != null ? (h.steady_bpm != null ? `steady ${Math.round(h.steady_bpm)} bpm` : 'settling') : REASON[h.reason ?? ''] ?? 'waiting for clean beats'}</span></div>
+        <div><small>Variability</small><b className="num">{h.rmssd_ms != null ? Math.round(h.rmssd_ms) : '--'}<i>ms</i></b>
+          <span>{h.rmssd_ms != null ? 'RMSSD, still' : 'measured when still for 30 s'}</span></div>
+        <div><small>Electrodes</small><b className={electrodesOff ? 'state-bad' : h.electrodes === 'on' ? 'state-ok' : ''}>{electrodesOff ? 'Off' : h.electrodes === 'on' ? 'On' : '--'}</b>
+          <span>{electrodesOff ? 'press the three pads onto the skin' : h.quality != null ? `${Math.round(h.quality * 100)} % clean beats` : ''}</span></div>
+      </div>
+      <EcgStrip trace={trace} />
+    </section>}
+
+    {on && <div className="vgrid">
+      <Tile label="PlayerLoad per minute" value={s.imu?.player_load_per_min != null ? s.imu.player_load_per_min.toFixed(1) : null}
+        why={s.imu?.player_load != null ? `${s.imu.player_load.toFixed(1)} this session` : undefined} />
+      <Tile label="Speed" value={s.gps?.filtered ? (s.gps.filtered.speed_mps * 3.6).toFixed(1) : null} unit=" km/h"
+        why={s.gps?.fix ? `${s.gps.sat ?? 0} satellites, HDOP ${s.gps.hdop ?? '?'}` : 'no GNSS fix; the camera still measures speed'} />
+      <Tile label="Distance" value={s.gps?.filtered ? s.gps.filtered.distance_m.toFixed(0) : null} unit=" m"
+        why={s.gps?.filtered ? `position within ${s.gps.filtered.pos_sigma_m.toFixed(1)} m` : undefined} />
+    </div>}
+
+    {on && <section className="panel" aria-label="Samples arriving">
+      <div className="panel-head"><h2>Samples arriving</h2></div>
+      <div className="rates">
+        <Rate kind="Movement" got={s.rates_hz?.imu} want={want.imu} />
+        <Rate kind="ECG" got={s.rates_hz?.ecg} want={want.ecg} />
+        <Rate kind="GNSS fixes" got={s.rates_hz?.gps} want={want.gps} />
+        {(s.dropped_samples ?? 0) > 0 && <p className="muted" style={{ fontSize: 12.5 }}>The vest reports {s.dropped_samples} samples dropped since it started.</p>}
+      </div>
+    </section>}
+
+    <section className="panel" aria-label="Calibration">
+      <div className="panel-head"><h2>Calibration</h2></div>
+      <div className="cal-rows">
+        <div className="cal-row"><Glyph g={s.gyro_calibrated ? 'check' : 'warn'} size={16} />
+          <div><b>Gyroscope</b><span>{s.gyro_calibrated ? 'Offset measured while still; tracked as the vest warms up.' : 'Lay the vest flat and still for two seconds.'}</span></div></div>
+        <div className="cal-row"><Glyph g={s.accel_scale_calibrated ? 'check' : 'warn'} size={16} />
+          <div><b>Accelerometer</b><span>{s.accel_scale_calibrated ? 'Offset and scale fitted from resting poses.' : `Rest the pod still on each of its six faces for two seconds. ${poses} of 6 poses so far.`}</span>
+            {!s.accel_scale_calibrated && <div className="poses" aria-hidden="true">{Array.from({ length: 6 }, (_, k) => <i key={k} className={k < poses ? 'got' : ''} />)}</div>}</div></div>
+      </div>
+    </section>
+    <p className="muted" style={{ fontSize: 12 }}>Coaching measurements, not medical readings.</p>
+  </div>;
 };

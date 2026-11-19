@@ -1,0 +1,68 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 880" font-family="Archivo, Helvetica, Arial, sans-serif">
+  <title>CPG44 sensor pod: exploded stack and wiring</title>
+  <rect width="1200" height="880" fill="#f4f0e6"/>
+  <text x="40" y="52" font-size="28" font-weight="800" fill="#1d2421">Sensor pod · exploded stack and wiring</text>
+  <text x="40" y="78" font-size="14" fill="#4c534e">Outer 92 × 52 × 18 mm, ~58 g with 1200 mAh cell. Skin side down (towards the back), antenna side up (towards the sky).</text>
+
+  <!-- exploded stack (isometric-ish) -->
+  <g transform="translate(70,120)" font-size="12.5" fill="#1d2421">
+    <!-- lid -->
+    <g transform="translate(0,0)">
+      <path d="M40 20 L260 20 L300 50 L80 50 Z" fill="#e8e3d6" stroke="#1d2421"/>
+      <path d="M80 50 L300 50 L300 62 L80 62 Z" fill="#d6cfbd" stroke="#1d2421"/>
+      <text x="330" y="45" font-weight="700">A · Lid, PETG or PC/ABS, 2 mm wall</text>
+      <text x="330" y="61">RF-transparent window over antenna, r ≥ 3 mm edges</text>
+    </g>
+    <g transform="translate(0,90)">
+      <path d="M120 20 L190 20 L205 32 L135 32 Z" fill="#c9c2b0" stroke="#1d2421"/>
+      <text x="330" y="30" font-weight="700">B · 25 × 25 mm ceramic GNSS patch</text>
+      <text x="330" y="46">faces up; no metal or battery above it</text>
+    </g>
+    <g transform="translate(0,160)">
+      <path d="M40 20 L260 20 L300 50 L80 50 Z" fill="#2e7048" stroke="#1d2421"/>
+      <rect x="110" y="26" width="50" height="16" fill="#1d2421"/>
+      <rect x="185" y="28" width="22" height="12" fill="#2251a3"/>
+      <rect x="225" y="30" width="20" height="10" fill="#c9c2b0"/>
+      <text x="330" y="30" font-weight="700">C · Main board: ESP32-S3 + IMU + GNSS module</text>
+      <text x="330" y="46">IMU near the board centre, rigidly screwed (no foam under it)</text>
+    </g>
+    <g transform="translate(0,230)">
+      <path d="M60 20 L250 20 L285 48 L95 48 Z" fill="#9aa597" stroke="#1d2421"/>
+      <text x="330" y="30" font-weight="700">D · 1S LiPo 1200 mAh, PCM protected</text>
+      <text x="330" y="46">foam-wrapped, below the board (antenna sees sky)</text>
+    </g>
+    <g transform="translate(0,300)">
+      <path d="M40 20 L260 20 L300 50 L80 50 Z" fill="#e8e3d6" stroke="#1d2421"/>
+      <path d="M80 50 L300 50 L300 64 L80 64 Z" fill="#d6cfbd" stroke="#1d2421"/>
+      <rect x="150" y="46" width="30" height="8" fill="#1d2421"/>
+      <text x="330" y="40" font-weight="700">E · Base with USB-C (gasketed) and 6-pin harness port</text>
+      <text x="330" y="56">3 mm EVA impact pad on the skin side</text>
+    </g>
+    <path d="M170 64 V110 M170 152 V180 M170 210 V250 M170 278 V320" stroke="#1d2421" stroke-dasharray="3 4"/>
+  </g>
+
+  <!-- wiring block diagram -->
+  <g transform="translate(60,590)" font-size="12.5" fill="#1d2421">
+    <text x="0" y="-12" font-size="16" font-weight="700">Wiring (matches firmware/wearable_stream pin map)</text>
+    <rect x="420" y="20" width="200" height="150" rx="8" fill="#1d2421"/>
+    <text x="520" y="50" fill="#f4f0e6" font-weight="700" text-anchor="middle">ESP32-S3</text>
+    <text x="520" y="70" fill="#cfd6cc" text-anchor="middle">WROOM-1 N8R2</text>
+    <text x="430" y="100" fill="#cfd6cc">GPIO4  SDA</text><text x="430" y="118" fill="#cfd6cc">GPIO5  SCL</text>
+    <text x="430" y="136" fill="#cfd6cc">GPIO16 RX ← GNSS TX</text><text x="430" y="154" fill="#cfd6cc">GPIO17 TX → GNSS RX</text>
+
+    <rect x="80" y="10" width="200" height="56" rx="6" fill="#2251a3"/><text x="180" y="35" fill="#fff" text-anchor="middle" font-weight="700">MPU6050 · 0x68</text>
+    <text x="180" y="54" fill="#dbe4f5" text-anchor="middle">±16 g, ±2000 °/s, DLPF 21 Hz</text>
+    <rect x="80" y="86" width="200" height="56" rx="6" fill="#b0306a"/><text x="180" y="111" fill="#fff" text-anchor="middle" font-weight="700">MAX30102 · 0x57</text>
+    <text x="180" y="130" fill="#f6dbe6" text-anchor="middle">on chest pad, 45 cm flat cable</text>
+    <rect x="760" y="20" width="200" height="56" rx="6" fill="#2e7048"/><text x="860" y="45" fill="#fff" text-anchor="middle" font-weight="700">NEO-6M GNSS</text>
+    <text x="860" y="64" fill="#dceadf" text-anchor="middle">UART 9600, 1 Hz (M10: 10 Hz)</text>
+    <rect x="760" y="110" width="200" height="56" rx="6" fill="#9aa597"/><text x="860" y="135" text-anchor="middle" font-weight="700">Power</text>
+    <text x="860" y="154" text-anchor="middle">LiPo → charger → 3.3 V LDO</text>
+
+    <path d="M280 38 H420" stroke="#1d2421" stroke-width="2" fill="none"/><path d="M280 114 H350 V60 H420" stroke="#1d2421" stroke-width="2" fill="none"/>
+    <text x="300" y="30">I²C 100 kHz</text><text x="290" y="132">2.2 kΩ pull-ups at pad</text>
+    <path d="M620 140 H700 V48 H760" stroke="#1d2421" stroke-width="2" fill="none"/>
+    <path d="M760 138 H680 V160 H620" stroke="#1d2421" stroke-width="2" stroke-dasharray="5 3" fill="none"/>
+    <text x="640" y="190">all grounds common; GNSS 3.3 V logic</text>
+  </g>
+</svg>

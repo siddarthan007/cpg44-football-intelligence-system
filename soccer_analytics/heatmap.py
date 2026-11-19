@@ -134,16 +134,44 @@ class LiveHeatmap:
         self.bins = bins
         self.decay = decay
         self.grid = np.zeros((bins, bins), np.float32)
+        self.observed_player_seconds = 0.0
 
-    def add(self, positions):
-        for (x, y) in positions:
-            if x is None or np.isnan(x):
-                continue
-            gx = int(np.clip(x / self.pc.length * (self.bins - 1), 0, self.bins - 1))
-            gy = int(np.clip(y / self.pc.width * (self.bins - 1), 0, self.bins - 1))
-            self.grid[gy, gx] += 1.0
+    def add(self, positions, dt: float = 1.0):
+        """Accumulate observed player-seconds; never pin invalid samples to an edge."""
+        if not np.isfinite(dt) or dt <= 0:
+            raise ValueError("heatmap dt must be positive and finite")
         if self.decay < 1.0:
-            self.grid *= self.decay
+            self.grid *= self.decay ** dt
+        for (x, y) in positions:
+            if x is None or y is None or not np.isfinite([x, y]).all():
+                continue
+            if not (0 <= x <= self.pc.length and 0 <= y <= self.pc.width):
+                continue
+            gx = min(int(x / self.pc.length * self.bins), self.bins - 1)
+            gy = min(int(y / self.pc.width * self.bins), self.bins - 1)
+            self.grid[gy, gx] += dt
+            self.observed_player_seconds += dt
+
+    def grid_snapshot(self, rows: int = 17, cols: int = 25) -> dict:
+        """Compact normalised occupancy grid for the web dashboard.
+
+        Relative peak intensity is 0..100. The parallel seconds array retains
+        occupancy mass so different source frame rates remain comparable."""
+        small = cv2.resize(self.grid, (cols, rows), interpolation=cv2.INTER_AREA)
+        small = small * (self.bins ** 2 / (rows * cols))
+        peak = float(small.max())
+        relative = small / peak if peak > 0 else small
+        return {
+            "rows": rows,
+            "cols": cols,
+            "length_m": self.pc.length,
+            "width_m": self.pc.width,
+            "cells": [round(float(v) * 100) for v in relative.ravel()],
+            "seconds": [round(float(v), 4) for v in small.ravel()],
+            "observed_player_seconds": round(self.observed_player_seconds, 3),
+            "normalization": "relative_peak",
+            "unit": "player_seconds",
+        }
 
     def render(self):
         g = np.log1p(self.grid)

@@ -1,4 +1,4 @@
-# SoccerNet Tracking → YOLOv8 dataset
+# SoccerNet Tracking to YOLOv8 dataset
 
 `soccernet_to_yolo.py` converts the **SoccerNet Tracking** dataset (MOT Challenge
 layout) into the Ultralytics YOLO detection format, splits by sequence into
@@ -19,13 +19,13 @@ SNMOT-060/
 
 Two quirks handled by the script:
 1. `gt.txt` column 8 (class) is always `-1`. The real class is recovered from
-   `gameinfo.ini` by mapping the tracklet **id** (gt col 2) → role.
+   `gameinfo.ini` by mapping the tracklet **id** (gt col 2) to the role.
 2. Frame names collide across clips (every clip has `000001.jpg`), so outputs are
    namespaced `SNMOT-060_000001.jpg` / `.txt`.
 
 ## Classes
 
-Team side is collapsed — team assignment is a downstream jersey-colour step, not a
+Team side is collapsed. Team assignment is a downstream jersey-colour step, not a
 detector class. Default index order matches the common Roboflow
 `football-players-detection` weights used by the reference repos:
 
@@ -61,12 +61,12 @@ python3 soccernet_to_yolo.py --src ... --dst ... --stride 250 --dry-run
 
 | flag | default | note |
 |------|---------|------|
-| `--val-frac` | 0.15 | fraction of **train sequences** held out for val (split by sequence → no frame leakage) |
-| `--stride N` | 1 | keep every Nth annotated frame. 25 fps clips are highly redundant — `5`–`10` cuts dataset size with little loss |
-| `--image-mode` | symlink | `symlink` (no disk dup) · `copy` · `hardlink` · `none` (labels only). Auto-falls back to copy if symlink is denied |
+| `--val-frac` | 0.15 | fraction of **train sequences** held out for val (split by sequence, so there is no frame leakage) |
+| `--stride N` | 1 | keep every Nth annotated frame. 25 fps clips are highly redundant. `5` to `10` cuts dataset size with little loss |
+| `--image-mode` | symlink | `symlink` (no disk dup), `copy`, `hardlink`, `none` (labels only). Auto-falls back to copy if symlink is denied |
 | `--negatives` | off | also emit empty `.txt` for boxless frames (background images) |
 | `--min-visibility` | none | drop boxes below a visibility threshold (SoccerNet vis col is `-1`/unused here) |
-| `--unknown-id-policy` | skip | gt id missing from gameinfo → `skip` or a class name |
+| `--unknown-id-policy` | skip | gt id missing from gameinfo, either `skip` or a class name |
 | `--no-test` | off | skip building test split from `test/` |
 | `--keep-existing` | off | by default `images/`+`labels/` under `--dst` are purged first so a rerun leaves no stale files; pass this to keep them |
 | `--dry-run` | off | parse + report stats, write nothing |
@@ -94,16 +94,15 @@ yolo detect train model=yolov8m.pt data=/home/siddartha/SoccerNet/yolo/data.yaml
   imgsz=1280 epochs=100 batch=8 name=soccernet_v8m
 ```
 
-Notes: use `imgsz≥1280` — the ball is ~12 px wide, small at 640. Consider a
-higher-res model or tiling if ball recall is weak (a known SoccerNet issue —
-reference repos report ~36 % ball AP).
+Notes: use `imgsz≥1280`. The ball is about 12 px wide, so it is small at 640. Consider a
+higher-resolution model or tiling if held-out ball recall is weak.
 
 ## Next pipeline stages (project objectives)
 
-1. **Tracking** — feed YOLOv8 detections to ByteTrack (built into Ultralytics:
+1. **Tracking:** feed YOLOv8 detections to ByteTrack (built into Ultralytics:
    `model.track(..., tracker="bytetrack.yaml")`) for persistent player/ball ids.
-2. **Pitch homography** — map image coords → pitch coords (SoccerNet camera
+2. **Pitch homography:** map image coordinates to pitch coordinates (SoccerNet camera
    calibration, or the field-keypoint model from tryolabs/soccer-video-analytics).
-3. **Heatmaps** — accumulate per-player pitch positions over time → 2D density.
-4. **Tactical / predictive** — team assignment (jersey-colour clustering),
+3. **Heatmaps:** accumulate per-player pitch positions over time into 2D density.
+4. **Tactical / predictive:** team assignment (jersey-colour clustering),
    possession, formation, then the fusion with wearable data per the report.

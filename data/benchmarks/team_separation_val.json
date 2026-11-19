@@ -1,0 +1,169 @@
+{
+  "frame_vote": {
+    "accuracy": 0.7678675993893386,
+    "coverage": 0.9675764895330112
+  },
+  "identity_cluster": {
+    "accuracy": 0.9726715779347358,
+    "coverage": 0.881463496246105
+  },
+  "reid_cluster": {
+    "accuracy": 0.7040941175952617,
+    "coverage": 0.8896356944183031
+  },
+  "per_clip": {
+    "SNMOT-071": {
+      "frame_vote": {
+        "accuracy": 0.9545454545454546,
+        "coverage": 0.9166666666666666,
+        "identities": 24
+      },
+      "identity_cluster": {
+        "accuracy": 1.0,
+        "coverage": 0.7916666666666666,
+        "identities": 24
+      },
+      "reid_cluster": {
+        "accuracy": 0.6,
+        "coverage": 0.8333333333333334,
+        "identities": 24
+      }
+    },
+    "SNMOT-076": {
+      "frame_vote": {
+        "accuracy": 1.0,
+        "coverage": 1.0,
+        "identities": 22
+      },
+      "identity_cluster": {
+        "accuracy": 1.0,
+        "coverage": 0.9545454545454546,
+        "identities": 22
+      },
+      "reid_cluster": {
+        "accuracy": 0.6818181818181818,
+        "coverage": 1.0,
+        "identities": 22
+      }
+    },
+    "SNMOT-099": {
+      "frame_vote": {
+        "accuracy": 0.5217391304347826,
+        "coverage": 1.0,
+        "identities": 23
+      },
+      "identity_cluster": {
+        "accuracy": 0.9047619047619048,
+        "coverage": 0.9130434782608695,
+        "identities": 23
+      },
+      "reid_cluster": {
+        "accuracy": 0.6666666666666666,
+        "coverage": 0.9130434782608695,
+        "identities": 23
+      }
+    },
+    "SNMOT-102": {
+      "frame_vote": {
+        "accuracy": 0.9166666666666666,
+        "coverage": 0.96,
+        "identities": 25
+      },
+      "identity_cluster": {
+        "accuracy": 0.9545454545454546,
+        "coverage": 0.88,
+        "identities": 25
+      },
+      "reid_cluster": {
+        "accuracy": 0.8695652173913043,
+        "coverage": 0.92,
+        "identities": 25
+      }
+    },
+    "SNMOT-112": {
+      "frame_vote": {
+        "accuracy": 0.9047619047619048,
+        "coverage": 0.875,
+        "identities": 24
+      },
+      "identity_cluster": {
+        "accuracy": 0.8947368421052632,
+        "coverage": 0.7916666666666666,
+        "identities": 24
+      },
+      "reid_cluster": {
+        "accuracy": 0.5714285714285714,
+        "coverage": 0.875,
+        "identities": 24
+      }
+    },
+    "SNMOT-115": {
+      "frame_vote": {
+        "accuracy": 0.9545454545454546,
+        "coverage": 1.0,
+        "identities": 22
+      },
+      "identity_cluster": {
+        "accuracy": 1.0,
+        "coverage": 0.8636363636363636,
+        "identities": 22
+      },
+      "reid_cluster": {
+        "accuracy": 0.9473684210526315,
+        "coverage": 0.8636363636363636,
+        "identities": 22
+      }
+    },
+    "SNMOT-165": {
+      "frame_vote": {
+        "accuracy": 0.5454545454545454,
+        "coverage": 0.9565217391304348,
+        "identities": 23
+      },
+      "identity_cluster": {
+        "accuracy": 1.0,
+        "coverage": 0.8695652173913043,
+        "identities": 23
+      },
+      "reid_cluster": {
+        "accuracy": 0.5,
+        "coverage": 0.8695652173913043,
+        "identities": 23
+      }
+    },
+    "SNMOT-166": {
+      "frame_vote": {
+        "accuracy": 0.5714285714285714,
+        "coverage": 1.0,
+        "identities": 21
+      },
+      "identity_cluster": {
+        "accuracy": 1.0,
+        "coverage": 0.9523809523809523,
+        "identities": 21
+      },
+      "reid_cluster": {
+        "accuracy": 0.5,
+        "coverage": 0.8571428571428571,
+        "identities": 21
+      }
+    },
+    "SNMOT-169": {
+      "frame_vote": {
+        "accuracy": 0.5416666666666666,
+        "coverage": 1.0,
+        "identities": 24
+      },
+      "identity_cluster": {
+        "accuracy": 1.0,
+        "coverage": 0.9166666666666666,
+        "identities": 24
+      },
+      "reid_cluster": {
+        "accuracy": 1.0,
+        "coverage": 0.875,
+        "identities": 24
+      }
+    }
+  }
+}

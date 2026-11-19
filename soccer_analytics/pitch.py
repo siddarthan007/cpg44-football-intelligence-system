@@ -14,7 +14,7 @@ the reference repos):
 
 from __future__ import annotations
 
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Dict, Optional, Sequence
 
 import numpy as np
 import yaml
@@ -25,12 +25,25 @@ from .view import ViewTransformer
 
 def known_lines(pc: PitchConfig) -> Dict[str, tuple]:
     """Pitch lines usable as calibration constraints: name → (axis, value)."""
+    if pc.kind == "futsal":
+        # only full-length straight lines; the penalty area is mostly arcs
+        return {"far_touchline": ("y", 0.0), "near_touchline": ("y", pc.width),
+                "halfway": ("x", pc.length / 2.0), "left_goal_line": ("x", 0.0), "right_goal_line": ("x", pc.length)}
     return {
         "far_touchline": ("y", 0.0),
         "near_touchline": ("y", pc.width),
         "halfway": ("x", pc.length / 2.0),
         "left_goal_line": ("x", 0.0),
         "right_goal_line": ("x", pc.length),
+        # penalty-area and goal-area edges: visible in most attacking views
+        "left_box_front": ("x", pc.penalty_box_length),
+        "right_box_front": ("x", pc.length - pc.penalty_box_length),
+        "left_goal_area_front": ("x", pc.goal_box_length),
+        "right_goal_area_front": ("x", pc.length - pc.goal_box_length),
+        "box_far_edge": ("y", pc.width / 2 - pc.penalty_box_width / 2),
+        "box_near_edge": ("y", pc.width / 2 + pc.penalty_box_width / 2),
+        "goal_area_far_edge": ("y", pc.width / 2 - pc.goal_box_width / 2),
+        "goal_area_near_edge": ("y", pc.width / 2 + pc.goal_box_width / 2),
     }
 
 
@@ -42,7 +55,7 @@ def view_from_named_points(named_px: Dict[str, Sequence[float]],
     """Fit a homography from {landmark_name: [px_x, px_y]} plus optional
     {line_name: [[px_x,px_y], ...]} points on known pitch lines and optional
     ``circle_pts`` = [[px_x,px_y], ...] points ON the centre circle. Line and
-    circle constraints anchor the fit across the frame — vital when the point
+    circle constraints anchor the fit across the frame, vital when the point
     landmarks only cover a small region (and hand-clicked "circle top/bottom"
     are biased under perspective)."""
     from .view import fit_homography_lines
@@ -60,7 +73,7 @@ def view_from_named_points(named_px: Dict[str, Sequence[float]],
             continue
         p = [float(px[0]), float(px[1])]
         if has_constraints and name in circle_names:
-            # clicked "circle extremes" are the ELLIPSE's extremes — biased as
+            # clicked "circle extremes" are the ELLIPSE's extremes, biased as
             # point correspondences. Use them to bootstrap + as on-circle
             # constraints (which is what they truly are).
             init_img.append(p); init_pitch.append(list(template[name]))
@@ -90,24 +103,61 @@ def view_from_named_points(named_px: Dict[str, Sequence[float]],
     return ViewTransformer(H=H, pitch_length=pc.length, pitch_width=pc.width)
 
 
+def calibration_meta(path: str) -> dict:
+    """Pitch size, lens curvature and camera mode stored with a calibration.
+
+    Older files without these keys mean: FIFA 105 x 68 m, pinhole lens,
+    camera mode decided by the pipeline ("auto")."""
+    with open(path, "r", encoding="utf-8") as fh:
+        data = yaml.safe_load(fh) or {}
+    pitch = data.get("pitch") or {}
+    lens = data.get("lens") or {}
+    return {
+        "pitch_length": float(pitch.get("length", 105.0)),
+        "pitch_width": float(pitch.get("width", 68.0)),
+        "pitch_kind": str(pitch.get("kind", "football")),
+        "k1": float(lens.get("k1", 0.0)),
+        "camera": str(data.get("camera", "auto")),
+        "image_size": data.get("image_size"),
+    }
+
+
 def load_calibration(path: str, pc: Optional[PitchConfig] = None) -> ViewTransformer:
-    """Load a calibration YAML written by :mod:`soccer_analytics.calibrate`.
+    """Load a calibration YAML (CLI tool or the web Pitch setup).
 
     Format::
 
-        points:
-          tl_corner:   [110, 1035]
-          tr_corner:   [1640, 915]
-          half_top:    [905, 250]
-          ...
+        points: {tl_corner: [110, 1035], ...}       # clicked pixels (as seen)
+        lines:  {halfway: [[x, y], ...]}            # optional constraints
+        pitch:  {length: 100, width: 64}            # optional, metres
+        lens:   {k1: -0.12}                         # optional radial curvature
+        homography: [[...], [...], [...]]           # optional, image -> pitch
+        camera: fixed | panning | auto
+
+    When ``homography`` is present (e.g. after snapping to painted lines) it
+    is used directly; it refers to the *undistorted* image when k1 != 0.
     """
-    pc = pc or PitchConfig()
+    meta = calibration_meta(path)
+    if pc is None or (pc.length, pc.width) != (meta["pitch_length"], meta["pitch_width"]):
+        pc = PitchConfig.for_kind(meta["pitch_kind"], meta["pitch_length"], meta["pitch_width"])
     with open(path, "r", encoding="utf-8") as fh:
         data = yaml.safe_load(fh)
-    pts = data.get("points", data)
+    if data.get("homography") is not None:
+        H = np.asarray(data["homography"], float)
+        if H.shape == (3, 3) and np.isfinite(H).all():
+            return ViewTransformer(H=H / H[2, 2], pitch_length=pc.length, pitch_width=pc.width)
+    pts = dict(data.get("points", data))
     lines = data.get("lines")
     circle = data.get("circle")
-    return view_from_named_points({k: v for k, v in pts.items()}, pc, lines, circle)
+    k1 = meta["k1"]
+    if k1 and meta["image_size"]:
+        from .lens import undistort_points
+        w, h = meta["image_size"]
+        und = lambda v: undistort_points([v], k1, w, h)[0].tolist()
+        pts = {k: und(v) for k, v in pts.items()}
+        lines = {k: [und(v) for v in vs] for k, vs in (lines or {}).items()} or None
+        circle = [und(v) for v in circle] if circle else None
+    return view_from_named_points(pts, pc, lines, circle)
 
 
 def save_calibration(path: str, named_px: Dict[str, Sequence[float]]) -> None:

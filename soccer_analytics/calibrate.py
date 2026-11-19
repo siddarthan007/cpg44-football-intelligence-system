@@ -1,5 +1,5 @@
 """Interactive pitch calibration: click known landmarks on a video frame to build
-the image→pitch homography calibration file.
+the image to pitch homography calibration file.
 
 Usage:
     python -m soccer_analytics.calibrate --video match.mp4 --out camera1.yaml
@@ -18,14 +18,14 @@ penalty spots, centre).
 from __future__ import annotations
 
 import argparse
-from typing import Dict, List, Tuple
+from typing import Dict, Tuple
 
 import cv2
 
 from .config import PitchConfig
 from .pitch import save_calibration
 
-# a sensible click order — the most useful, easiest-to-see landmarks first
+# a sensible click order, the most useful, easiest-to-see landmarks first
 SUGGESTED_ORDER = [
     "tl_corner", "tr_corner", "br_corner", "bl_corner",
     "half_top", "half_bottom", "centre",
@@ -61,7 +61,7 @@ def main(argv=None) -> int:
             cv2.circle(disp, (int(x), int(y)), 5, (0, 255, 0), -1)
             cv2.putText(disp, name, (int(x) + 6, int(y)),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
-        cur = order[idx[0]] if idx[0] < len(order) else "(done — press s to save)"
+        cur = order[idx[0]] if idx[0] < len(order) else "(done, press s to save)"
         cv2.putText(disp, f"CLICK: {cur}   [{len(picked)} set]  n=skip u=undo s=save q=quit",
                     (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
         cv2.imshow("calibrate", disp)
@@ -91,7 +91,7 @@ def main(argv=None) -> int:
     cv2.destroyAllWindows()
 
     if len(picked) < 4:
-        print(f"only {len(picked)} landmarks — need ≥4 for a homography; not saved")
+        print(f"only {len(picked)} landmarks, need ≥4 for a homography; not saved")
         return 2
     save_calibration(args.out, picked)
     print(f"saved {len(picked)} landmarks to {args.out}")

@@ -9,12 +9,12 @@ Algorithms
   the share of the pitch each team is nearest to = space control %. A coarse grid
   keeps it real-time. Also returns the control grid for the dashboard overlay.
 * **Team shape:** centroid, width, depth, compactness, defensive-line height,
-  block length — instantaneous and time-averaged.
+  block length, instantaneous and time-averaged.
 * **Pressing intensity:** opponents within a radius of the ball / ball carrier.
 * **Numerical superiority by thirds:** player counts per third per team.
 * **Phase detection:** in-possession / out-of-possession / transition.
 
-Pure NumPy over pitch-metre coordinates — unit-testable.
+Pure NumPy over pitch-metre coordinates, unit-testable.
 """
 
 from __future__ import annotations
@@ -139,7 +139,7 @@ class TacticalEngine:
         self._last_grid = None
 
     def attack_dir(self, team: int) -> int:
-        """Attacking direction (+1 → goal at x=L). LATCHED from the early game,
+        """Attacking direction (+1 to goal at x=L). LATCHED from the early game,
         when teams are in their own halves (kickoff/build-up), so it does not
         invert once a team pushes up and camps in the opponent's half. Assumes the
         clip starts before an end-swap; reset the engine at halftime for a new one."""
@@ -149,7 +149,7 @@ class TacticalEngine:
         if not allx:
             return 1 if team == 1 else -1        # fallback until data arrives
         d = 1 if np.mean(allx) < self.pc.length / 2 else -1
-        if self._nframes >= 50:                  # enough early frames → latch
+        if self._nframes >= 50:                  # enough early frames to latch
             self._attack_dir_latched[team] = d
         return d
 
@@ -191,7 +191,7 @@ class TacticalEngine:
                 snap.pressing[t] = pressing_intensity(pos_lists[t], ball)
                 self._acc[t]["press"].append(snap.pressing[t])
 
-        # pitch control (coarse Voronoi) — computed on a cadence to save cost, but
+        # pitch control (coarse Voronoi), computed on a cadence to save cost, but
         # carried forward on the in-between frames so the live display doesn't strobe
         if compute_control:
             ctrl, grid = pitch_control(pos_lists, self.pc)
@@ -212,13 +212,13 @@ class TacticalEngine:
     def _phase(self, team: int) -> str:
         recent = list(self._phase_hist)
         if not recent:
-            return "—"
+            return " - "
         cur = recent[-1]
         changed = len(set(recent[-5:])) > 1
         if cur == team:
-            return "transition→attack" if changed else "in possession"
+            return "transition to attack" if changed else "in possession"
         if cur and cur != team:
-            return "transition→defend" if changed else "out of possession"
+            return "transition to defend" if changed else "out of possession"
         return "loose"
 
     def _line_height(self, positions, adir: int) -> float:
@@ -228,7 +228,7 @@ class TacticalEngine:
         depth = np.sort(xs * adir)
         deepest = depth[1:5] if len(depth) > 5 else depth[: max(1, len(depth) // 2)]
         # metres from own goal: deepest already = x*adir, so add directly (adir=+1
-        # → x; adir=-1 → L - x). Re-applying adir here double-counts the sign.
+        # to x; adir=-1 to L - x). Re-applying adir here double-counts the sign.
         base = 0 if adir > 0 else self.pc.length
         return float(np.mean(np.abs(base + deepest)))
 
@@ -262,26 +262,26 @@ class TacticalEngine:
         L, W = self.pc.length, self.pc.width
         recs: List[str] = []
         if r.avg_control and r.avg_control < 40:
-            recs.append(f"Low space control ({r.avg_control:.0f}%) — push the block "
+            recs.append(f"Low space control ({r.avg_control:.0f}%), push the block "
                         f"higher and press to reclaim territory.")
         if r.avg_width < 0.35 * W:
-            recs.append(f"Narrow ({r.avg_width:.0f} m) — use the width to stretch the "
+            recs.append(f"Narrow ({r.avg_width:.0f} m), use the width to stretch the "
                         f"opponent and open central lanes.")
         if r.avg_width > 0.78 * W:
-            recs.append("Over-stretched — tuck full-backs in when defending to protect "
+            recs.append("Over-stretched, tuck full-backs in when defending to protect "
                         "the centre.")
         if r.avg_compactness > 0.30 * L:
-            recs.append(f"Loose block (compactness {r.avg_compactness:.0f} m) — compress "
+            recs.append(f"Loose block (compactness {r.avg_compactness:.0f} m), compress "
                         f"lines vertically to deny space between them.")
         if r.avg_line_height > 0.62 * L:
-            recs.append(f"High line ({r.avg_line_height:.0f} m) — vulnerable in behind; "
+            recs.append(f"High line ({r.avg_line_height:.0f} m), vulnerable in behind; "
                         f"add cover or time the press better.")
         if r.avg_pressing and r.avg_pressing < 1.0 and r.possession_pct < 45:
-            recs.append("Passive out of possession — commit more players to pressing "
+            recs.append("Passive out of possession, commit more players to pressing "
                         "the ball to force turnovers higher up.")
         if r.time_in_att_third_pct < 20 and r.possession_pct > 50:
-            recs.append("Possession without penetration — progress the ball into the "
+            recs.append("Possession without penetration, progress the ball into the "
                         "attacking third earlier (verticality).")
         if not recs:
-            recs.append("Shape and control within normal ranges — hold structure.")
+            recs.append("Shape and control within normal ranges, hold structure.")
         return recs

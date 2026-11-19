@@ -32,6 +32,7 @@ export interface LoadIndicator {
   severity: string | null;
   factors?: Record<string, unknown>;
   model: string;
+  evidence_ready?: boolean;
   medical_prediction: false;
 }
 
@@ -53,9 +54,20 @@ export interface LivePlayer {
   metabolic_power?: number | null;
   player_load?: number | null;
   wearable: boolean;
+  position_status?: 'observed' | 'rejected' | 'unprojectable' | 'unknown';
+  identity_status?: 'roster_bound' | 'track_only';
   wearable_metrics?: Record<string, unknown> | null;
   load?: Record<string, number> | null;
   load_indicator?: LoadIndicator;
+  readiness?: {
+    status: 'signal_limited' | 'building_baseline' | 'monitoring' | 'check_in';
+    action: string;
+    reason: string;
+    sources: string[];
+    observed_seconds?: number;
+    hr_drift_bpm?: number;
+    work_rate_change_pct?: number | null;
+  };
 }
 
 export interface DataQuality {
@@ -65,13 +77,45 @@ export interface DataQuality {
   simultaneous_players?: number;
   speed_cap_fraction?: number;
   ball_observed?: boolean;
+  positioned_players?: number;
+  team_assigned_players?: number;
+  roster_bound_players?: number;
+  ambiguous_reidentifications?: number;
+  calibration?: { valid: boolean; flow_inliers?: number; flow_inlier_ratio?: number };
   warnings: string[];
 }
 
+export interface LiveEvent {
+  frame: number;
+  type: 'pass' | 'throw_in' | string;
+  team: number;
+  from_track?: number;
+  to_track?: number;
+  x?: number;
+  y?: number;
+  side?: string;
+}
+
+export interface HeatmapGrid {
+  rows: number;
+  cols: number;
+  length_m: number;
+  width_m: number;
+  cells: number[];
+  seconds?: number[];
+  observed_player_seconds?: number;
+  unit?: 'player_seconds';
+}
+
 export interface LivePayload {
+  coach_insights?: import('./analysis').Insight[];
+  performance?: { stages: Record<string, { p50_ms: number; p95_ms: number; samples: number }> };
   timestamp: number;
   source_kind?: 'recorded_file' | 'live_camera' | 'unknown';
   frame_index?: number;
+  loop_count?: number;
+  source_fps?: number;
+  processing_fps?: number;
   match_id: string;
   match_name?: string;
   match: Match;
@@ -81,10 +125,24 @@ export interface LivePayload {
   ball: { x: number; y: number } | null;
   possession_pct: Record<string, number>;
   passes: Record<string, number>;
+  events?: LiveEvent[];
+  throw_ins?: number;
+  heatmap?: HeatmapGrid | null;
   passing_network: Record<string, unknown>;
   timeline_tags: Array<{ id: string; time: number; label: string }>;
   shots_xg: Record<string, { shots?: number; xg?: number }>;
   tactics: Record<string, Record<string, unknown>>;
+  pass_options?: Array<{
+    carrier: number;
+    receiver: number;
+    score: number;
+    openness: number;
+    lane: number;
+    progress: number;
+    x: number;
+    y: number;
+    model: string;
+  }>;
   substitution_watch: Array<Record<string, unknown>>;
   recommendations?: string[];
   data_quality: DataQuality;

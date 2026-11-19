@@ -1,7 +1,7 @@
 """Neutral load/injury data types shared by :mod:`soccer_analytics.catapult`
 (which produces them) and :mod:`soccer_analytics.sensors` (which consumes them).
 
-Kept in its own module — with no dependency on either package — so the two can
+Kept in its own module, with no dependency on either package, so the two can
 reference these types without an import cycle.
 """
 
@@ -13,11 +13,12 @@ from typing import Dict
 
 @dataclass
 class WorkloadFeatures:
-    """Accumulated per-player load features — the injury model's input vector.
+    """Accumulated per-player load features, the injury model's input vector.
 
     Catapult-aligned: external load comes from vision (distance, speed zones, HSR,
-    sprints, accel/decel efforts, metabolic power/energy) and — when the wearable
-    is present — internal load (HR/SpO2) and true IMU PlayerLoad augment it."""
+    sprints, accel/decel efforts, metabolic power/energy) and, when the wearable
+    is present, internal load from the chest ECG (heart rate, TRIMP) and true
+    IMU PlayerLoad augment it."""
     player_id: int
     total_distance: float = 0.0           # m
     hsr_distance: float = 0.0             # high-speed-running distance, m (>5.5 m/s)
@@ -35,7 +36,7 @@ class WorkloadFeatures:
     avg_hr: float = float("nan")
     max_hr: float = float("nan")
     hr_drift: float = 0.0                 # late-vs-early HR rise (fatigue proxy)
-    min_spo2: float = float("nan")
+    trimp: float = float("nan")           # Edwards TRIMP: minutes in HR zones x zone weight
     acwr: float = float("nan")            # acute:chronic workload ratio
     duration_s: float = 0.0
 
@@ -53,7 +54,7 @@ class WorkloadFeatures:
             "top_speed": self.top_speed,
             "avg_hr": self.avg_hr,
             "hr_drift": self.hr_drift,
-            "min_spo2": self.min_spo2,
+            "trimp": self.trimp,
             "acwr": self.acwr,
         }
 

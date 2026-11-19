@@ -1,7 +1,7 @@
 # How CPG44 works
 
 A camera shows player, team and ball movement. The wearable measures motion,
-raw optical pulse signals and GPS. The project PC joins both using player ID and
+a chest ECG and GPS. The project PC joins both using player ID and
 time.
 
 ```text
@@ -14,9 +14,10 @@ the PC can reconnect. It does not store match files.
 
 ## Wearable values
 
-The tested firmware sends raw MAX30102 red/IR values, MPU6050 motion and NEO-6M
-GPS. The PC calculates BPM and estimated SpO2. Weak contact, strong movement or
-poor optical agreement causes a blank result instead of a made-up value.
+The firmware sends raw AD8232 ECG samples, MPU6050 motion and NEO-6M GPS. The
+PC finds each heartbeat and calculates heart rate and heart-rate variability.
+An electrode off the skin or a noisy signal gives a blank result instead of a
+made-up value.
 
 ## Video values
 

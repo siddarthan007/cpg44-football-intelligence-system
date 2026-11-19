@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compatibility wrapper — canonical hub lives in the capstone repo."""
+"""Compatibility wrapper, canonical hub lives in the capstone repo."""
 import runpy
 from pathlib import Path
 

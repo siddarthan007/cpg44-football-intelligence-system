@@ -27,10 +27,20 @@ show that the training pipeline runs. The 30-epoch record ends with validation
 precision 0.8435, recall 0.7318, AP$_{50}$ 0.7476, and AP$_{50:95}$ 0.4589 on
 its recorded split. These values are not a campus deployment result.
 
-On August 20, 2026, all 53 project tests, frontend lint, and frontend production
+On August 21, 2026, all 56 project tests, frontend lint, and frontend production
 build passed. The supported \texttt{wearable\_stream} firmware compiled for the
 ESP32-S3 at 31 percent flash and 8 percent dynamic memory. Hardware reference
 tests are still reported separately from compilation and software tests.
+
+Three live-view additions were completed after the first prototype. Team tags
+now follow kit colours calibrated on the review page, so the two sides keep the
+correct label through a full session. Passes and throw-ins detected from
+tracking appear in a dashboard event feed with frame, team, and position. A
+pitch heatmap built from measured positions is drawn on both the live and
+review pages. On the project PC with the RTX 5060 laptop GPU and TensorRT
+weights, the processing loop held 40 to 45 frames per second over a 300-frame
+run at 960 pixel input size, which covers the 24 to 30 frames per second target
+with room for the wearable fusion work in the same loop.
 
 \subsection{Conclusions}
 The mid-semester prototype gives a working path from camera and wearable data to

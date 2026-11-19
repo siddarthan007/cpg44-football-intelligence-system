@@ -1,0 +1,5470 @@
+{
+  "scope": "Active source, scripts, tests and frontend. Reference trees, model binaries, datasets and report artifacts are excluded.",
+  "root_directories": [
+    "__pycache__",
+    "backend",
+    "configs",
+    "data",
+    "demo",
+    "demo_out",
+    "docker",
+    "docs",
+    "firmware",
+    "football-intelligence-system",
+    "frontend",
+    "mid_sem_report_guide",
+    "mid_sem_submission_2026",
+    "midsem_presentation",
+    "presentation_deck",
+    "proposal_report",
+    "reference_capstone",
+    "runs",
+    "scripts",
+    "soccer_analytics",
+    "tests"
+  ],
+  "source_files": [
+    {
+      "path": "soccer_analytics/__init__.py",
+      "language": "python",
+      "sha256": "b44040b50e0d5b5340301709fa54ece4221abddda82c93e19638e027a5fe5df0",
+      "lines": 29,
+      "imports": [],
+      "symbols": [],
+      "endpoints": []
+    },
+    {
+      "path": "soccer_analytics/annotate.py",
+      "language": "python",
+      "sha256": "d9976ae02ea0b28e562e131d10af6639d6834a68f47c84b8c437f25ad249b228",
+      "lines": 103,
+      "imports": [
+        "__future__:annotations",
+        "cv2",
+        "numpy",
+        "typing:Dict,List,Optional,Tuple"
+      ],
+      "symbols": [
+        {
+          "name": "draw_player",
+          "line": 18,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "draw_prediction",
+          "line": 57,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "draw_ball",
+          "line": 68,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "draw_possession",
+          "line": 78,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "overlay_radar",
+          "line": 93,
+          "kind": "FunctionDef"
+        }
+      ],
+      "endpoints": []
+    },
+    {
+      "path": "soccer_analytics/calibrate.py",
+      "language": "python",
+      "sha256": "daec9f51c3a7e33ac7b17b075368cd2c15d6b70d39d2e87dee6cb870220484ec",
+      "lines": 102,
+      "imports": [
+        ".config:PitchConfig",
+        ".pitch:save_calibration",
+        "__future__:annotations",
+        "argparse",
+        "cv2",
+        "typing:Dict,List,Tuple"
+      ],
+      "symbols": [
+        {
+          "name": "main",
+          "line": 37,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "redraw",
+          "line": 58,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "on_mouse",
+          "line": 69,
+          "kind": "FunctionDef"
+        }
+      ],
+      "endpoints": []
+    },
+    {
+      "path": "soccer_analytics/catapult.py",
+      "language": "python",
+      "sha256": "186fe043ff9f90e6ab8c72894258d53a8170f9fb83660b85ed2f2370f69f6494",
+      "lines": 220,
+      "imports": [
+        ".loadtypes:WorkloadFeatures",
+        "__future__:annotations",
+        "collections:defaultdict",
+        "math",
+        "numpy",
+        "typing:Dict,List,Optional,Tuple"
+      ],
+      "symbols": [
+        {
+          "name": "energy_cost",
+          "line": 51,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "_zone",
+          "line": 63,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "_Acc",
+          "line": 70,
+          "kind": "ClassDef"
+        },
+        {
+          "name": "__init__",
+          "line": 71,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "LoadEngine",
+          "line": 96,
+          "kind": "ClassDef"
+        },
+        {
+          "name": "__init__",
+          "line": 99,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "set_mass",
+          "line": 105,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "set_history",
+          "line": 108,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "update",
+          "line": 111,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "features",
+          "line": 181,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "_acwr",
+          "line": 210,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "all_features",
+          "line": 219,
+          "kind": "FunctionDef"
+        }
+      ],
+      "endpoints": []
+    },
+    {
+      "path": "soccer_analytics/config.py",
+      "language": "python",
+      "sha256": "10aa84c311982c46f41f830fdb0407ce944103279440e187e611cc808fb10707",
+      "lines": 88,
+      "imports": [
+        "__future__:annotations",
+        "dataclasses:dataclass,field",
+        "typing:Dict,List,Tuple"
+      ],
+      "symbols": [
+        {
+          "name": "PitchConfig",
+          "line": 17,
+          "kind": "ClassDef"
+        },
+        {
+          "name": "named_points",
+          "line": 27,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "PipelineConfig",
+          "line": 72,
+          "kind": "ClassDef"
+        }
+      ],
+      "endpoints": []
+    },
+    {
+      "path": "soccer_analytics/core.py",
+      "language": "python",
+      "sha256": "1ad6910be7279fef135fd268dcc719e1a8b42fa1ac6bc1ec84ac2cdbf1b8507a",
+      "lines": 60,
+      "imports": [
+        "__future__:annotations",
+        "dataclasses:dataclass,field",
+        "numpy",
+        "typing:Optional"
+      ],
+      "symbols": [
+        {
+          "name": "Detections",
+          "line": 15,
+          "kind": "ClassDef"
+        },
+        {
+          "name": "__len__",
+          "line": 22,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "empty",
+          "line": 26,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "__getitem__",
+          "line": 30,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "of_class",
+          "line": 36,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "foot_points",
+          "line": 43,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "centers",
+          "line": 51,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "bbox_widths",
+          "line": 58,
+          "kind": "FunctionDef"
+        }
+      ],
+      "endpoints": []
+    },
+    {
+      "path": "soccer_analytics/dashboard.py",
+      "language": "python",
+      "sha256": "12ba23ef8075221b93028d8af7a89bd2bcfac03bf4078620c0f047526d31672c",
+      "lines": 275,
+      "imports": [
+        ".annotate:TEAM_BGR",
+        "__future__:annotations",
+        "cv2",
+        "dataclasses:dataclass,field",
+        "numpy",
+        "os",
+        "socket",
+        "typing:Dict,List,Optional"
+      ],
+      "symbols": [
+        {
+          "name": "DashboardState",
+          "line": 32,
+          "kind": "ClassDef"
+        },
+        {
+          "name": "_text",
+          "line": 43,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "_wrap",
+          "line": 47,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "_possession",
+          "line": 59,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "_team_perf",
+          "line": 71,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "_player_table",
+          "line": 94,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "_wearable_strip",
+          "line": 118,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "_recs",
+          "line": 133,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "render_dashboard_panel",
+          "line": 143,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "compose_dashboard",
+          "line": 163,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "display_available",
+          "line": 208,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "Dashboard",
+          "line": 231,
+          "kind": "ClassDef"
+        },
+        {
+          "name": "__init__",
+          "line": 237,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "show_composite",
+          "line": 247,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "wait",
+          "line": 270,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "close",
+          "line": 273,
+          "kind": "FunctionDef"
+        }
+      ],
+      "endpoints": []
+    },
+    {
+      "path": "soccer_analytics/data_split.py",
+      "language": "python",
+      "sha256": "51b89497d3c413182dd56ad24615ff1e538affe2d046fb8227a39d64d6577e6d",
+      "lines": 45,
+      "imports": [
+        "hashlib",
+        "pathlib:Path",
+        "re",
+        "yaml"
+      ],
+      "symbols": [
+        {
+          "name": "validate_training_data",
+          "line": 9,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "split_sequences",
+          "line": 26,
+          "kind": "FunctionDef"
+        }
+      ],
+      "endpoints": []
+    },
+    {
+      "path": "soccer_analytics/device.py",
+      "language": "python",
+      "sha256": "34580b0fb75defa2240419e0a6fc84f9be8d6cc4d6ae9d9d766d6473cd9f47b3",
+      "lines": 67,
+      "imports": [
+        "__future__:annotations",
+        "dataclasses:dataclass",
+        "torch"
+      ],
+      "symbols": [
+        {
+          "name": "DeviceInfo",
+          "line": 16,
+          "kind": "ClassDef"
+        },
+        {
+          "name": "resolve_device",
+          "line": 24,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "recommend_batch_imgsz",
+          "line": 38,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "describe",
+          "line": 62,
+          "kind": "FunctionDef"
+        }
+      ],
+      "endpoints": []
+    },
+    {
+      "path": "soccer_analytics/evaluation.py",
+      "language": "python",
+      "sha256": "2de6fa01286c7baf293867af49cfc81d0f9cb2a15c2aafe8ed0a1ced3b2807a8",
+      "lines": 148,
+      "imports": [
+        "__future__:annotations",
+        "argparse",
+        "collections:Counter",
+        "hashlib",
+        "json",
+        "numpy",
+        "pathlib:Path",
+        "scipy.optimize:linear_sum_assignment"
+      ],
+      "symbols": [
+        {
+          "name": "read_frames",
+          "line": 20,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "_players",
+          "line": 38,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "evaluate_frames",
+          "line": 55,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "ratio",
+          "line": 101,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "_sha256",
+          "line": 123,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "main",
+          "line": 131,
+          "kind": "FunctionDef"
+        }
+      ],
+      "endpoints": []
+    },
+    {
+      "path": "soccer_analytics/filters.py",
+      "language": "python",
+      "sha256": "71d0202d0a9e1c5afd44e64ee38ec30fc0d42e02eb139f90aa1eecaacdae2cd4",
+      "lines": 180,
+      "imports": [
+        "__future__:annotations",
+        "numpy",
+        "typing:Optional,Tuple"
+      ],
+      "symbols": [
+        {
+          "name": "TrackKalman",
+          "line": 25,
+          "kind": "ClassDef"
+        },
+        {
+          "name": "__init__",
+          "line": 28,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "_F",
+          "line": 45,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "_Q",
+          "line": 53,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "init",
+          "line": 64,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "step",
+          "line": 69,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "initialized",
+          "line": 107,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "position",
+          "line": 111,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "velocity",
+          "line": 115,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "speed",
+          "line": 119,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "acceleration",
+          "line": 125,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "accel_mag",
+          "line": 129,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "BallKalman",
+          "line": 135,
+          "kind": "ClassDef"
+        },
+        {
+          "name": "__init__",
+          "line": 138,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "KalmanBank",
+          "line": 142,
+          "kind": "ClassDef"
+        },
+        {
+          "name": "__init__",
+          "line": 151,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "update",
+          "line": 159,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "prune",
+          "line": 172,
+          "kind": "FunctionDef"
+        }
+      ],
+      "endpoints": []
+    },
+    {
+      "path": "soccer_analytics/heatmap.py",
+      "language": "python",
+      "sha256": "af00b95f2bd3af94de7d18710a3d709d160e29a25ee6e698d89ec1e686f7f3e9",
+      "lines": 187,
+      "imports": [
+        ".config:PitchConfig",
+        "__future__:annotations",
+        "cv2",
+        "matplotlib",
+        "matplotlib.patches",
+        "matplotlib.pyplot",
+        "numpy",
+        "scipy.ndimage:gaussian_filter",
+        "typing:Dict,List,Optional,Tuple"
+      ],
+      "symbols": [
+        {
+          "name": "draw_pitch",
+          "line": 30,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "generate_heatmap",
+          "line": 53,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "radar_frame",
+          "line": 78,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "to_px",
+          "line": 89,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "LiveHeatmap",
+          "line": 127,
+          "kind": "ClassDef"
+        },
+        {
+          "name": "__init__",
+          "line": 131,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "add",
+          "line": 139,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "grid_snapshot",
+          "line": 155,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "render",
+          "line": 176,
+          "kind": "FunctionDef"
+        }
+      ],
+      "endpoints": []
+    },
+    {
+      "path": "soccer_analytics/hub.py",
+      "language": "python",
+      "sha256": "abf2dac60e766a4679c764d8c3fc4e9ae20b9750f6dbc50b32dc9752affd1e5e",
+      "lines": 6,
+      "imports": [
+        "soccer_analytics.sensors.hub:main"
+      ],
+      "symbols": [],
+      "endpoints": []
+    },
+    {
+      "path": "soccer_analytics/jersey_ocr.py",
+      "language": "python",
+      "sha256": "789ac8a38ba0a2c5d456ad2f02c2126790d51a3bc614901e0ff0456e182dc88d",
+      "lines": 160,
+      "imports": [
+        "__future__:annotations",
+        "collections:Counter,defaultdict",
+        "cv2",
+        "easyocr",
+        "numpy",
+        "typing:Dict,Optional"
+      ],
+      "symbols": [
+        {
+          "name": "JerseyReader",
+          "line": 26,
+          "kind": "ClassDef"
+        },
+        {
+          "name": "__init__",
+          "line": 29,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "available",
+          "line": 43,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "read",
+          "line": 46,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "JerseyVoteTracker",
+          "line": 74,
+          "kind": "ClassDef"
+        },
+        {
+          "name": "__init__",
+          "line": 77,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "add",
+          "line": 82,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "confident_number",
+          "line": 86,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "resolve",
+          "line": 100,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "AutoBinder",
+          "line": 109,
+          "kind": "ClassDef"
+        },
+        {
+          "name": "__init__",
+          "line": 113,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "step",
+          "line": 123,
+          "kind": "FunctionDef"
+        }
+      ],
+      "endpoints": []
+    },
+    {
+      "path": "soccer_analytics/loadtypes.py",
+      "language": "python",
+      "sha256": "5592b4a2e18f15462681add0716ab7f09efb4021efb0654e684949a77fdcb06e",
+      "lines": 66,
+      "imports": [
+        "__future__:annotations",
+        "dataclasses:dataclass,field",
+        "typing:Dict"
+      ],
+      "symbols": [
+        {
+          "name": "WorkloadFeatures",
+          "line": 15,
+          "kind": "ClassDef"
+        },
+        {
+          "name": "to_vector",
+          "line": 42,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "InjuryRisk",
+          "line": 62,
+          "kind": "ClassDef"
+        }
+      ],
+      "endpoints": []
+    },
+    {
+      "path": "soccer_analytics/metrics.py",
+      "language": "python",
+      "sha256": "f75e6aca01f2e0ed5096cf3ea092f4f11e76bbf0b868f76b8c6d5e08cfbffef6",
+      "lines": 255,
+      "imports": [
+        "__future__:annotations",
+        "collections:defaultdict",
+        "dataclasses:dataclass,field",
+        "numpy",
+        "typing:Dict,List,Optional,Tuple"
+      ],
+      "symbols": [
+        {
+          "name": "Pass",
+          "line": 24,
+          "kind": "ClassDef"
+        },
+        {
+          "name": "MetricsEngine",
+          "line": 33,
+          "kind": "ClassDef"
+        },
+        {
+          "name": "__init__",
+          "line": 34,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "update",
+          "line": 76,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "_nearest_player",
+          "line": 92,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "_update_possession",
+          "line": 105,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "_update_passes",
+          "line": 126,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "_update_throw_ins",
+          "line": 156,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "possessing_team",
+          "line": 210,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "possession_pct",
+          "line": 214,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "speed_distance",
+          "line": 220,
+          "kind": "FunctionDef"
+        }
+      ],
+      "endpoints": []
+    },
+    {
+      "path": "soccer_analytics/modes.py",
+      "language": "python",
+      "sha256": "768bf1f16a50fb5e3f5119f6d516058f8a0413a45b6b524173a223bfc7e42ff8",
+      "lines": 379,
+      "imports": [
+        "__future__:annotations",
+        "cv2",
+        "dataclasses:dataclass",
+        "enum:Enum",
+        "json",
+        "os",
+        "pathlib:Path",
+        "re",
+        "subprocess",
+        "sys",
+        "threading",
+        "time",
+        "typing:Callable,Dict,Optional"
+      ],
+      "symbols": [
+        {
+          "name": "MatchMode",
+          "line": 18,
+          "kind": "ClassDef"
+        },
+        {
+          "name": "ProcessingProgress",
+          "line": 26,
+          "kind": "ClassDef"
+        },
+        {
+          "name": "EngineManager",
+          "line": 42,
+          "kind": "ClassDef"
+        },
+        {
+          "name": "__init__",
+          "line": 45,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "get_progress",
+          "line": 63,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "_default_weights",
+          "line": 67,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "_bounded_env_int",
+          "line": 81,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "live_status",
+          "line": 88,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "note_live_frame",
+          "line": 96,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "start_live_processing",
+          "line": 105,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "_monitor_live_process",
+          "line": 217,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "stop_live_processing",
+          "line": 234,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "start_upload_processing",
+          "line": 248,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "_run_upload_pipeline",
+          "line": 286,
+          "kind": "FunctionDef"
+        }
+      ],
+      "endpoints": []
+    },
+    {
+      "path": "soccer_analytics/pass_prediction.py",
+      "language": "python",
+      "sha256": "224aac7c2e3d46d28cb54afcfb496ed49a843f26bc629118361a0728b7ecc806",
+      "lines": 86,
+      "imports": [
+        "__future__:annotations",
+        "dataclasses:dataclass",
+        "numpy",
+        "typing:Dict,List,Optional,Tuple"
+      ],
+      "symbols": [
+        {
+          "name": "_lane_clearness",
+          "line": 23,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "PassOption",
+          "line": 43,
+          "kind": "ClassDef"
+        },
+        {
+          "name": "pass_options",
+          "line": 52,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "best_receiver",
+          "line": 83,
+          "kind": "FunctionDef"
+        }
+      ],
+      "endpoints": []
+    },
+    {
+      "path": "soccer_analytics/pipeline.py",
+      "language": "python",
+      "sha256": "0cd3600440bec9927b321b44c15e8360dbebe8ba4e44caeeadbe103ffce50e3a",
+      "lines": 426,
+      "imports": [
+        ".:annotate",
+        ".:heatmap",
+        ".catapult:LoadEngine",
+        ".config:PipelineConfig,PitchConfig",
+        ".core:PLAYER,REFEREE,Detections,centers,foot_points",
+        ".device:resolve_device",
+        ".filters:BallKalman,KalmanBank",
+        ".metrics:MetricsEngine",
+        ".pitch:load_calibration",
+        ".reid:ReIDManager",
+        ".sensors.injury:HeuristicInjuryModel",
+        ".shots:ShotDetector",
+        ".substitution:SubstitutionAdvisor",
+        ".tactical_engine:TacticalEngine",
+        ".team_assign:TeamAssigner",
+        ".tracker:Detector,SoccerTracker,pick_ball,interpolate_ball",
+        ".view:CameraMotionEstimator,ViewTransformer,PitchHomographyTracker",
+        "__future__:annotations",
+        "argparse",
+        "cv2",
+        "dataclasses:dataclass,field",
+        "json",
+        "numpy",
+        "pathlib:Path",
+        "time",
+        "typing:Dict,List,Optional,Tuple"
+      ],
+      "symbols": [
+        {
+          "name": "FrameRecord",
+          "line": 50,
+          "kind": "ClassDef"
+        },
+        {
+          "name": "_open_video",
+          "line": 57,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "analyze",
+          "line": 68,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "to_pitch",
+          "line": 149,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "_write_heatmaps",
+          "line": 358,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "_render_video",
+          "line": 371,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "main",
+          "line": 395,
+          "kind": "FunctionDef"
+        }
+      ],
+      "endpoints": []
+    },
+    {
+      "path": "soccer_analytics/pitch.py",
+      "language": "python",
+      "sha256": "7faeaf45dbc252ce18cc2d45898c647e3283313b6926fe3c22ba6ec1c83197dc",
+      "lines": 116,
+      "imports": [
+        ".config:PitchConfig",
+        ".view:ViewTransformer",
+        ".view:fit_homography_lines",
+        "__future__:annotations",
+        "numpy",
+        "typing:Dict,List,Optional,Sequence,Tuple",
+        "yaml"
+      ],
+      "symbols": [
+        {
+          "name": "known_lines",
+          "line": 26,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "view_from_named_points",
+          "line": 37,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "load_calibration",
+          "line": 93,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "save_calibration",
+          "line": 113,
+          "kind": "FunctionDef"
+        }
+      ],
+      "endpoints": []
+    },
+    {
+      "path": "soccer_analytics/realtime.py",
+      "language": "python",
+      "sha256": "aa579faa62035506665d0a63f3f7146820ae5e56bc1204b0157eb500f14f715a",
+      "lines": 1132,
+      "imports": [
+        ".:annotate",
+        ".config:PipelineConfig",
+        ".core:PLAYER,REFEREE,foot_points,centers",
+        ".dashboard:Dashboard,DashboardState,compose_dashboard,render_dashboard_panel",
+        ".device:resolve_device",
+        ".filters:BallKalman,KalmanBank",
+        ".heatmap:LiveHeatmap,radar_frame",
+        ".jersey_ocr:JerseyReader,AutoBinder",
+        ".metrics:MetricsEngine",
+        ".pass_prediction:pass_options",
+        ".pitch:load_calibration",
+        ".reid:ReIDManager",
+        ".sensors.schema:InjuryRisk",
+        ".sensors.source:SensorSource",
+        ".sensors:FusionEngine,HeuristicInjuryModel,RecommendationEngine,SensorVideoSync",
+        ".sensors:HubSensorSource",
+        ".sensors:InjuryRiskModel",
+        ".shots:ShotDetector",
+        ".substitution:SubstitutionAdvisor",
+        ".tactical_engine:TacticalEngine",
+        ".team_assign:TeamAssigner",
+        ".tracker:Detector,SoccerTracker,pick_ball",
+        ".trajectory:load,K_IN",
+        ".view:CameraMotionEstimator,PitchHomographyTracker,ViewTransformer",
+        "__future__:annotations",
+        "argparse",
+        "collections:defaultdict,deque",
+        "cv2",
+        "json",
+        "numpy",
+        "os",
+        "pathlib:Path",
+        "threading",
+        "time",
+        "torch",
+        "typing:Dict,Optional,Tuple",
+        "urllib.request"
+      ],
+      "symbols": [
+        {
+          "name": "LatestFrameCapture",
+          "line": 52,
+          "kind": "ClassDef"
+        },
+        {
+          "name": "__init__",
+          "line": 55,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "_capture_loop",
+          "line": 72,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "isOpened",
+          "line": 85,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "get",
+          "line": 88,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "read",
+          "line": 95,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "release",
+          "line": 106,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "LiveSnapshotPublisher",
+          "line": 115,
+          "kind": "ClassDef"
+        },
+        {
+          "name": "__init__",
+          "line": 118,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "publish",
+          "line": 124,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "publish_frame",
+          "line": 129,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "_send",
+          "line": 134,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "_send_frame",
+          "line": 150,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "RealtimePipeline",
+          "line": 170,
+          "kind": "ClassDef"
+        },
+        {
+          "name": "__init__",
+          "line": 171,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "_warmup",
+          "line": 246,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "_load_team_seeds",
+          "line": 276,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "run",
+          "line": 305,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "_xform",
+          "line": 440,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "_xform",
+          "line": 445,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "_live_snapshot",
+          "line": 633,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "finite",
+          "line": 639,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "_write_stats",
+          "line": 847,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "_predict_paths",
+          "line": 916,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "_analytics",
+          "line": 951,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "_panel",
+          "line": 988,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "main",
+          "line": 1034,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "_parse_pairs",
+          "line": 1089,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "_parse_jerseys",
+          "line": 1093,
+          "kind": "FunctionDef"
+        }
+      ],
+      "endpoints": []
+    },
+    {
+      "path": "soccer_analytics/reid.py",
+      "language": "python",
+      "sha256": "df346ff6045654a69676afb14f4537068e638a017316fe761b14134c78bf4b88",
+      "lines": 148,
+      "imports": [
+        "__future__:annotations",
+        "numpy",
+        "scipy.optimize:linear_sum_assignment",
+        "typing:Dict,List,Optional"
+      ],
+      "symbols": [
+        {
+          "name": "ReIDManager",
+          "line": 27,
+          "kind": "ClassDef"
+        },
+        {
+          "name": "__init__",
+          "line": 28,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "update",
+          "line": 46,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "_cost",
+          "line": 95,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "_touch",
+          "line": 126,
+          "kind": "FunctionDef"
+        }
+      ],
+      "endpoints": []
+    },
+    {
+      "path": "soccer_analytics/sensors/__init__.py",
+      "language": "python",
+      "sha256": "02c0ec26e559b2c631e14c9526480802098d41521b3ff210775b52a71e426fc0",
+      "lines": 36,
+      "imports": [
+        ".fusion:FusionEngine",
+        ".hub_bridge:HubSensorSource,snapshot_to_sample,sample_to_observation",
+        ".injury:InjuryRiskModel,HeuristicInjuryModel",
+        ".recommend:RecommendationEngine",
+        ".schema:SensorSample,VisionSample,FusedSample,WorkloadFeatures,InjuryRisk",
+        ".source:SensorSource,SerialSensorSource,UdpSensorSource",
+        ".sync:SensorVideoSync"
+      ],
+      "symbols": [],
+      "endpoints": []
+    },
+    {
+      "path": "soccer_analytics/sensors/fusion.py",
+      "language": "python",
+      "sha256": "91aafbe52b782ad6aa51eee85295eedd43533b05a2aab443d3a4712d2aa14bcc",
+      "lines": 58,
+      "imports": [
+        "..catapult:LoadEngine",
+        ".sync:SensorVideoSync",
+        "__future__:annotations",
+        "typing:Dict,Optional,Tuple"
+      ],
+      "symbols": [
+        {
+          "name": "FusionEngine",
+          "line": 20,
+          "kind": "ClassDef"
+        },
+        {
+          "name": "__init__",
+          "line": 21,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "step",
+          "line": 27,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "ingest_sensors",
+          "line": 57,
+          "kind": "FunctionDef"
+        }
+      ],
+      "endpoints": []
+    },
+    {
+      "path": "soccer_analytics/sensors/gps_pitch.py",
+      "language": "python",
+      "sha256": "2ff823d2bd82dd4ce1d81eeceddb12bc2802b94f4d1c05cfb1e82434e2d76222",
+      "lines": 119,
+      "imports": [
+        "..view:apply_homography",
+        "..view:fit_homography",
+        "__future__:annotations",
+        "math",
+        "numpy",
+        "scipy.ndimage:gaussian_filter",
+        "typing:Dict,List,Optional,Sequence,Tuple"
+      ],
+      "symbols": [
+        {
+          "name": "GPSPitchTransformer",
+          "line": 17,
+          "kind": "ClassDef"
+        },
+        {
+          "name": "__init__",
+          "line": 20,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "fit_corners",
+          "line": 35,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "_latlon_to_local_m",
+          "line": 67,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "gps_to_pitch",
+          "line": 78,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "generate_density_grid",
+          "line": 94,
+          "kind": "FunctionDef"
+        }
+      ],
+      "endpoints": []
+    },
+    {
+      "path": "soccer_analytics/sensors/hub.py",
+      "language": "python",
+      "sha256": "810e0b3f0099d62c94efa000f8c9826d88ed4522d99059302bbab2d020c84e18",
+      "lines": 1449,
+      "imports": [
+        ".hub_bridge:sample_to_observation,snapshot_to_sample",
+        "argparse",
+        "asyncio",
+        "collections:deque",
+        "contextlib:asynccontextmanager",
+        "dataclasses:dataclass",
+        "fastapi.middleware.cors:CORSMiddleware",
+        "fastapi.responses:JSONResponse,StreamingResponse,HTMLResponse",
+        "fastapi:FastAPI",
+        "ipaddress",
+        "json",
+        "math",
+        "numpy",
+        "os",
+        "pathlib:Path",
+        "scipy.signal:butter,detrend,find_peaks,sosfiltfilt,welch",
+        "time",
+        "urllib.parse:urlencode,urlparse,urlunparse",
+        "urllib.parse:urlparse",
+        "uvicorn",
+        "websockets.asyncio.client:connect"
+      ],
+      "symbols": [
+        {
+          "name": "c_div",
+          "line": 50,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "clamp",
+          "line": 58,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "_cardinal",
+          "line": 62,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "mono_to_unix_ns",
+          "line": 69,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "_peaks_above_min_height",
+          "line": 78,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "_remove_close_peaks",
+          "line": 98,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "maxim_reference_hr_spo2",
+          "line": 109,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "_ppg_bandpass",
+          "line": 217,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "estimate_ppg_vitals",
+          "line": 231,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "SyncPoint",
+          "line": 348,
+          "kind": "ClassDef"
+        },
+        {
+          "name": "ClockMapper",
+          "line": 354,
+          "kind": "ClassDef"
+        },
+        {
+          "name": "__init__",
+          "line": 355,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "reset",
+          "line": 363,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "add_exchange",
+          "line": 371,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "_fit",
+          "line": 382,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "valid",
+          "line": 417,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "map_ns",
+          "line": 420,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "status",
+          "line": 425,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "Mahony6D",
+          "line": 440,
+          "kind": "ClassDef"
+        },
+        {
+          "name": "__init__",
+          "line": 441,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "reset",
+          "line": 445,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "update",
+          "line": 448,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "q_rotation_matrix",
+          "line": 481,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "q_euler_deg",
+          "line": 490,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "haversine_m",
+          "line": 503,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "Broadcast",
+          "line": 516,
+          "kind": "ClassDef"
+        },
+        {
+          "name": "__init__",
+          "line": 517,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "subscribe",
+          "line": 520,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "unsubscribe",
+          "line": 525,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "publish",
+          "line": 528,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "TelemetryEngine",
+          "line": 545,
+          "kind": "ClassDef"
+        },
+        {
+          "name": "__init__",
+          "line": 546,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "_record",
+          "line": 602,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "_handle_boot",
+          "line": 606,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "map_packet_timestamp",
+          "line": 620,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "ingest",
+          "line": 660,
+          "kind": "AsyncFunctionDef"
+        },
+        {
+          "name": "_process_imu",
+          "line": 709,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "_process_ppg",
+          "line": 791,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "_process_gps",
+          "line": 807,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "_motion_quality",
+          "line": 849,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "_spectral_hr",
+          "line": 863,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "calculate_vitals",
+          "line": 873,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "update_vitals",
+          "line": 967,
+          "kind": "AsyncFunctionDef"
+        },
+        {
+          "name": "snapshot",
+          "line": 1016,
+          "kind": "AsyncFunctionDef"
+        },
+        {
+          "name": "vitals_loop",
+          "line": 1073,
+          "kind": "AsyncFunctionDef"
+        },
+        {
+          "name": "relay_envelope_to_packet",
+          "line": 1082,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "_relay_websocket_url",
+          "line": 1105,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "relay_reader",
+          "line": 1115,
+          "kind": "AsyncFunctionDef"
+        },
+        {
+          "name": "process",
+          "line": 1123,
+          "kind": "AsyncFunctionDef"
+        },
+        {
+          "name": "lifespan",
+          "line": 1227,
+          "kind": "AsyncFunctionDef"
+        },
+        {
+          "name": "_dashboard_html",
+          "line": 1262,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "dashboard",
+          "line": 1267,
+          "kind": "AsyncFunctionDef"
+        },
+        {
+          "name": "dashboard_alias",
+          "line": 1279,
+          "kind": "AsyncFunctionDef"
+        },
+        {
+          "name": "how_it_works",
+          "line": 1284,
+          "kind": "AsyncFunctionDef"
+        },
+        {
+          "name": "debug_routes",
+          "line": 1303,
+          "kind": "AsyncFunctionDef"
+        },
+        {
+          "name": "health",
+          "line": 1316,
+          "kind": "AsyncFunctionDef"
+        },
+        {
+          "name": "wearable_observation",
+          "line": 1328,
+          "kind": "AsyncFunctionDef"
+        },
+        {
+          "name": "latest",
+          "line": 1341,
+          "kind": "AsyncFunctionDef"
+        },
+        {
+          "name": "vitals",
+          "line": 1346,
+          "kind": "AsyncFunctionDef"
+        },
+        {
+          "name": "processed_stream",
+          "line": 1352,
+          "kind": "AsyncFunctionDef"
+        },
+        {
+          "name": "generate",
+          "line": 1354,
+          "kind": "AsyncFunctionDef"
+        },
+        {
+          "name": "raw_stream",
+          "line": 1363,
+          "kind": "AsyncFunctionDef"
+        },
+        {
+          "name": "generate",
+          "line": 1367,
+          "kind": "AsyncFunctionDef"
+        },
+        {
+          "name": "main",
+          "line": 1382,
+          "kind": "FunctionDef"
+        }
+      ],
+      "endpoints": [
+        {
+          "method": "get",
+          "path": "/",
+          "handler": "dashboard",
+          "line": 1267
+        },
+        {
+          "method": "get",
+          "path": "/dashboard",
+          "handler": "dashboard_alias",
+          "line": 1279
+        },
+        {
+          "method": "get",
+          "path": "/how-it-works",
+          "handler": "how_it_works",
+          "line": 1284
+        },
+        {
+          "method": "get",
+          "path": "/debug/routes",
+          "handler": "debug_routes",
+          "line": 1303
+        },
+        {
+          "method": "get",
+          "path": "/health",
+          "handler": "health",
+          "line": 1316
+        },
+        {
+          "method": "get",
+          "path": "/api/v1/observations/wearable",
+          "handler": "wearable_observation",
+          "line": 1328
+        },
+        {
+          "method": "get",
+          "path": "/api/latest",
+          "handler": "latest",
+          "line": 1341
+        },
+        {
+          "method": "get",
+          "path": "/api/vitals",
+          "handler": "vitals",
+          "line": 1346
+        },
+        {
+          "method": "get",
+          "path": "/api/stream",
+          "handler": "processed_stream",
+          "line": 1352
+        },
+        {
+          "method": "get",
+          "path": "/api/raw-stream",
+          "handler": "raw_stream",
+          "line": 1363
+        }
+      ]
+    },
+    {
+      "path": "soccer_analytics/sensors/hub_bridge.py",
+      "language": "python",
+      "sha256": "74594bcbc0a69ca9561385d7e5771b6a6327bd660267053e7b05e03242873b64",
+      "lines": 200,
+      "imports": [
+        ".schema:SensorSample",
+        ".source:SensorSource",
+        "__future__:annotations",
+        "json",
+        "math",
+        "time",
+        "typing:Any,Dict,Optional",
+        "urllib.request"
+      ],
+      "symbols": [
+        {
+          "name": "_triple",
+          "line": 24,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "snapshot_to_sample",
+          "line": 33,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "sample_to_observation",
+          "line": 122,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "HubSensorSource",
+          "line": 172,
+          "kind": "ClassDef"
+        },
+        {
+          "name": "__init__",
+          "line": 175,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "_fetch",
+          "line": 182,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "_produce",
+          "line": 193,
+          "kind": "FunctionDef"
+        }
+      ],
+      "endpoints": []
+    },
+    {
+      "path": "soccer_analytics/sensors/injury.py",
+      "language": "python",
+      "sha256": "ac0a2cc6ca1613da49bc9f30290db8693cdc51e227c4813baf231d6cb7d2084e",
+      "lines": 151,
+      "imports": [
+        ".schema:InjuryRisk,WorkloadFeatures",
+        "__future__:annotations",
+        "numpy",
+        "pickle",
+        "sklearn.ensemble:RandomForestClassifier",
+        "typing:List",
+        "xgboost:XGBClassifier"
+      ],
+      "symbols": [
+        {
+          "name": "features_to_array",
+          "line": 28,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "_level",
+          "line": 36,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "HeuristicInjuryModel",
+          "line": 40,
+          "kind": "ClassDef"
+        },
+        {
+          "name": "predict",
+          "line": 43,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "InjuryRiskModel",
+          "line": 89,
+          "kind": "ClassDef"
+        },
+        {
+          "name": "__init__",
+          "line": 92,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "_new_model",
+          "line": 97,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "fit",
+          "line": 109,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "predict",
+          "line": 116,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "_importances",
+          "line": 124,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "save",
+          "line": 134,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "load",
+          "line": 144,
+          "kind": "FunctionDef"
+        }
+      ],
+      "endpoints": []
+    },
+    {
+      "path": "soccer_analytics/sensors/ppg.py",
+      "language": "python",
+      "sha256": "2c2c1044ddf533055269510edb025717a314f88c4b0d6ef93cf64a41b7b1d8bd",
+      "lines": 111,
+      "imports": [
+        "__future__:annotations",
+        "math",
+        "numpy",
+        "scipy.signal:butter,sosfiltfilt,find_peaks",
+        "typing:Dict,List,Optional,Sequence,Tuple"
+      ],
+      "symbols": [
+        {
+          "name": "PPGProcessor",
+          "line": 15,
+          "kind": "ClassDef"
+        },
+        {
+          "name": "__init__",
+          "line": 18,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "process",
+          "line": 23,
+          "kind": "FunctionDef"
+        }
+      ],
+      "endpoints": []
+    },
+    {
+      "path": "soccer_analytics/sensors/recommend.py",
+      "language": "python",
+      "sha256": "32e17b17171cffd731670faaa707b2d0355c814b929aba03cff669f4648786fc",
+      "lines": 72,
+      "imports": [
+        ".schema:InjuryRisk,WorkloadFeatures",
+        "__future__:annotations",
+        "dataclasses:dataclass,field",
+        "typing:Dict,List,Optional"
+      ],
+      "symbols": [
+        {
+          "name": "Recommendation",
+          "line": 21,
+          "kind": "ClassDef"
+        },
+        {
+          "name": "as_dict",
+          "line": 27,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "RecommendationEngine",
+          "line": 32,
+          "kind": "ClassDef"
+        },
+        {
+          "name": "__init__",
+          "line": 33,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "evaluate",
+          "line": 37,
+          "kind": "FunctionDef"
+        }
+      ],
+      "endpoints": []
+    },
+    {
+      "path": "soccer_analytics/sensors/schema.py",
+      "language": "python",
+      "sha256": "042c3ec9dd53d0c9fc27ff482a631dcad1825f18aa37fd0b233d9d1f86a5a5dc",
+      "lines": 81,
+      "imports": [
+        "..loadtypes:WorkloadFeatures,InjuryRisk",
+        "__future__:annotations",
+        "dataclasses:dataclass,field",
+        "typing:Dict,Optional,Tuple"
+      ],
+      "symbols": [
+        {
+          "name": "SensorSample",
+          "line": 19,
+          "kind": "ClassDef"
+        },
+        {
+          "name": "from_json",
+          "line": 39,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "tup",
+          "line": 40,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "VisionSample",
+          "line": 57,
+          "kind": "ClassDef"
+        },
+        {
+          "name": "FusedSample",
+          "line": 67,
+          "kind": "ClassDef"
+        }
+      ],
+      "endpoints": []
+    },
+    {
+      "path": "soccer_analytics/sensors/server.py",
+      "language": "python",
+      "sha256": "7338185308aae038b3dfbeae7b7f0dec2cbcf56d79826cba3c737c0d0dba8d39",
+      "lines": 164,
+      "imports": [
+        ".schema:SensorSample",
+        ".source:SensorSource",
+        "asyncio",
+        "collections:deque",
+        "fastapi:FastAPI,Request,WebSocket,WebSocketDisconnect,HTTPException",
+        "fastapi:WebSocket,WebSocketDisconnect",
+        "threading",
+        "time",
+        "typing:Callable,List,Optional,Union",
+        "uvicorn"
+      ],
+      "symbols": [
+        {
+          "name": "create_app",
+          "line": 36,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "_auth",
+          "line": 43,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "_to_sample",
+          "line": 47,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "health",
+          "line": 53,
+          "kind": "AsyncFunctionDef"
+        },
+        {
+          "name": "ingest",
+          "line": 57,
+          "kind": "AsyncFunctionDef"
+        },
+        {
+          "name": "ws",
+          "line": 71,
+          "kind": "AsyncFunctionDef"
+        },
+        {
+          "name": "EndpointSensorSource",
+          "line": 86,
+          "kind": "ClassDef"
+        },
+        {
+          "name": "__init__",
+          "line": 93,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "start",
+          "line": 99,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "_produce",
+          "line": 111,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "stop",
+          "line": 114,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "run_relay",
+          "line": 120,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "fanout",
+          "line": 131,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "subscribe",
+          "line": 142,
+          "kind": "AsyncFunctionDef"
+        }
+      ],
+      "endpoints": [
+        {
+          "method": "get",
+          "path": "/health",
+          "handler": "health",
+          "line": 53
+        },
+        {
+          "method": "post",
+          "path": "/ingest",
+          "handler": "ingest",
+          "line": 57
+        },
+        {
+          "method": "websocket",
+          "path": "/ws",
+          "handler": "ws",
+          "line": 71
+        },
+        {
+          "method": "websocket",
+          "path": "/subscribe",
+          "handler": "subscribe",
+          "line": 142
+        }
+      ]
+    },
+    {
+      "path": "soccer_analytics/sensors/source.py",
+      "language": "python",
+      "sha256": "a0aeb5ce1244b8a2b2b22076dda9139ea552f76205b95ee5c0ec883ada5718c5",
+      "lines": 117,
+      "imports": [
+        ".schema:SensorSample",
+        "__future__:annotations",
+        "json",
+        "queue",
+        "serial",
+        "socket",
+        "threading",
+        "typing:Iterable,List,Optional"
+      ],
+      "symbols": [
+        {
+          "name": "SensorSource",
+          "line": 19,
+          "kind": "ClassDef"
+        },
+        {
+          "name": "__init__",
+          "line": 22,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "_produce",
+          "line": 28,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "start",
+          "line": 32,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "push",
+          "line": 37,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "_run",
+          "line": 49,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "drain",
+          "line": 58,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "stop",
+          "line": 68,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "SerialSensorSource",
+          "line": 72,
+          "kind": "ClassDef"
+        },
+        {
+          "name": "__init__",
+          "line": 78,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "_produce",
+          "line": 82,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "UdpSensorSource",
+          "line": 95,
+          "kind": "ClassDef"
+        },
+        {
+          "name": "__init__",
+          "line": 99,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "_produce",
+          "line": 103,
+          "kind": "FunctionDef"
+        }
+      ],
+      "endpoints": []
+    },
+    {
+      "path": "soccer_analytics/sensors/sync.py",
+      "language": "python",
+      "sha256": "9965ae4a5720746c3574d7bbdfe3dafdcd3b8730a749df90c623b1504a208980",
+      "lines": 70,
+      "imports": [
+        ".schema:SensorSample",
+        "__future__:annotations",
+        "collections:defaultdict,deque",
+        "typing:Dict,Optional"
+      ],
+      "symbols": [
+        {
+          "name": "SensorVideoSync",
+          "line": 21,
+          "kind": "ClassDef"
+        },
+        {
+          "name": "__init__",
+          "line": 22,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "bind",
+          "line": 29,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "bind_many",
+          "line": 34,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "unbind",
+          "line": 38,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "player_of",
+          "line": 41,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "track_of",
+          "line": 44,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "ingest",
+          "line": 48,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "sample_at",
+          "line": 52,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "sample_at_with_offset",
+          "line": 64,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "latest",
+          "line": 68,
+          "kind": "FunctionDef"
+        }
+      ],
+      "endpoints": []
+    },
+    {
+      "path": "soccer_analytics/shots.py",
+      "language": "python",
+      "sha256": "a6e1f8f73e4e816fce533069710a396f0adaebe29c7e9ed28a6b9971b0324808",
+      "lines": 138,
+      "imports": [
+        "__future__:annotations",
+        "dataclasses:dataclass,field",
+        "math",
+        "numpy",
+        "sklearn.linear_model:LogisticRegression",
+        "typing:Dict,List,Optional,Tuple"
+      ],
+      "symbols": [
+        {
+          "name": "shot_geometry",
+          "line": 28,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "XGModel",
+          "line": 45,
+          "kind": "ClassDef"
+        },
+        {
+          "name": "xg",
+          "line": 53,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "fit",
+          "line": 61,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "Shot",
+          "line": 73,
+          "kind": "ClassDef"
+        },
+        {
+          "name": "ShotDetector",
+          "line": 82,
+          "kind": "ClassDef"
+        },
+        {
+          "name": "__init__",
+          "line": 85,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "update",
+          "line": 95,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "summary",
+          "line": 133,
+          "kind": "FunctionDef"
+        }
+      ],
+      "endpoints": []
+    },
+    {
+      "path": "soccer_analytics/substitution.py",
+      "language": "python",
+      "sha256": "667a2a0a442c92cd25335ddffc6d34110e846a90497c901bff224f173f5e284f",
+      "lines": 153,
+      "imports": [
+        ".loadtypes:WorkloadFeatures",
+        "__future__:annotations",
+        "collections:defaultdict",
+        "dataclasses:dataclass,field",
+        "numpy",
+        "typing:Dict,List,Optional"
+      ],
+      "symbols": [
+        {
+          "name": "SubAdvice",
+          "line": 39,
+          "kind": "ClassDef"
+        },
+        {
+          "name": "as_dict",
+          "line": 48,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "SubstitutionAdvisor",
+          "line": 55,
+          "kind": "ClassDef"
+        },
+        {
+          "name": "__init__",
+          "line": 56,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "update",
+          "line": 67,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "_rate",
+          "line": 76,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "_decline",
+          "line": 83,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "advise",
+          "line": 90,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "watchlist",
+          "line": 150,
+          "kind": "FunctionDef"
+        }
+      ],
+      "endpoints": []
+    },
+    {
+      "path": "soccer_analytics/tactical_engine.py",
+      "language": "python",
+      "sha256": "f3aa56451b2739cece5589e3b1ee75a9cb2ff0ee395d0af0dd088ab5c28fee41",
+      "lines": 287,
+      "imports": [
+        ".config:PitchConfig",
+        ".tactics:estimate_formation,team_shape",
+        "__future__:annotations",
+        "collections:defaultdict,deque",
+        "dataclasses:dataclass,field",
+        "numpy",
+        "typing:Dict,List,Optional,Tuple"
+      ],
+      "symbols": [
+        {
+          "name": "pitch_control",
+          "line": 35,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "pressing_intensity",
+          "line": 61,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "thirds_count",
+          "line": 73,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "TacticalSnapshot",
+          "line": 90,
+          "kind": "ClassDef"
+        },
+        {
+          "name": "TeamTacticalReport",
+          "line": 104,
+          "kind": "ClassDef"
+        },
+        {
+          "name": "as_dict",
+          "line": 121,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "TacticalEngine",
+          "line": 128,
+          "kind": "ClassDef"
+        },
+        {
+          "name": "__init__",
+          "line": 129,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "attack_dir",
+          "line": 141,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "update",
+          "line": 156,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "_phase",
+          "line": 212,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "_line_height",
+          "line": 224,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "report",
+          "line": 236,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "_recommend",
+          "line": 259,
+          "kind": "FunctionDef"
+        }
+      ],
+      "endpoints": []
+    },
+    {
+      "path": "soccer_analytics/tactics.py",
+      "language": "python",
+      "sha256": "fd2c63f7e5803921025b405fde534be3e9238d1cf71a124b0238796a34c3f1d1",
+      "lines": 220,
+      "imports": [
+        "__future__:annotations",
+        "dataclasses:dataclass,field",
+        "numpy",
+        "typing:Dict,List,Optional,Tuple"
+      ],
+      "symbols": [
+        {
+          "name": "convex_hull_area",
+          "line": 22,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "cross",
+          "line": 29,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "team_shape",
+          "line": 46,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "estimate_formation",
+          "line": 62,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "_kmeans_1d",
+          "line": 94,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "TacticalReport",
+          "line": 115,
+          "kind": "ClassDef"
+        },
+        {
+          "name": "as_dict",
+          "line": 125,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "TacticalAnalyzer",
+          "line": 137,
+          "kind": "ClassDef"
+        },
+        {
+          "name": "__init__",
+          "line": 140,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "update",
+          "line": 148,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "_attack_dir",
+          "line": 159,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "report",
+          "line": 166,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "_line_height",
+          "line": 188,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "_recommend",
+          "line": 198,
+          "kind": "FunctionDef"
+        }
+      ],
+      "endpoints": []
+    },
+    {
+      "path": "soccer_analytics/team_assign.py",
+      "language": "python",
+      "sha256": "44c6bf46a6f283a978131ca19a68f7e5b648a3cf23d316643dce605dae116b31",
+      "lines": 248,
+      "imports": [
+        ".core:PLAYER,Detections",
+        "__future__:annotations",
+        "collections:defaultdict,deque",
+        "cv2",
+        "math",
+        "numpy",
+        "sklearn.cluster:KMeans",
+        "typing:Dict,List,Optional,Sequence,Tuple"
+      ],
+      "symbols": [
+        {
+          "name": "TeamAssigner",
+          "line": 39,
+          "kind": "ClassDef"
+        },
+        {
+          "name": "__init__",
+          "line": 40,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "seed_with_lab",
+          "line": 60,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "needs_color",
+          "line": 73,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "shirt_color",
+          "line": 77,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "_team_feat",
+          "line": 114,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "fit",
+          "line": 123,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "_align_to_seeds",
+          "line": 138,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "refit",
+          "line": 152,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "collect",
+          "line": 172,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "predict_team",
+          "line": 181,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "_predict_conf",
+          "line": 192,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "assign_from_color",
+          "line": 221,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "reset_votes",
+          "line": 242,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "assign",
+          "line": 247,
+          "kind": "FunctionDef"
+        }
+      ],
+      "endpoints": []
+    },
+    {
+      "path": "soccer_analytics/tracker.py",
+      "language": "python",
+      "sha256": "118b435c19de06548aa3c2054950a1c082349952c540df2194a402a8767310a9",
+      "lines": 224,
+      "imports": [
+        ".core:BALL,GOALKEEPER,PLAYER,REFEREE,Detections",
+        "__future__:annotations",
+        "cv2",
+        "numpy",
+        "pandas",
+        "supervision",
+        "types:SimpleNamespace",
+        "typing:Optional",
+        "ultralytics.engine.results:Boxes",
+        "ultralytics.trackers.bot_sort:BOTSORT",
+        "ultralytics:YOLO",
+        "warnings"
+      ],
+      "symbols": [
+        {
+          "name": "Detector",
+          "line": 25,
+          "kind": "ClassDef"
+        },
+        {
+          "name": "__init__",
+          "line": 26,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "_precision_args",
+          "line": 40,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "detect",
+          "line": 45,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "_canonical_ids",
+          "line": 69,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "detect_ball_in_roi",
+          "line": 72,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "canonical_class_map",
+          "line": 109,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "SoccerTracker",
+          "line": 122,
+          "kind": "ClassDef"
+        },
+        {
+          "name": "__init__",
+          "line": 127,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "_make_tracker",
+          "line": 145,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "update",
+          "line": 171,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "pick_ball",
+          "line": 205,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "interpolate_ball",
+          "line": 213,
+          "kind": "FunctionDef"
+        }
+      ],
+      "endpoints": []
+    },
+    {
+      "path": "soccer_analytics/train.py",
+      "language": "python",
+      "sha256": "6dc44085157d351c49df3720d9310e48a64021448caffa329995ad9eec9b31ea",
+      "lines": 241,
+      "imports": [
+        ".data_split:validate_training_data",
+        ".device:resolve_device,recommend_batch_imgsz",
+        "__future__:annotations",
+        "albumentations",
+        "argparse",
+        "pathlib:Path",
+        "typing:List,Optional",
+        "ultralytics:YOLO"
+      ],
+      "symbols": [
+        {
+          "name": "_load_yolo",
+          "line": 33,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "_low_quality_transforms",
+          "line": 41,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "train_base",
+          "line": 59,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "finetune",
+          "line": 104,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "_safe_train",
+          "line": 173,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "main",
+          "line": 190,
+          "kind": "FunctionDef"
+        }
+      ],
+      "endpoints": []
+    },
+    {
+      "path": "soccer_analytics/trajectory.py",
+      "language": "python",
+      "sha256": "b1f70c5ae117c4ee49084ac09b46b2ed0d1ce7bad4c147e75d06a10505ba9962",
+      "lines": 196,
+      "imports": [
+        ".device:resolve_device",
+        "__future__:annotations",
+        "argparse",
+        "glob",
+        "math",
+        "numpy",
+        "os",
+        "pathlib:Path",
+        "torch",
+        "torch.nn",
+        "typing:List,Optional,Tuple"
+      ],
+      "symbols": [
+        {
+          "name": "TrajectoryLSTM",
+          "line": 38,
+          "kind": "ClassDef"
+        },
+        {
+          "name": "__init__",
+          "line": 41,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "forward",
+          "line": 47,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "predict_positions",
+          "line": 53,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "_tracklet_positions",
+          "line": 68,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "build_windows",
+          "line": 90,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "_ade_fde",
+          "line": 116,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "train",
+          "line": 123,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "load",
+          "line": 172,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "main",
+          "line": 180,
+          "kind": "FunctionDef"
+        }
+      ],
+      "endpoints": []
+    },
+    {
+      "path": "soccer_analytics/view.py",
+      "language": "python",
+      "sha256": "765144268112a5ba0bc66fc21a8e75887d278589c7be9ef28d58154aa5664103",
+      "lines": 439,
+      "imports": [
+        ".config:PitchConfig",
+        "__future__:annotations",
+        "cv2",
+        "dataclasses:dataclass",
+        "numpy",
+        "scipy.optimize:least_squares",
+        "typing:List,Optional,Sequence,Tuple"
+      ],
+      "symbols": [
+        {
+          "name": "_normalise",
+          "line": 21,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "fit_homography",
+          "line": 31,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "fit_homography_lines",
+          "line": 67,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "residuals",
+          "line": 111,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "apply_homography",
+          "line": 136,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "ViewTransformer",
+          "line": 149,
+          "kind": "ClassDef"
+        },
+        {
+          "name": "is_metric",
+          "line": 166,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "from_field_span",
+          "line": 170,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "from_points",
+          "line": 192,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "transform",
+          "line": 195,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "CameraMotionEstimator",
+          "line": 213,
+          "kind": "ClassDef"
+        },
+        {
+          "name": "__init__",
+          "line": 219,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "update",
+          "line": 237,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "PitchHomographyTracker",
+          "line": 265,
+          "kind": "ClassDef"
+        },
+        {
+          "name": "__init__",
+          "line": 276,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "update",
+          "line": 313,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "_reanchor",
+          "line": 378,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "transform",
+          "line": 425,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "quality",
+          "line": 436,
+          "kind": "FunctionDef"
+        }
+      ],
+      "endpoints": []
+    },
+    {
+      "path": "backend/src/cpg44_api/__init__.py",
+      "language": "python",
+      "sha256": "dfa6d1cf6a0cafda76bc4d8259448c7e84c572ceb2f480cab2cb33ec5ad82738",
+      "lines": 7,
+      "imports": [],
+      "symbols": [],
+      "endpoints": []
+    },
+    {
+      "path": "backend/src/cpg44_api/flasher.py",
+      "language": "python",
+      "sha256": "e21ca2fa204b47353bbd10ca8113baddd3ed3a637af2556355cdef4991db70c0",
+      "lines": 435,
+      "imports": [
+        "__future__:annotations",
+        "copy",
+        "json",
+        "os",
+        "pathlib:Path",
+        "re",
+        "serial",
+        "serial.tools.list_ports",
+        "shutil",
+        "subprocess",
+        "sys",
+        "threading",
+        "time",
+        "typing:List,Optional"
+      ],
+      "symbols": [
+        {
+          "name": "ESP32Flasher",
+          "line": 23,
+          "kind": "ClassDef"
+        },
+        {
+          "name": "__init__",
+          "line": 24,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "start_monitor",
+          "line": 53,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "stop_monitor",
+          "line": 71,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "monitor_status",
+          "line": 81,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "_monitor_worker",
+          "line": 91,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "_append_monitor_line",
+          "line": 129,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "_load_relay_ca",
+          "line": 136,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "relay_configuration_status",
+          "line": 146,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "list_ports",
+          "line": 159,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "_windows_com_hint",
+          "line": 194,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "toolchain_status",
+          "line": 229,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "_port_exists",
+          "line": 258,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "get_chip_info",
+          "line": 261,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "generate_config_header",
+          "line": 281,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "flash_device",
+          "line": 325,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "_run_flash_worker",
+          "line": 371,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "get_flash_status",
+          "line": 433,
+          "kind": "FunctionDef"
+        }
+      ],
+      "endpoints": []
+    },
+    {
+      "path": "backend/src/cpg44_api/hostinger_sensor_relay.py",
+      "language": "python",
+      "sha256": "c955f0d586d17ff49958d4539121bcb4a3008ef453edcbbfc8a406c4597c99ff",
+      "lines": 613,
+      "imports": [
+        "__future__:annotations",
+        "asyncio",
+        "collections:deque",
+        "dataclasses:asdict,dataclass",
+        "fastapi.middleware.cors:CORSMiddleware",
+        "fastapi.responses:HTMLResponse,JSONResponse",
+        "fastapi:Body,FastAPI,Header,HTTPException,Query,Request,WebSocket,WebSocketDisconnect",
+        "hashlib",
+        "hmac",
+        "json",
+        "math",
+        "os",
+        "re",
+        "secrets",
+        "threading",
+        "time",
+        "typing:Any,Deque,Dict,List,Optional,Tuple",
+        "uvicorn"
+      ],
+      "symbols": [
+        {
+          "name": "_float",
+          "line": 47,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "_vector",
+          "line": 59,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "_integer",
+          "line": 71,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "_raw_payload",
+          "line": 81,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "_source_timestamp_ns",
+          "line": 158,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "RelayEnvelope",
+          "line": 177,
+          "kind": "ClassDef"
+        },
+        {
+          "name": "MemoryRelay",
+          "line": 202,
+          "kind": "ClassDef"
+        },
+        {
+          "name": "__init__",
+          "line": 205,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "_event_id",
+          "line": 219,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "_clock",
+          "line": 231,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "_tags",
+          "line": 244,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "register",
+          "line": 257,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "replay",
+          "line": 355,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "latest_payload",
+          "line": 376,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "cache_status",
+          "line": 396,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "subscribe",
+          "line": 407,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "unsubscribe",
+          "line": 420,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "broadcast",
+          "line": 424,
+          "kind": "AsyncFunctionDef"
+        },
+        {
+          "name": "_authorized",
+          "line": 451,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "body_limit",
+          "line": 475,
+          "kind": "AsyncFunctionDef"
+        },
+        {
+          "name": "health",
+          "line": 498,
+          "kind": "AsyncFunctionDef"
+        },
+        {
+          "name": "ingest",
+          "line": 514,
+          "kind": "AsyncFunctionDef"
+        },
+        {
+          "name": "latest",
+          "line": 545,
+          "kind": "AsyncFunctionDef"
+        },
+        {
+          "name": "history",
+          "line": 555,
+          "kind": "AsyncFunctionDef"
+        },
+        {
+          "name": "websocket_sensors",
+          "line": 568,
+          "kind": "AsyncFunctionDef"
+        },
+        {
+          "name": "status_page",
+          "line": 590,
+          "kind": "AsyncFunctionDef"
+        }
+      ],
+      "endpoints": [
+        {
+          "method": "get",
+          "path": "/health",
+          "handler": "health",
+          "line": 498
+        },
+        {
+          "method": "post",
+          "path": "/api/v1/sensors/ingest",
+          "handler": "ingest",
+          "line": 514
+        },
+        {
+          "method": "get",
+          "path": "/api/v1/sensors/latest",
+          "handler": "latest",
+          "line": 545
+        },
+        {
+          "method": "get",
+          "path": "/api/v1/sensors/history",
+          "handler": "history",
+          "line": 555
+        },
+        {
+          "method": "websocket",
+          "path": "/ws/sensors",
+          "handler": "websocket_sensors",
+          "line": 568
+        },
+        {
+          "method": "get",
+          "path": "/",
+          "handler": "status_page",
+          "line": 590
+        }
+      ]
+    },
+    {
+      "path": "backend/src/cpg44_api/main.py",
+      "language": "python",
+      "sha256": "a067ba35644dbcb05ed3f7b2f7e17ecafb2ea7eb1c375485a4edea1f8cd5055d",
+      "lines": 751,
+      "imports": [
+        "__future__:annotations",
+        "asyncio",
+        "contextlib:asynccontextmanager",
+        "cpg44_api.flasher:ESP32Flasher",
+        "cpg44_api.store:ProductStore",
+        "cpg44_api.tagger:MatchTagger",
+        "cpg44_api.training_manager:TrainingManager",
+        "cpg44_api.usb_bridge:ensure_esp32_usb_attached",
+        "cpg44_api:__version__",
+        "fastapi.middleware.cors:CORSMiddleware",
+        "fastapi.responses:FileResponse,HTMLResponse,JSONResponse,StreamingResponse",
+        "fastapi:FastAPI,File,Form,HTTPException,Request,Response,UploadFile,WebSocket,WebSocketDisconnect",
+        "httpx",
+        "json",
+        "os",
+        "pathlib:Path",
+        "re",
+        "shutil",
+        "soccer_analytics.modes:EngineManager,MatchMode",
+        "soccer_analytics.sensors.hub_bridge:sample_to_observation,snapshot_to_sample",
+        "starlette.concurrency:run_in_threadpool",
+        "time",
+        "typing:Optional"
+      ],
+      "symbols": [
+        {
+          "name": "lifespan",
+          "line": 51,
+          "kind": "AsyncFunctionDef"
+        },
+        {
+          "name": "create_app",
+          "line": 64,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "fetch_hub_async",
+          "line": 85,
+          "kind": "AsyncFunctionDef"
+        },
+        {
+          "name": "health",
+          "line": 101,
+          "kind": "AsyncFunctionDef"
+        },
+        {
+          "name": "system_info",
+          "line": 105,
+          "kind": "AsyncFunctionDef"
+        },
+        {
+          "name": "list_matches",
+          "line": 110,
+          "kind": "AsyncFunctionDef"
+        },
+        {
+          "name": "get_match",
+          "line": 114,
+          "kind": "AsyncFunctionDef"
+        },
+        {
+          "name": "set_match_mode",
+          "line": 121,
+          "kind": "AsyncFunctionDef"
+        },
+        {
+          "name": "start_match",
+          "line": 131,
+          "kind": "AsyncFunctionDef"
+        },
+        {
+          "name": "stop_match",
+          "line": 139,
+          "kind": "AsyncFunctionDef"
+        },
+        {
+          "name": "get_match_status",
+          "line": 147,
+          "kind": "AsyncFunctionDef"
+        },
+        {
+          "name": "get_match_analytics",
+          "line": 158,
+          "kind": "AsyncFunctionDef"
+        },
+        {
+          "name": "get_match_players",
+          "line": 164,
+          "kind": "AsyncFunctionDef"
+        },
+        {
+          "name": "get_passing_network",
+          "line": 170,
+          "kind": "AsyncFunctionDef"
+        },
+        {
+          "name": "get_live_snapshot",
+          "line": 176,
+          "kind": "AsyncFunctionDef"
+        },
+        {
+          "name": "post_live_snapshot",
+          "line": 180,
+          "kind": "AsyncFunctionDef"
+        },
+        {
+          "name": "get_live_annotated_frame",
+          "line": 202,
+          "kind": "AsyncFunctionDef"
+        },
+        {
+          "name": "stream_live_annotated_frames",
+          "line": 213,
+          "kind": "AsyncFunctionDef"
+        },
+        {
+          "name": "frames",
+          "line": 214,
+          "kind": "AsyncFunctionDef"
+        },
+        {
+          "name": "post_live_annotated_frame",
+          "line": 240,
+          "kind": "AsyncFunctionDef"
+        },
+        {
+          "name": "stream_match_video",
+          "line": 254,
+          "kind": "AsyncFunctionDef"
+        },
+        {
+          "name": "iterfile",
+          "line": 278,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "upload_match_video",
+          "line": 300,
+          "kind": "AsyncFunctionDef"
+        },
+        {
+          "name": "activate_result",
+          "line": 324,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "get_processing_progress",
+          "line": 359,
+          "kind": "AsyncFunctionDef"
+        },
+        {
+          "name": "get_training_status",
+          "line": 367,
+          "kind": "AsyncFunctionDef"
+        },
+        {
+          "name": "start_yolo_train",
+          "line": 371,
+          "kind": "AsyncFunctionDef"
+        },
+        {
+          "name": "stop_yolo_train",
+          "line": 381,
+          "kind": "AsyncFunctionDef"
+        },
+        {
+          "name": "train_strain",
+          "line": 385,
+          "kind": "AsyncFunctionDef"
+        },
+        {
+          "name": "label_player_session",
+          "line": 389,
+          "kind": "AsyncFunctionDef"
+        },
+        {
+          "name": "list_cameras",
+          "line": 413,
+          "kind": "AsyncFunctionDef"
+        },
+        {
+          "name": "register_camera",
+          "line": 423,
+          "kind": "AsyncFunctionDef"
+        },
+        {
+          "name": "live_vision_status",
+          "line": 442,
+          "kind": "AsyncFunctionDef"
+        },
+        {
+          "name": "start_camera_processing",
+          "line": 446,
+          "kind": "AsyncFunctionDef"
+        },
+        {
+          "name": "stop_camera_processing",
+          "line": 474,
+          "kind": "AsyncFunctionDef"
+        },
+        {
+          "name": "ingest_camera_frame",
+          "line": 485,
+          "kind": "AsyncFunctionDef"
+        },
+        {
+          "name": "get_camera_frame",
+          "line": 499,
+          "kind": "AsyncFunctionDef"
+        },
+        {
+          "name": "stream_camera_frames",
+          "line": 508,
+          "kind": "AsyncFunctionDef"
+        },
+        {
+          "name": "frames",
+          "line": 513,
+          "kind": "AsyncFunctionDef"
+        },
+        {
+          "name": "list_observations",
+          "line": 539,
+          "kind": "AsyncFunctionDef"
+        },
+        {
+          "name": "list_wearables",
+          "line": 546,
+          "kind": "AsyncFunctionDef"
+        },
+        {
+          "name": "wearable_status",
+          "line": 559,
+          "kind": "AsyncFunctionDef"
+        },
+        {
+          "name": "post_wearable",
+          "line": 587,
+          "kind": "AsyncFunctionDef"
+        },
+        {
+          "name": "smartphone_camera_page",
+          "line": 594,
+          "kind": "AsyncFunctionDef"
+        },
+        {
+          "name": "websocket_live_feed",
+          "line": 629,
+          "kind": "AsyncFunctionDef"
+        },
+        {
+          "name": "websocket_wearable_feed",
+          "line": 649,
+          "kind": "AsyncFunctionDef"
+        },
+        {
+          "name": "list_serial_ports",
+          "line": 667,
+          "kind": "AsyncFunctionDef"
+        },
+        {
+          "name": "get_hardware_status",
+          "line": 671,
+          "kind": "AsyncFunctionDef"
+        },
+        {
+          "name": "get_esp32_chip_info",
+          "line": 675,
+          "kind": "AsyncFunctionDef"
+        },
+        {
+          "name": "flash_esp32_firmware",
+          "line": 679,
+          "kind": "AsyncFunctionDef"
+        },
+        {
+          "name": "get_flash_job_status",
+          "line": 692,
+          "kind": "AsyncFunctionDef"
+        },
+        {
+          "name": "start_serial_monitor",
+          "line": 697,
+          "kind": "AsyncFunctionDef"
+        },
+        {
+          "name": "stop_serial_monitor",
+          "line": 707,
+          "kind": "AsyncFunctionDef"
+        },
+        {
+          "name": "serial_monitor_status",
+          "line": 711,
+          "kind": "AsyncFunctionDef"
+        },
+        {
+          "name": "attach_esp32_usb",
+          "line": 715,
+          "kind": "AsyncFunctionDef"
+        },
+        {
+          "name": "get_team_profiles",
+          "line": 727,
+          "kind": "AsyncFunctionDef"
+        },
+        {
+          "name": "update_team_profiles",
+          "line": 731,
+          "kind": "AsyncFunctionDef"
+        },
+        {
+          "name": "list_match_events",
+          "line": 738,
+          "kind": "AsyncFunctionDef"
+        },
+        {
+          "name": "create_match_event",
+          "line": 742,
+          "kind": "AsyncFunctionDef"
+        }
+      ],
+      "endpoints": [
+        {
+          "method": "get",
+          "path": "/api/v1/health",
+          "handler": "health",
+          "line": 101
+        },
+        {
+          "method": "get",
+          "path": "/api/v1/system/info",
+          "handler": "system_info",
+          "line": 105
+        },
+        {
+          "method": "get",
+          "path": "/api/v1/matches",
+          "handler": "list_matches",
+          "line": 110
+        },
+        {
+          "method": "get",
+          "path": "/api/v1/matches/{match_id}",
+          "handler": "get_match",
+          "line": 114
+        },
+        {
+          "method": "post",
+          "path": "/api/v1/matches/{match_id}/mode",
+          "handler": "set_match_mode",
+          "line": 121
+        },
+        {
+          "method": "post",
+          "path": "/api/v1/matches/{match_id}/start",
+          "handler": "start_match",
+          "line": 131
+        },
+        {
+          "method": "post",
+          "path": "/api/v1/matches/{match_id}/stop",
+          "handler": "stop_match",
+          "line": 139
+        },
+        {
+          "method": "get",
+          "path": "/api/v1/matches/{match_id}/status",
+          "handler": "get_match_status",
+          "line": 147
+        },
+        {
+          "method": "get",
+          "path": "/api/v1/matches/{match_id}/analytics",
+          "handler": "get_match_analytics",
+          "line": 158
+        },
+        {
+          "method": "get",
+          "path": "/api/v1/matches/{match_id}/players",
+          "handler": "get_match_players",
+          "line": 164
+        },
+        {
+          "method": "get",
+          "path": "/api/v1/matches/{match_id}/passing-network",
+          "handler": "get_passing_network",
+          "line": 170
+        },
+        {
+          "method": "get",
+          "path": "/api/v1/live",
+          "handler": "get_live_snapshot",
+          "line": 176
+        },
+        {
+          "method": "post",
+          "path": "/api/v1/live",
+          "handler": "post_live_snapshot",
+          "line": 180
+        },
+        {
+          "method": "get",
+          "path": "/api/v1/live/frame",
+          "handler": "get_live_annotated_frame",
+          "line": 202
+        },
+        {
+          "method": "get",
+          "path": "/api/v1/live/mjpeg",
+          "handler": "stream_live_annotated_frames",
+          "line": 213
+        },
+        {
+          "method": "post",
+          "path": "/api/v1/live/frame",
+          "handler": "post_live_annotated_frame",
+          "line": 240
+        },
+        {
+          "method": "get",
+          "path": "/api/v1/video/stream/{match_id}",
+          "handler": "stream_match_video",
+          "line": 254
+        },
+        {
+          "method": "post",
+          "path": "/api/v1/matches/upload",
+          "handler": "upload_match_video",
+          "line": 300
+        },
+        {
+          "method": "get",
+          "path": "/api/v1/matches/{match_id}/progress",
+          "handler": "get_processing_progress",
+          "line": 359
+        },
+        {
+          "method": "get",
+          "path": "/api/v1/training/status",
+          "handler": "get_training_status",
+          "line": 367
+        },
+        {
+          "method": "post",
+          "path": "/api/v1/training/start-yolo",
+          "handler": "start_yolo_train",
+          "line": 371
+        },
+        {
+          "method": "post",
+          "path": "/api/v1/training/stop-yolo",
+          "handler": "stop_yolo_train",
+          "line": 381
+        },
+        {
+          "method": "post",
+          "path": "/api/v1/training/train-strain-model",
+          "handler": "train_strain",
+          "line": 385
+        },
+        {
+          "method": "post",
+          "path": "/api/v1/training/outcome-label",
+          "handler": "label_player_session",
+          "line": 389
+        },
+        {
+          "method": "get",
+          "path": "/api/v1/cameras",
+          "handler": "list_cameras",
+          "line": 413
+        },
+        {
+          "method": "post",
+          "path": "/api/v1/cameras/register",
+          "handler": "register_camera",
+          "line": 423
+        },
+        {
+          "method": "get",
+          "path": "/api/v1/vision/status",
+          "handler": "live_vision_status",
+          "line": 442
+        },
+        {
+          "method": "post",
+          "path": "/api/v1/cameras/{camera_id}/start",
+          "handler": "start_camera_processing",
+          "line": 446
+        },
+        {
+          "method": "post",
+          "path": "/api/v1/vision/stop",
+          "handler": "stop_camera_processing",
+          "line": 474
+        },
+        {
+          "method": "post",
+          "path": "/api/v1/cameras/{camera_id}/frame",
+          "handler": "ingest_camera_frame",
+          "line": 485
+        },
+        {
+          "method": "get",
+          "path": "/api/v1/cameras/{camera_id}/frame",
+          "handler": "get_camera_frame",
+          "line": 499
+        },
+        {
+          "method": "get",
+          "path": "/api/v1/cameras/{camera_id}/mjpeg",
+          "handler": "stream_camera_frames",
+          "line": 508
+        },
+        {
+          "method": "get",
+          "path": "/api/v1/observations",
+          "handler": "list_observations",
+          "line": 539
+        },
+        {
+          "method": "get",
+          "path": "/api/v1/observations/wearable",
+          "handler": "list_wearables",
+          "line": 546
+        },
+        {
+          "method": "get",
+          "path": "/api/v1/wearables/status",
+          "handler": "wearable_status",
+          "line": 559
+        },
+        {
+          "method": "post",
+          "path": "/api/v1/observations/wearable",
+          "handler": "post_wearable",
+          "line": 587
+        },
+        {
+          "method": "get",
+          "path": "/camera",
+          "handler": "smartphone_camera_page",
+          "line": 594
+        },
+        {
+          "method": "websocket",
+          "path": "/ws/live",
+          "handler": "websocket_live_feed",
+          "line": 629
+        },
+        {
+          "method": "websocket",
+          "path": "/ws/wearables",
+          "handler": "websocket_wearable_feed",
+          "line": 649
+        },
+        {
+          "method": "get",
+          "path": "/api/v1/hardware/ports",
+          "handler": "list_serial_ports",
+          "line": 667
+        },
+        {
+          "method": "get",
+          "path": "/api/v1/hardware/status",
+          "handler": "get_hardware_status",
+          "line": 671
+        },
+        {
+          "method": "get",
+          "path": "/api/v1/hardware/chip-info",
+          "handler": "get_esp32_chip_info",
+          "line": 675
+        },
+        {
+          "method": "post",
+          "path": "/api/v1/hardware/flash",
+          "handler": "flash_esp32_firmware",
+          "line": 679
+        },
+        {
+          "method": "get",
+          "path": "/api/v1/hardware/flash/status",
+          "handler": "get_flash_job_status",
+          "line": 692
+        },
+        {
+          "method": "post",
+          "path": "/api/v1/hardware/monitor/start",
+          "handler": "start_serial_monitor",
+          "line": 697
+        },
+        {
+          "method": "post",
+          "path": "/api/v1/hardware/monitor/stop",
+          "handler": "stop_serial_monitor",
+          "line": 707
+        },
+        {
+          "method": "get",
+          "path": "/api/v1/hardware/monitor",
+          "handler": "serial_monitor_status",
+          "line": 711
+        },
+        {
+          "method": "post",
+          "path": "/api/v1/hardware/usb/attach",
+          "handler": "attach_esp32_usb",
+          "line": 715
+        },
+        {
+          "method": "get",
+          "path": "/api/v1/tagging/teams",
+          "handler": "get_team_profiles",
+          "line": 727
+        },
+        {
+          "method": "post",
+          "path": "/api/v1/tagging/teams",
+          "handler": "update_team_profiles",
+          "line": 731
+        },
+        {
+          "method": "get",
+          "path": "/api/v1/tagging/events",
+          "handler": "list_match_events",
+          "line": 738
+        },
+        {
+          "method": "post",
+          "path": "/api/v1/tagging/events",
+          "handler": "create_match_event",
+          "line": 742
+        }
+      ]
+    },
+    {
+      "path": "backend/src/cpg44_api/store.py",
+      "language": "python",
+      "sha256": "b8e6c9cf17544c53a3e091e10fc21880e7b3929dde2d25d282328764938dd487",
+      "lines": 511,
+      "imports": [
+        "__future__:annotations",
+        "copy",
+        "json",
+        "os",
+        "pathlib:Path",
+        "threading",
+        "time",
+        "torch",
+        "typing:Any,Dict,List,Optional",
+        "urllib.parse:urlparse",
+        "urllib.request"
+      ],
+      "symbols": [
+        {
+          "name": "_load_json",
+          "line": 22,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "_finite_number",
+          "line": 32,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "_numeric_player_id",
+          "line": 42,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "_validated_relay_origin",
+          "line": 56,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "ProductStore",
+          "line": 74,
+          "kind": "ClassDef"
+        },
+        {
+          "name": "__init__",
+          "line": 80,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "roster",
+          "line": 138,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "passing_network",
+          "line": 154,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "timeline_tags",
+          "line": 158,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "stats",
+          "line": 161,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "activate_recorded_result",
+          "line": 164,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "set_mode",
+          "line": 180,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "register_camera",
+          "line": 187,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "get_camera",
+          "line": 206,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "update_camera_health",
+          "line": 211,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "camera_list",
+          "line": 219,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "fetch_hub",
+          "line": 232,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "record_wearable",
+          "line": 246,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "_fresh_wearables",
+          "line": 272,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "ingest_live_frame",
+          "line": 284,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "ingest_live_jpeg",
+          "line": 304,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "live_jpeg",
+          "line": 313,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "live_jpeg_snapshot",
+          "line": 317,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "_model_artifacts",
+          "line": 326,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "system_info",
+          "line": 342,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "_quality_from_stats",
+          "line": 373,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "_recorded_snapshot",
+          "line": 411,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "live_frame_snapshot",
+          "line": 498,
+          "kind": "FunctionDef"
+        }
+      ],
+      "endpoints": []
+    },
+    {
+      "path": "backend/src/cpg44_api/tagger.py",
+      "language": "python",
+      "sha256": "ce6951a23380888f36180647bf57e29f07e1722d027e1bec8d9397997d9848e5",
+      "lines": 138,
+      "imports": [
+        "__future__:annotations",
+        "cv2",
+        "json",
+        "logging",
+        "numpy",
+        "pathlib:Path",
+        "time",
+        "typing:Any,Dict,List,Optional"
+      ],
+      "symbols": [
+        {
+          "name": "MatchTagger",
+          "line": 19,
+          "kind": "ClassDef"
+        },
+        {
+          "name": "__init__",
+          "line": 20,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "_load_team_profiles",
+          "line": 28,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "_load_events",
+          "line": 40,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "save_team_profiles",
+          "line": 51,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "log_event",
+          "line": 72,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "classify_crop_team",
+          "line": 99,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "_rgb_to_lab",
+          "line": 131,
+          "kind": "FunctionDef"
+        }
+      ],
+      "endpoints": []
+    },
+    {
+      "path": "backend/src/cpg44_api/training_manager.py",
+      "language": "python",
+      "sha256": "92899519a5d572a73886acdd6f31652223c18222d30076f1016c3e823976d6e2",
+      "lines": 625,
+      "imports": [
+        "__future__:annotations",
+        "copy",
+        "csv",
+        "numpy",
+        "os",
+        "pathlib:Path",
+        "sklearn.metrics:average_precision_score,brier_score_loss,roc_auc_score",
+        "soccer_analytics.data_split:validate_training_data",
+        "soccer_analytics.loadtypes:WorkloadFeatures",
+        "soccer_analytics.sensors.injury:InjuryRiskModel",
+        "soccer_analytics.sensors.injury:InjuryRiskModel,features_to_array",
+        "sqlite3",
+        "subprocess",
+        "sys",
+        "threading",
+        "time",
+        "typing:Any,Dict,List,Optional"
+      ],
+      "symbols": [
+        {
+          "name": "_number",
+          "line": 19,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "TrainingManager",
+          "line": 26,
+          "kind": "ClassDef"
+        },
+        {
+          "name": "__init__",
+          "line": 29,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "_default_dataset",
+          "line": 66,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "_read_last_metrics",
+          "line": 76,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "_existing_runs",
+          "line": 97,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "_refresh_active_metrics",
+          "line": 114,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "get_status",
+          "line": 123,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "start_yolo_training",
+          "line": 171,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "_run_yolo_job",
+          "line": 245,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "stop_yolo_training",
+          "line": 285,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "record_multimodal_sample",
+          "line": 294,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "_ensure_multimodal_schema",
+          "line": 342,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "record_live_snapshot",
+          "line": 382,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "label_player_session",
+          "line": 453,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "train_strain_model",
+          "line": 506,
+          "kind": "FunctionDef"
+        }
+      ],
+      "endpoints": []
+    },
+    {
+      "path": "backend/src/cpg44_api/usb_bridge.py",
+      "language": "python",
+      "sha256": "c6f8fa1fc5fbaddc678c6e4d556dfe2912c621cb63ec23a1ae9abd334a92197d",
+      "lines": 172,
+      "imports": [
+        "__future__:annotations",
+        "os",
+        "re",
+        "serial.tools.list_ports",
+        "shutil",
+        "subprocess",
+        "typing:Dict,List,Optional"
+      ],
+      "symbols": [
+        {
+          "name": "_usbipd_exe",
+          "line": 21,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "Path_exists",
+          "line": 38,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "_run",
+          "line": 43,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "_run_elevated",
+          "line": 47,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "list_windows_devices",
+          "line": 58,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "find_esp32_busids",
+          "line": 84,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "wsl_has_port",
+          "line": 94,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "ensure_esp32_usb_attached",
+          "line": 110,
+          "kind": "FunctionDef"
+        }
+      ],
+      "endpoints": []
+    },
+    {
+      "path": "scripts/map_project.py",
+      "language": "python",
+      "sha256": "b5b96e14be1aa1aae849287c4678149c84916cb53743d8fdc523352c9e3bca8a",
+      "lines": 61,
+      "imports": [
+        "ast",
+        "hashlib",
+        "json",
+        "pathlib:Path",
+        "re"
+      ],
+      "symbols": [
+        {
+          "name": "main",
+          "line": 13,
+          "kind": "FunctionDef"
+        }
+      ],
+      "endpoints": []
+    },
+    {
+      "path": "scripts/sensor_hub_wrapper.py",
+      "language": "python",
+      "sha256": "7eb549acbc0aca483f1f66ccdf082c03d57949b8f11f8f3944beb4ff9932c3d3",
+      "lines": 9,
+      "imports": [
+        "pathlib:Path",
+        "runpy"
+      ],
+      "symbols": [],
+      "endpoints": []
+    },
+    {
+      "path": "scripts/smoke_local_demo.py",
+      "language": "python",
+      "sha256": "2a7ce4f6a1b0bfb22f8d1ce500facdfeab5a77094cb578bae75b05ca41936345",
+      "lines": 174,
+      "imports": [
+        "__future__:annotations",
+        "json",
+        "os",
+        "pathlib:Path",
+        "subprocess",
+        "sys",
+        "tempfile",
+        "time",
+        "urllib.error",
+        "urllib.request"
+      ],
+      "symbols": [
+        {
+          "name": "get_json",
+          "line": 22,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "post_json",
+          "line": 27,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "wait_for",
+          "line": 43,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "stop",
+          "line": 55,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "main",
+          "line": 66,
+          "kind": "FunctionDef"
+        }
+      ],
+      "endpoints": []
+    },
+    {
+      "path": "scripts/train_apex.py",
+      "language": "python",
+      "sha256": "47e725652e0d38e793b404adcb755e6f776ef05456271a79aa4fabefcc4dde66",
+      "lines": 97,
+      "imports": [
+        "json",
+        "os",
+        "pathlib:Path",
+        "soccer_analytics.data_split:split_sequences",
+        "tempfile",
+        "ultralytics:YOLO",
+        "yaml"
+      ],
+      "symbols": [
+        {
+          "name": "build_fast_dataset",
+          "line": 14,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "run_training",
+          "line": 40,
+          "kind": "FunctionDef"
+        }
+      ],
+      "endpoints": []
+    },
+    {
+      "path": "scripts/verify_vision_pipeline.py",
+      "language": "python",
+      "sha256": "53512012d151c073de5e25080cbe7250937353577598c54b68bfed3bb4a93740",
+      "lines": 73,
+      "imports": [
+        "argparse",
+        "hashlib",
+        "json",
+        "pathlib:Path",
+        "platform",
+        "soccer_analytics.config:PipelineConfig",
+        "soccer_analytics.pitch:load_calibration",
+        "soccer_analytics.realtime:RealtimePipeline",
+        "soccer_analytics.view:ViewTransformer",
+        "supervision",
+        "time",
+        "torch",
+        "ultralytics"
+      ],
+      "symbols": [
+        {
+          "name": "main",
+          "line": 20,
+          "kind": "FunctionDef"
+        }
+      ],
+      "endpoints": []
+    },
+    {
+      "path": "tests/test_flasher_and_tagger.py",
+      "language": "python",
+      "sha256": "387b8623ec1074eab9d4b87e2a9b253408bd87c84b385b331d1453e6eba6164e",
+      "lines": 85,
+      "imports": [
+        "asyncio",
+        "cpg44_api.flasher:ESP32Flasher",
+        "cpg44_api.main:create_app",
+        "cpg44_api.tagger:MatchTagger",
+        "httpx",
+        "pathlib:Path"
+      ],
+      "symbols": [
+        {
+          "name": "test_flasher_port_listing",
+          "line": 11,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "test_flasher_config_generation",
+          "line": 19,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "test_tagger_color_classification",
+          "line": 38,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "test_tagger_event_logging",
+          "line": 51,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "test_flasher_and_tagger_api_endpoints",
+          "line": 65,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "check",
+          "line": 66,
+          "kind": "AsyncFunctionDef"
+        }
+      ],
+      "endpoints": []
+    },
+    {
+      "path": "tests/test_gps_and_ppg.py",
+      "language": "python",
+      "sha256": "41e9097e8b4f2cfc9ac646e9cc40906a5cf3a49ebd578074fb4d0675a853bcca",
+      "lines": 78,
+      "imports": [
+        "numpy",
+        "pytest",
+        "soccer_analytics.sensors.gps_pitch:GPSPitchTransformer",
+        "soccer_analytics.sensors.ppg:PPGProcessor"
+      ],
+      "symbols": [
+        {
+          "name": "test_gps_4_corner_transformation",
+          "line": 9,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "test_gps_density_grid",
+          "line": 43,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "test_ppg_processor_extracts_vitals",
+          "line": 62,
+          "kind": "FunctionDef"
+        }
+      ],
+      "endpoints": []
+    },
+    {
+      "path": "tests/test_hub_bridge.py",
+      "language": "python",
+      "sha256": "a3d2cd323c53121f957a588a086763e2a4ecd8d6dc33a736e96875e2c7fdedef",
+      "lines": 120,
+      "imports": [
+        "soccer_analytics.sensors.hub:relay_envelope_to_packet",
+        "soccer_analytics.sensors.hub_bridge:sample_to_observation,snapshot_to_sample"
+      ],
+      "symbols": [
+        {
+          "name": "test_snapshot_to_sample_converts_units_and_vitals",
+          "line": 7,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "test_empty_offline_snapshot_is_ignored",
+          "line": 47,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "test_invalid_vitals_are_not_forwarded_as_measurements",
+          "line": 51,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "test_low_quality_optical_values_and_stale_imu_are_withheld",
+          "line": 67,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "test_raw_relay_envelope_becomes_sensor_packet",
+          "line": 98,
+          "kind": "FunctionDef"
+        }
+      ],
+      "endpoints": []
+    },
+    {
+      "path": "tests/test_pipeline_core.py",
+      "language": "python",
+      "sha256": "987af50b022e2578aee1739b1ecba37b4794144adcd826e4d790d53cd4a8f6f2",
+      "lines": 492,
+      "imports": [
+        "math",
+        "numpy",
+        "soccer_analytics.catapult:LoadEngine",
+        "soccer_analytics.catapult:energy_cost",
+        "soccer_analytics.config:PitchConfig",
+        "soccer_analytics.core:Detections,foot_points,BALL,PLAYER,REFEREE",
+        "soccer_analytics.filters:TrackKalman",
+        "soccer_analytics.jersey_ocr:AutoBinder",
+        "soccer_analytics.jersey_ocr:JerseyVoteTracker",
+        "soccer_analytics.loadtypes:WorkloadFeatures",
+        "soccer_analytics.metrics:MetricsEngine",
+        "soccer_analytics.pass_prediction:pass_options,best_receiver,_lane_clearness",
+        "soccer_analytics.reid:ReIDManager",
+        "soccer_analytics.sensors.schema:SensorSample",
+        "soccer_analytics.sensors.sync:SensorVideoSync",
+        "soccer_analytics.sensors:FusionEngine,SensorVideoSync",
+        "soccer_analytics.sensors:FusionEngine,SensorVideoSync,HeuristicInjuryModel",
+        "soccer_analytics.shots:ShotDetector",
+        "soccer_analytics.shots:shot_geometry,XGModel",
+        "soccer_analytics.substitution:SubstitutionAdvisor",
+        "soccer_analytics.tactical_engine:TacticalEngine",
+        "soccer_analytics.tactical_engine:pitch_control",
+        "soccer_analytics.tactical_engine:pressing_intensity,thirds_count",
+        "soccer_analytics.team_assign:TeamAssigner",
+        "soccer_analytics.tracker:interpolate_ball",
+        "soccer_analytics.trajectory:TrajectoryLSTM,K_IN,H_OUT",
+        "soccer_analytics.view:fit_homography,apply_homography,ViewTransformer",
+        "soccer_analytics.view:fit_homography_lines,apply_homography",
+        "soccer_analytics:tactics",
+        "torch"
+      ],
+      "symbols": [
+        {
+          "name": "test_homography_round_trip",
+          "line": 19,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "test_out_of_pitch_is_nan",
+          "line": 32,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "test_identity_view_passthrough",
+          "line": 42,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "test_convex_hull_area",
+          "line": 48,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "test_formation_433",
+          "line": 53,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "test_tactical_report",
+          "line": 59,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "test_possession_and_speed",
+          "line": 70,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "test_ball_interpolation",
+          "line": 82,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "test_detections_filtering",
+          "line": 89,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "test_kalman_recovers_constant_velocity",
+          "line": 96,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "test_metabolic_energy_cost_flat",
+          "line": 114,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "test_loadengine_metabolic_power",
+          "line": 121,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "test_pitch_control_voronoi",
+          "line": 135,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "test_pressing_and_thirds",
+          "line": 145,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "test_line_height_both_directions",
+          "line": 154,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "test_tactical_engine_report",
+          "line": 174,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "test_tactical_advice_abstains_without_team_evidence",
+          "line": 188,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "test_xg_geometry_and_model",
+          "line": 200,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "test_shot_detection",
+          "line": 215,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "test_jersey_vote_tracker",
+          "line": 230,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "test_jersey_tie_not_confident",
+          "line": 241,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "test_autobind_uniqueness_and_manual",
+          "line": 251,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "StubReader",
+          "line": 255,
+          "kind": "ClassDef"
+        },
+        {
+          "name": "__init__",
+          "line": 257,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "read",
+          "line": 258,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "test_shot_rebound_counted",
+          "line": 272,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "test_xg_geometry_and_monotonicity",
+          "line": 283,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "test_shot_detector_flags_shot",
+          "line": 299,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "test_jersey_vote_tracker",
+          "line": 312,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "test_team_assign_shadow_invariant",
+          "line": 323,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "test_line_circle_constrained_homography",
+          "line": 338,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "test_reid_persists_across_gap",
+          "line": 366,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "test_pass_prediction",
+          "line": 386,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "test_trajectory_model_forward",
+          "line": 401,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "test_substitution_advisor_ranks_fatigued_player",
+          "line": 413,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "test_hardware_chain_end_to_end",
+          "line": 437,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "test_fusion_rejects_explicitly_unsynced_wearable_sample",
+          "line": 467,
+          "kind": "FunctionDef"
+        }
+      ],
+      "endpoints": []
+    },
+    {
+      "path": "tests/test_ppg_vitals.py",
+      "language": "python",
+      "sha256": "8f5ed02d1b5b9f2703d03dd045a999dc6489265a3dbd3d82d44316ba3e39563a",
+      "lines": 21,
+      "imports": [
+        "numpy",
+        "soccer_analytics.sensors.hub:estimate_ppg_vitals"
+      ],
+      "symbols": [
+        {
+          "name": "test_estimate_ppg_vitals_sine_72bpm",
+          "line": 7,
+          "kind": "FunctionDef"
+        }
+      ],
+      "endpoints": []
+    },
+    {
+      "path": "tests/test_sensor_relay.py",
+      "language": "python",
+      "sha256": "f423cee1c033c2032baef6fcc87e9d8ebf993d3595c57366d6a45f3e1645da96",
+      "lines": 124,
+      "imports": [
+        "asyncio",
+        "cpg44_api.hostinger_sensor_relay",
+        "cpg44_api.hostinger_sensor_relay:MemoryRelay",
+        "httpx",
+        "time"
+      ],
+      "symbols": [
+        {
+          "name": "valid_payload",
+          "line": 12,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "test_relay_preserves_timestamps_tags_and_deduplicates",
+          "line": 34,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "test_memory_cache_is_byte_bounded",
+          "line": 60,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "test_relay_preserves_validated_raw_samples",
+          "line": 70,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "test_relay_http_ingest_requires_shared_token",
+          "line": 92,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "check",
+          "line": 98,
+          "kind": "AsyncFunctionDef"
+        }
+      ],
+      "endpoints": []
+    },
+    {
+      "path": "tests/test_tracking_accuracy.py",
+      "language": "python",
+      "sha256": "f24e8559cd63d3b90f732711c968bca8e3c88d7e97f1835bc310256792687f2d",
+      "lines": 299,
+      "imports": [
+        "cpg44_api.store:ProductStore",
+        "cv2",
+        "json",
+        "numpy",
+        "pathlib:Path",
+        "pytest",
+        "soccer_analytics.config:PitchConfig",
+        "soccer_analytics.core:BALL,GOALKEEPER",
+        "soccer_analytics.core:Detections,PLAYER,REFEREE",
+        "soccer_analytics.data_split:split_sequences",
+        "soccer_analytics.data_split:validate_training_data",
+        "soccer_analytics.evaluation:evaluate_frames",
+        "soccer_analytics.filters:TrackKalman,KalmanBank",
+        "soccer_analytics.heatmap:LiveHeatmap",
+        "soccer_analytics.jersey_ocr:AutoBinder",
+        "soccer_analytics.metrics:MetricsEngine",
+        "soccer_analytics.realtime:RealtimePipeline",
+        "soccer_analytics.reid:ReIDManager",
+        "soccer_analytics.sensors.fusion:FusionEngine",
+        "soccer_analytics.sensors.gps_pitch:GPSPitchTransformer",
+        "soccer_analytics.sensors.hub_bridge:snapshot_to_sample",
+        "soccer_analytics.sensors.schema:SensorSample",
+        "soccer_analytics.sensors.sync:SensorVideoSync",
+        "soccer_analytics.team_assign:TeamAssigner",
+        "soccer_analytics.tracker:Detector",
+        "soccer_analytics.tracker:SoccerTracker",
+        "soccer_analytics.tracker:canonical_class_map",
+        "soccer_analytics.view:ViewTransformer,fit_homography,apply_homography,PitchHomographyTracker",
+        "torch",
+        "types:SimpleNamespace"
+      ],
+      "symbols": [
+        {
+          "name": "track",
+          "line": 12,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "test_reid_rejects_same_number_across_teams_and_conflicting_numbers",
+          "line": 17,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "test_reid_abstains_on_indistinguishable_teammates_regardless_of_input_order",
+          "line": 24,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "test_reid_pitch_gate_and_missing_appearance",
+          "line": 33,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "test_calibration_rejects_collinear_nonfinite_and_projective_horizon",
+          "line": 44,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "test_kalman_rejects_teleport_and_nonfinite_without_corrupting_covariance",
+          "line": 53,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "test_kalman_bank_accounts_for_reentry_time_and_prunes_absent_tracks",
+          "line": 65,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "test_heatmap_seconds_are_fps_independent_and_do_not_clamp_invalid_pins",
+          "line": 73,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "test_tracker_recovers_weak_boxes_and_keeps_roles_separate",
+          "line": 89,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "test_detector_preserves_low_scores_for_tracker",
+          "line": 104,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "FakeBoxes",
+          "line": 111,
+          "kind": "ClassDef"
+        },
+        {
+          "name": "__len__",
+          "line": 112,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "test_checkpoint_class_order_is_resolved_from_names",
+          "line": 121,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "test_uncalibrated_gps_does_not_invent_a_centre_pin",
+          "line": 130,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "test_training_split_keeps_complete_sequences_together_and_is_deterministic",
+          "line": 137,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "test_training_refuses_official_test_as_validation",
+          "line": 147,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "test_team_qualified_jersey_bindings_keep_opponents_separate",
+          "line": 155,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "test_automatic_jersey_binding_cannot_steal_a_manual_binding",
+          "line": 168,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "test_raw_invalid_optical_values_and_delayed_stale_imu_stay_unavailable",
+          "line": 180,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "test_sensor_alignment_handles_out_of_order_delivery",
+          "line": 191,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "test_recorded_video_without_time_anchor_cannot_inherit_live_wearables",
+          "line": 199,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "test_touchline_jitter_does_not_create_repeated_restart_events",
+          "line": 216,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "test_rgb_calibration_and_torso_colours_assign_the_same_team",
+          "line": 233,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "test_saved_pixel_results_are_not_exposed_as_physical_metrics",
+          "line": 252,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "test_camera_mapping_fails_closed_when_visual_support_disappears",
+          "line": 266,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "test_camera_translation_preserves_a_known_pitch_location",
+          "line": 275,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "test_pitch_evaluation_penalizes_misses_id_switches_and_reports_coverage",
+          "line": 288,
+          "kind": "FunctionDef"
+        }
+      ],
+      "endpoints": []
+    },
+    {
+      "path": "tests/test_training_data_collection.py",
+      "language": "python",
+      "sha256": "ae32a1bcb599746024bb1e0628b749f0c2c61dd737d2c47a09a8a83ff33c7e59",
+      "lines": 94,
+      "imports": [
+        "cpg44_api.training_manager:TrainingManager",
+        "sqlite3"
+      ],
+      "symbols": [
+        {
+          "name": "measured_snapshot",
+          "line": 6,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "test_live_collection_is_calibrated_throttled_and_session_labelled",
+          "line": 38,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "test_outcome_label_rejects_unmeasured_session",
+          "line": 67,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "test_collection_rejects_unsynced_rows_and_withholds_weak_optical_values",
+          "line": 76,
+          "kind": "FunctionDef"
+        }
+      ],
+      "endpoints": []
+    },
+    {
+      "path": "tests/test_web_api.py",
+      "language": "python",
+      "sha256": "b4c7cced9dfb5cb4fddd8918009b181988d30887831209470461c42e1d32a48f",
+      "lines": 122,
+      "imports": [
+        "asyncio",
+        "cpg44_api.main:STORE,create_app",
+        "cpg44_api.store:ProductStore",
+        "httpx",
+        "os",
+        "pathlib:Path",
+        "sys"
+      ],
+      "symbols": [
+        {
+          "name": "test_product_store_only_accepts_cpg44_relay_origin",
+          "line": 17,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "test_health_and_wearable_join_key",
+          "line": 29,
+          "kind": "FunctionDef"
+        },
+        {
+          "name": "check",
+          "line": 30,
+          "kind": "AsyncFunctionDef"
+        }
+      ],
+      "endpoints": []
+    },
+    {
+      "path": "frontend/src/App.tsx",
+      "language": "tsx",
+      "sha256": "a8af5f46708d4d6b84e13596a4d7db42fbba9141f8cc41b4965a932c00813e66",
+      "lines": 110,
+      "imports": [
+        "react",
+        "react-router-dom",
+        "./pages/LivePage",
+        "./pages/WearablePage",
+        "./pages/TrainingHubPage",
+        "./pages/MatchUploadPage",
+        "./pages/CameraNetworkPage",
+        "./pages/PlayerMappingPage",
+        "./pages/HardwareFlasherPage",
+        "./pages/PlayerTaggingPage",
+        "./pages/AnalyticsPage",
+        "./pages/SettingsPage",
+        "./components/Icons"
+      ],
+      "routes": [
+        "/",
+        "/recordings",
+        "/biometrics",
+        "/flasher",
+        "/training",
+        "/ingest",
+        "/cameras",
+        "/tagging",
+        "/roster",
+        "/analytics",
+        "/settings"
+      ]
+    },
+    {
+      "path": "frontend/src/components/Icons.tsx",
+      "language": "tsx",
+      "sha256": "ec5d0672158d81b996ab088db5135f2c159907fac589e6e07cca7e1e2f1cfbf0",
+      "lines": 147,
+      "imports": [
+        "react"
+      ],
+      "routes": []
+    },
+    {
+      "path": "frontend/src/components/PassingPitch.tsx",
+      "language": "tsx",
+      "sha256": "9ce7ea4e8fc827fd479bb71bb360ff10c45dc03b6feeef1fec3e8a5cceb1babe",
+      "lines": 331,
+      "imports": [
+        "react"
+      ],
+      "routes": []
+    },
+    {
+      "path": "frontend/src/components/TacticalPitch.tsx",
+      "language": "tsx",
+      "sha256": "0ac750636bfaf1958a46d6c06296a85ef2e63538d5de056f805e2c460fbfcf31",
+      "lines": 210,
+      "imports": [
+        "react",
+        "./PassingPitch"
+      ],
+      "routes": []
+    },
+    {
+      "path": "frontend/src/components/common.tsx",
+      "language": "tsx",
+      "sha256": "2e97c435073416307020c38f4128cfdc34d1c3eb4d4f7fb71375df9cc1ce82a6",
+      "lines": 115,
+      "imports": [
+        "react",
+        "../lib/types"
+      ],
+      "routes": []
+    },
+    {
+      "path": "frontend/src/lib/api.ts",
+      "language": "ts",
+      "sha256": "b8d1394494d4474e4919fa6f5773a9d2c3e8a9a39655447cd39930b704afc251",
+      "lines": 80,
+      "imports": [
+        "./types"
+      ],
+      "routes": []
+    },
+    {
+      "path": "frontend/src/lib/types.ts",
+      "language": "ts",
+      "sha256": "2b7eef7ee777b207e81215f30abce9d76ab4cc08cd75b0b0d16d768d29dd8833",
+      "lines": 174,
+      "imports": [],
+      "routes": []
+    },
+    {
+      "path": "frontend/src/lib/useLive.ts",
+      "language": "ts",
+      "sha256": "3f4d418ef8bf832ad6a4b78c47892b9984b43cc9fd36b24108fa3010e12c495f",
+      "lines": 61,
+      "imports": [
+        "react",
+        "./types",
+        "./api"
+      ],
+      "routes": []
+    },
+    {
+      "path": "frontend/src/main.tsx",
+      "language": "tsx",
+      "sha256": "b588d0ca2ef1f5a08e23cd33d55fc14ef390e94ac9e8d635a8b68fd4f5549398",
+      "lines": 13,
+      "imports": [
+        "react",
+        "react-dom/client",
+        "react-router-dom",
+        "./App"
+      ],
+      "routes": []
+    },
+    {
+      "path": "frontend/src/pages/AnalyticsPage.tsx",
+      "language": "tsx",
+      "sha256": "327dae56b324427f6dc18464cfd0d7a015f43ae0b4d8382b2463fc59e853704e",
+      "lines": 68,
+      "imports": [
+        "../components/TacticalPitch",
+        "../components/common",
+        "../lib/useLive"
+      ],
+      "routes": []
+    },
+    {
+      "path": "frontend/src/pages/CameraNetworkPage.tsx",
+      "language": "tsx",
+      "sha256": "3abf8696a0d4edb82158167c530baca2aa2fc5c56655ba89d387af2ba9bace5d",
+      "lines": 68,
+      "imports": [
+        "react",
+        "../components/common",
+        "../lib/api"
+      ],
+      "routes": []
+    },
+    {
+      "path": "frontend/src/pages/HardwareFlasherPage.tsx",
+      "language": "tsx",
+      "sha256": "71d2631d61c67ab8d2ec8bcf9c8e3cfee20aee0ddbf5b88a014b3cf08e68ee8c",
+      "lines": 190,
+      "imports": [
+        "react",
+        "../components/common",
+        "../lib/api"
+      ],
+      "routes": []
+    },
+    {
+      "path": "frontend/src/pages/HomePage.tsx",
+      "language": "tsx",
+      "sha256": "ed1a3b13f39706273468e9c653e3607a2b3b87a4a8bc99288c253160a94a6e51",
+      "lines": 66,
+      "imports": [
+        "react",
+        "react-router-dom",
+        "../lib/api",
+        "../lib/types",
+        "../components/common"
+      ],
+      "routes": []
+    },
+    {
+      "path": "frontend/src/pages/LivePage.tsx",
+      "language": "tsx",
+      "sha256": "e796e4c3a62cd7dbed4d458e0a97424079072a6483bb92b349109120417a033a",
+      "lines": 238,
+      "imports": [
+        "react",
+        "react-router-dom",
+        "../components/PassingPitch",
+        "../components/PassingPitch",
+        "../components/common",
+        "../components/Icons",
+        "../lib/api",
+        "../lib/useLive"
+      ],
+      "routes": []
+    },
+    {
+      "path": "frontend/src/pages/MatchUploadPage.tsx",
+      "language": "tsx",
+      "sha256": "8909460a87a333c9e68f4f09419f33f1c0ea8802a7bd0569492ede9f04b5478f",
+      "lines": 79,
+      "imports": [
+        "react",
+        "../components/common",
+        "../components/Icons",
+        "../lib/api"
+      ],
+      "routes": []
+    },
+    {
+      "path": "frontend/src/pages/PlayerMappingPage.tsx",
+      "language": "tsx",
+      "sha256": "70d57fa0a3200709a892f217962fe4c209ae3e8a6cc5d42f29f66d76ce4d610e",
+      "lines": 66,
+      "imports": [
+        "react",
+        "../components/common",
+        "../lib/api"
+      ],
+      "routes": []
+    },
+    {
+      "path": "frontend/src/pages/PlayerTaggingPage.tsx",
+      "language": "tsx",
+      "sha256": "fb3a9a498ef8e0059b484e9335b9b048d0ffc1dccf6630b518ee60e2bf9b8788",
+      "lines": 102,
+      "imports": [
+        "react",
+        "../components/common",
+        "../lib/api"
+      ],
+      "routes": []
+    },
+    {
+      "path": "frontend/src/pages/PlayersPage.tsx",
+      "language": "tsx",
+      "sha256": "e0cdf76f972a78dd1881fc2ccc31ee6283084a040e891e6978222578127f39fd",
+      "lines": 54,
+      "imports": [
+        "../lib/useLive",
+        "../components/common"
+      ],
+      "routes": []
+    },
+    {
+      "path": "frontend/src/pages/SettingsPage.tsx",
+      "language": "tsx",
+      "sha256": "0a61ab96b20e0c52078c5e55d59624716d3f6eb4906c66200f2f3144f8660da0",
+      "lines": 38,
+      "imports": [
+        "react",
+        "../components/common",
+        "../lib/api",
+        "../lib/types"
+      ],
+      "routes": []
+    },
+    {
+      "path": "frontend/src/pages/TrainingHubPage.tsx",
+      "language": "tsx",
+      "sha256": "c8f80c09909b59e2d383e44c2e5a42fe9b131685351be578d3bab369b1018347",
+      "lines": 174,
+      "imports": [
+        "react",
+        "../components/common",
+        "../lib/api"
+      ],
+      "routes": []
+    },
+    {
+      "path": "frontend/src/pages/WearablePage.tsx",
+      "language": "tsx",
+      "sha256": "bbb56c0f4a19ad6fef4ecc61f3eb680e433a0c236ab0b15a330dd1f7f3b687c7",
+      "lines": 187,
+      "imports": [
+        "react",
+        "../components/common",
+        "../lib/api",
+        "../lib/useLive"
+      ],
+      "routes": []
+    },
+    {
+      "path": "frontend/src/styles.css",
+      "language": "css",
+      "sha256": "63387030ad471df54eff69862f5d2e01a46ecd802fb66189f85ce491b9e2d80b",
+      "lines": 507,
+      "imports": [],
+      "routes": []
+    },
+    {
+      "path": "frontend/src/vite-env.d.ts",
+      "language": "ts",
+      "sha256": "65996936fbb042915f7b74a200fcdde7e410f32a669b1ab9597cfaa4b0faddb5",
+      "lines": 1,
+      "imports": [],
+      "routes": []
+    }
+  ]
+}

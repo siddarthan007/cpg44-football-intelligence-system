@@ -29,19 +29,9 @@ matching prototype calibration. Use this command for the first full rehearsal:
 ```bash
 cd /home/siddartha/capstone
 conda activate soccer
-export CPG44_RELAY_URL="https://cpg44.nivaspms.com"
-export CPG44_RELAY_TOKEN="<same token as the VPS>"
-export CPG44_RELAY_CA_FILE="$PWD/configs/relay_ca.pem"
-
-scripts/start_system.sh \
-  --video demo/sample_match.mp4 \
-  --weights runs/detect/soccernet_v2/weights/best.pt \
-  --calibration demo/demo_calibration.yaml \
-  --player-id 7 \
-  --match-id live \
-  --roster "7:7" \
-  --jerseys "7:7" \
-  --headless
+cp .env.example .env
+# Put the real relay token in .env once.
+scripts/demo.sh
 ```
 
 This calibration is suitable for the prototype display. Do not present its
@@ -64,10 +54,11 @@ scripts/start_system.sh \
   --calibration /path/to/demo-pitch.yaml \
   --player-id 7 \
   --match-id live \
-  --roster "12:7" \
-  --jerseys "7:7" \
   --headless
 ```
+
+Add the roster or jersey mapping only after checking the identity on the live
+page. A wrong binding is worse than an empty wearable link.
 
 Open `http://localhost:5173` and use full-screen mode. The React Live page labels
 the source as processed footage while it publishes current tracking frames.
@@ -77,8 +68,9 @@ the source as processed footage while it publishes current tracking frames.
 1. Live page: annotated footage, readable player IDs, ball state and pitch
    markings.
 2. Player tagging: team colour and the link between track, jersey and wearable.
-3. Wearables: packet age, BPM, SpO2 estimate, motion and signal quality.
-4. Analytics: distance, speed, team shape, possession evidence and workload.
+3. Vest readings: live ECG trace, heart rate, electrode contact, motion and delivery.
+4. Analytics: distance, speed, team shape, possession evidence, open pass lanes
+   and workload.
 5. Data quality: explain one blank or warning instead of hiding it.
 6. Relay recovery: stop the local wearable processor briefly, start it again
    and show cached samples continuing in relay order.
@@ -99,6 +91,11 @@ curl --fail https://cpg44.nivaspms.com/health
 curl --fail http://127.0.0.1:8081/health
 curl --fail http://127.0.0.1:8000/api/v1/health
 ```
+
+During rehearsal, the Live page should stay close to the source rate. On this
+PC the TensorRT path has enough headroom for a 25 FPS clip. Check the displayed
+processing FPS and the motion itself. Do not judge it only from the model's
+inference timing.
 
 Keep a second local copy of the demo footage and calibration file. If the
 wearable link fails during the panel, continue the real video pipeline and show

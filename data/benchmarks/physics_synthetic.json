@@ -1,0 +1,57 @@
+{
+  "ball3d_monocular": {
+    "noise_0.5px": {
+      "mean_3d_error_m": 0.379,
+      "median_3d_error_m": 0.174,
+      "aerial_arc_detected": "38/40",
+      "median_peak_height_error_m": 0.064,
+      "ground_homography_error_m": 5.139
+    },
+    "noise_1.0px": {
+      "mean_3d_error_m": 1.048,
+      "median_3d_error_m": 0.374,
+      "aerial_arc_detected": "39/40",
+      "median_peak_height_error_m": 0.135,
+      "ground_homography_error_m": 5.156
+    },
+    "noise_2.0px": {
+      "mean_3d_error_m": 2.288,
+      "median_3d_error_m": 1.191,
+      "aerial_arc_detected": "36/40",
+      "median_peak_height_error_m": 0.417,
+      "ground_homography_error_m": 5.192
+    },
+    "noise_3.0px": {
+      "mean_3d_error_m": 3.615,
+      "median_3d_error_m": 1.793,
+      "aerial_arc_detected": "35/40",
+      "median_peak_height_error_m": 0.668,
+      "ground_homography_error_m": 5.231
+    }
+  },
+  "ball3d_false_flights": {
+    "noise_1.0px": {
+      "rolling_balls_given_a_flight": "0/60",
+      "median_invented_peak_m": null
+    },
+    "noise_2.0px": {
+      "rolling_balls_given_a_flight": "0/60",
+      "median_invented_peak_m": null
+    },
+    "noise_3.0px": {
+      "rolling_balls_given_a_flight": "0/60",
+      "median_invented_peak_m": null
+    }
+  },
+  "note": "Synthetic ground truth: verifies the methods; field accuracy needs the protocol in docs/CAPSTONE_ACCURACY_PROTOCOL.md",
+  "ecg_heart_rate": {
+    "cases": 18,
+    "beat_sensitivity": 1.0,
+    "beat_ppv": 0.968,
+    "hr_mae_bpm": 0.52,
+    "hr_within_3bpm": "18/18",
+    "hr_reported": "18/18",
+    "naive_peak_mae_bpm": 11.18,
+    "hard_running_mae_bpm": 0.62
+  }
+}

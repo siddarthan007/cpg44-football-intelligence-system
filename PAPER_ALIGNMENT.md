@@ -8,7 +8,7 @@ gaps with local, inspectable processing and a required memory-only relay.
 | Report objective | Current implementation | Evidence still required |
 |---|---|---|
 | Integrate vision and wearable data | source timestamps, relay replay order, roster/jersey binding, frame-time fusion and aligned NDJSON | campus synchronization error distribution |
-| Build a wearable with GPS, acceleration and pulse oximetry | tested ESP32 raw-stream sketch plus host PPG/IMU/GPS processing | per-unit reference validation and field reliability |
+| Build a wearable with GPS, acceleration and a physiological sensor | ESP32-S3 firmware streaming chest ECG, IMU and GNSS, with host beat detection, IMU calibration and GNSS filtering; the optical pulse oximeter was replaced by the ECG after it gave no valid heart rate while moving | per-unit reference validation and field reliability |
 | Track players and ball | YOLO detector, ByteTrack, ReID layer, ball low-confidence recovery and stale-coast guard | held-out campus AP, HOTA/IDF1 and ball recall |
 | Convert footage into tactical information | pitch homography, possession, passes, width/depth/centroid, line height, space control, shots/xG | event labels and coach-review agreement |
 | Support performance and prevention decisions | load features, work-rate trend and explained substitution watch | prospective outcome labels; calibrated model evaluation |
@@ -23,8 +23,8 @@ gaps with local, inspectable processing and a required memory-only relay.
   labelled as metres.
 - Team/jersey assignment includes an abstention path. Coverage must be reported
   beside identity accuracy.
-- MAX30102 SpO2 is an uncalibrated estimate and optical readings are motion
-  sensitive. Invalid windows remain unavailable.
+- Heart rate comes from a single-lead chest ECG; windows with an electrode off
+  or too much interference remain unavailable.
 - The current load warning is a heuristic coaching indicator. Supervised strain
   training is locked until sufficient independent outcome labels exist.
 - ACWR can be a feature but is not treated as a diagnosis or a universal safe

@@ -104,7 +104,7 @@ The following gaps were found from the literature and the prototype review.
   analyst confirmation are still required.
 
   \item \textbf{Wearable values can look valid during poor contact.} PPG is
-  affected by motion and sensor placement \cite{pollreisz2022wearable,
+  affected by motion and sensor placement \cite{charlton2022ppg,
   zhang2021ppg}. Heart rate and SpO$_2$ therefore need motion-aware quality
   checks and comparison with a reference device.
 
@@ -200,11 +200,11 @@ firmware, vision and tracking pipeline, identity and time-sync services, live
 dashboard, tactical and workload features, training pipeline, test results,
 technical report, and demonstration.
 
-\subsection{Novelty of Work}
-The novelty is in the joined workflow, not in claiming a new sensor or tracker.
-One event can carry player position, team context, ball state, physical load,
-signal quality, identity confidence, and timing error. Coaches can correct an
-identity and see why a tactical or workload warning was raised.
+\subsection{What Is New in This Work}
+The new part is the joined workflow, not a new sensor or tracker. One event can
+carry player position, team context, ball state, physical load, signal quality,
+identity confidence, and timing error. Coaches can correct an identity and see
+why a tactical or workload warning was raised.
 
 The platform also joins local processing with a storage-free live relay. The
 same timestamped records support the dashboard, field validation, and later

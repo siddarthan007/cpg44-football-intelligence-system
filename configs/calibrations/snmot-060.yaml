@@ -1,0 +1,52 @@
+name: SoccerNet kick-off view
+created: '2026-11-12'
+source: demo/clips/SNMOT-060_750f.mp4
+image_size:
+- 1920
+- 1080
+pitch:
+  length: 105.0
+  width: 68.0
+lens:
+  k1: 0.0
+camera: panning
+points:
+  centre:
+  - 959
+  - 551
+  circle_left:
+  - 449
+  - 580
+  circle_right:
+  - 1489
+  - 575
+  circle_top:
+  - 962
+  - 474
+  circle_bottom:
+  - 962
+  - 681
+lines:
+  far_touchline:
+  - - 380
+    - 320
+  - - 962
+    - 322
+  - - 1590
+    - 319
+  halfway:
+  - - 962
+    - 400
+  - - 968
+    - 1030
+circle: null
+homography:
+- - 0.15473716644610044
+  - 0.6741583958352124
+  - -88.89647948141074
+- - 0.0009940961627715255
+  - 1.189354114478528
+  - -382.014523651698
+- - 0.0001342366968470275
+  - 0.012863470402786913
+  - 1.0

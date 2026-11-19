@@ -1,7 +1,7 @@
 # ---------------------------------------------------------------------------
 # CPG44 vision + fusion pipeline. Target: RTX 5060 Laptop (Blackwell, 8 GB), WSL2.
 #
-# PyTorch must be the CUDA 12.8 (cu128) build — Blackwell (sm_120) has NO kernels
+# PyTorch must be the CUDA 12.8 (cu128) build, Blackwell (sm_120) has NO kernels
 # in older CUDA wheels and will crash. Install torch FIRST, separately:
 #
 #   pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128
@@ -9,11 +9,12 @@
 # then:  pip install -r requirements.txt
 # ---------------------------------------------------------------------------
 
-# torch / torchvision installed separately (cu128) — see note above.
+# torch / torchvision installed separately (cu128), see note above.
 
 # vision + tracking
 ultralytics>=8.4.123,<8.5 # current quantize=16 inference API
 supervision>=0.29,<0.30   # bounded while sv.ByteTrack adapter remains available
+lap>=0.5.12,<0.6         # Ultralytics BoT-SORT assignment, installed explicitly
 opencv-python>=4.9.0      # video I/O, homography, optical flow, GUI windows
 
 # ML / analytics
@@ -29,14 +30,18 @@ pyserial>=3.5            # retained for bench diagnostics; live data uses the re
 # fastapi + uvicorn + websockets: local API, sensor processor, and relay client
 fastapi>=0.110
 uvicorn[standard]>=0.29
+httpx>=0.27
 websockets>=16,<17
+# phone camera: WebRTC receiver (frames decoded by PyAV) and the pairing QR code
+aiortc>=1.9
+qrcode>=7.4
 
 tqdm>=4.66
 pyyaml>=6.0
 rich>=13.0
 
-# jersey-number OCR (auto-binding wearers to vision tracks) — optional
+# jersey-number OCR (auto-binding wearers to vision tracks), optional
 easyocr>=1.7
 
-# Optional — pitch-keypoint homography via Roboflow sports templates:
+# Optional, pitch-keypoint homography via Roboflow sports templates:
 #   pip install git+https://github.com/roboflow/sports.git

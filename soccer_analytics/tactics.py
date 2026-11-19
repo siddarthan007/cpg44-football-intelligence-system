@@ -191,7 +191,7 @@ class TacticalAnalyzer:
         depth = np.sort(np.array(list(mean_x.values())) * adir)  # ascending
         deepest = depth[1:5] if len(depth) > 5 else depth[:max(1, len(depth) // 2)]
         # metres from own goal: adir=+1 → 0 + x = x; adir=-1 → L + (-x) = L - x.
-        # (deepest already equals x*adir, so add it directly — do NOT re-apply adir.)
+        # (deepest already equals x*adir, so add it directly, do NOT re-apply adir.)
         base = 0 if adir > 0 else self.L
         return float(np.mean(np.abs(base + deepest)))
 

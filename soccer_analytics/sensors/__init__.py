@@ -4,7 +4,7 @@ soccer_analytics.sensors
 
 Wearable-data fusion layer (CPG44 Objectives 2 & 3). The vision pipeline supplies
 external load (position, speed, distance, HSR, sprints); this package ingests the
-custom wearable's internal load (HR, SpO2, IMU) and fuses the two streams into
+custom wearable's internal load (chest ECG heart rate, IMU) and fuses the two streams into
 per-player features that drive load review and the recommendation engine.
 
 Hardware plugs in behind a single interface: :class:`SensorSource`. The tested

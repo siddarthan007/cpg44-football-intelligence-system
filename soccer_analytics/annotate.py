@@ -6,13 +6,13 @@ possession bar, and composites the top-down radar minimap.
 
 from __future__ import annotations
 
-from typing import Dict, List, Optional, Tuple
+from typing import Dict
 
 import cv2
 import numpy as np
 
-TEAM_BGR = {1: (0, 140, 255), 2: (255, 90, 0), 0: (200, 200, 200)}  # orange / blue / grey
-REFEREE_BGR = (0, 255, 255)
+TEAM_BGR = {1: (114, 107, 68), 2: (84, 95, 161), 0: (185, 181, 173)}
+REFEREE_BGR = (111, 182, 211)
 
 
 def draw_player(frame, xyxy, team: int, label: str = "", is_ref: bool = False,
@@ -23,17 +23,38 @@ def draw_player(frame, xyxy, team: int, label: str = "", is_ref: bool = False,
     axes = (max(int(w * 0.6), 8), max(int(w * 0.25), 4))
     cv2.ellipse(frame, (cx, y2), axes, 0, -45, 235, color, 2, cv2.LINE_AA)
     if label:
-        cv2.rectangle(frame, (cx - 16, y2 + 4), (cx + 16, y2 + 22), color, -1)
-        cv2.putText(frame, label, (cx - 14, y2 + 18),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.42, (0, 0, 0), 1, cv2.LINE_AA)
+        text = str(label)
+        font_scale = 0.52
+        (text_w, text_h), _ = cv2.getTextSize(
+            text, cv2.FONT_HERSHEY_SIMPLEX, font_scale, 1
+        )
+        pad_x, pad_y = 6, 5
+        left = cx - (text_w + pad_x * 2) // 2
+        top = y2 + 4
+        cv2.rectangle(
+            frame,
+            (left, top),
+            (left + text_w + pad_x * 2, top + text_h + pad_y * 2),
+            color,
+            -1,
+        )
+        cv2.putText(
+            frame,
+            text,
+            (left + pad_x, top + text_h + pad_y - 1),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            font_scale,
+            (255, 255, 255),
+            1,
+            cv2.LINE_AA,
+        )
     if wearable:
-        # cyan marker above head = this player has a bound wearable
-        cv2.circle(frame, (cx, y1 - 10), 5, (255, 255, 0), -1, cv2.LINE_AA)
-        cv2.circle(frame, (cx, y1 - 10), 5, (0, 0, 0), 1, cv2.LINE_AA)
+        # A small white ring marks a player with a paired wearable.
+        cv2.circle(frame, (cx, y1 - 10), 6, (245, 245, 240), 2, cv2.LINE_AA)
     return frame
 
 
-def draw_prediction(frame, pts, color=(255, 255, 0)):
+def draw_prediction(frame, pts, color=(150, 174, 142)):
     """Draw an LSTM-predicted future path (list of pixel points) as a fading line."""
     if pts is None or len(pts) < 2:
         return frame

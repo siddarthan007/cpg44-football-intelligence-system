@@ -20,6 +20,21 @@ RELAY_ENDPOINT = "https://cpg44.nivaspms.com/api/v1/sensors/ingest"
 MATCH_ID_PATTERN = re.compile(r"^[A-Za-z0-9._:-]{1,64}$")
 
 
+
+# ESP32-S3-WROOM-1 N16R8: 16 MB quad flash and 8 MB octal PSRAM. The default
+# FQBN assumes 4 MB flash with no PSRAM; this uses the whole flash (3 MB app)
+# and enables the octal PSRAM so larger relay buffers have room.
+FQBN = "esp32:esp32:esp32s3:CDCOnBoot=cdc,FlashSize=16M,PartitionScheme=app3M_fat9M_16MB,PSRAM=opi"
+
+
+def _arduino_cli():
+    """arduino-cli on PATH, or installed beside this Python (conda environment)."""
+    found = shutil.which("arduino-cli")
+    if found:
+        return found
+    local = Path(sys.executable).with_name("arduino-cli")
+    return str(local) if local.is_file() else None
+
 class ESP32Flasher:
     def __init__(
         self,
@@ -39,6 +54,98 @@ class ESP32Flasher:
         self.active_flash_job: Optional[dict] = None
         self.lock = threading.RLock()
         self._process: Optional[subprocess.Popen] = None
+        # Serial monitor state: one background reader per port, ring buffer of
+        # decoded lines that the dashboard polls.
+        self.monitor_port: Optional[str] = None
+        self.monitor_thread: Optional[threading.Thread] = None
+        self.monitor_stop = threading.Event()
+        self.monitor_lines: List[dict] = []
+        self.monitor_lock = threading.RLock()
+
+    # ---- serial monitor -------------------------------------------------- #
+    MONITOR_MAX_LINES = 400
+
+    def start_monitor(self, port: str) -> dict:
+        """Start tailing a serial port for the dashboard monitor."""
+        if not self._port_exists(port):
+            return {"ok": False, "error": f"serial port is not attached: {port}"}
+        with self.monitor_lock:
+            if self.monitor_thread is not None and self.monitor_thread.is_alive() \
+                    and self.monitor_port == port:
+                return {"ok": True, "port": port, "already_running": True}
+            self.stop_monitor()
+            self.monitor_stop.clear()
+            self.monitor_lines = []
+            self.monitor_port = port
+            self.monitor_thread = threading.Thread(
+                target=self._monitor_worker, args=(port,), daemon=True,
+            )
+            self.monitor_thread.start()
+        return {"ok": True, "port": port}
+
+    def stop_monitor(self) -> dict:
+        with self.monitor_lock:
+            self.monitor_stop.set()
+            thread = self.monitor_thread
+            self.monitor_thread = None
+            self.monitor_port = None
+        if thread is not None and thread.is_alive():
+            thread.join(timeout=3)
+        return {"ok": True}
+
+    def monitor_status(self) -> dict:
+        with self.monitor_lock:
+            return {
+                "port": self.monitor_port,
+                "running": bool(
+                    self.monitor_thread is not None and self.monitor_thread.is_alive()
+                ),
+                "lines": list(self.monitor_lines[-self.MONITOR_MAX_LINES:]),
+            }
+
+    def _monitor_worker(self, port: str) -> None:
+        try:
+            import serial as pyserial
+        except ImportError:
+            self._append_monitor_line({"t": time.time(), "text": "pyserial is not installed"})
+            return
+        try:
+            ser = pyserial.Serial(port, 115200, timeout=0.5)
+        except Exception as exc:
+            self._append_monitor_line({
+                "t": time.time(), "text": f"could not open {port}: {exc}",
+            })
+            return
+        try:
+            ser.dtr = False
+            ser.rts = False
+            buffer = b""
+            while not self.monitor_stop.is_set():
+                try:
+                    n = ser.in_waiting
+                    chunk = ser.read(n if n else 1)
+                except Exception:
+                    break
+                if not chunk:
+                    continue
+                buffer += chunk
+                while b"\n" in buffer:
+                    raw, _, rest = buffer.partition(b"\n")
+                    buffer = rest
+                    text = raw.decode("utf-8", "replace").rstrip("\r")
+                    if text:
+                        self._append_monitor_line({"t": time.time(), "text": text})
+        finally:
+            try:
+                ser.close()
+            except Exception:
+                pass
+
+    def _append_monitor_line(self, row: dict) -> None:
+        with self.monitor_lock:
+            self.monitor_lines.append(row)
+            if len(self.monitor_lines) > self.MONITOR_MAX_LINES * 2:
+                del self.monitor_lines[:-self.MONITOR_MAX_LINES]
 
     @staticmethod
     def _load_relay_ca(path_value: str) -> str:
@@ -65,25 +172,77 @@ class ESP32Flasher:
         }
 
     def list_ports(self) -> List[dict]:
-        """Return only ports reported by the OS; an empty list means no USB pass-through."""
+        """List real serial ports only.
+
+        Inside WSL the kernel also exposes the motherboard's legacy 8250 UARTs
+        as /dev/ttyS0..15 with no hardware behind them, which used to fill the
+        flasher page with dead entries. Those are filtered out. When WSL has no
+        USB pass-through but Windows shows the ESP32 on a COM port, the Windows
+        port is listed as a hint so the operator knows to run the usbipd
+        attach command instead of seeing an empty page."""
         ports = []
         try:
             import serial.tools.list_ports
             for port in serial.tools.list_ports.comports():
+                device = port.device or ""
+                hwid = (port.hwid or "")
+                # Drop legacy ISA UART placeholders: no USB identity, no
+                # description, and a ttyS name.
+                if device.startswith("/dev/ttyS") and hwid in ("", "n/a"):
+                    continue
                 ports.append({
-                    "device": port.device,
+                    "device": device,
                     "name": port.name,
                     "description": port.description,
-                    "hwid": port.hwid,
-                    "is_usb": "USB" in (port.hwid or "").upper()
+                    "hwid": hwid,
+                    "is_usb": "USB" in hwid.upper()
                     or "UART" in (port.description or "").upper(),
                 })
         except Exception:
             return []
+        if not ports:
+            windows_hint = self._windows_com_hint()
+            ports.extend(windows_hint)
         return ports
 
+    @staticmethod
+    def _windows_com_hint() -> List[dict]:
+        """Ask Windows for ESP32 COM ports when WSL itself has none attached."""
+        try:
+            result = subprocess.run(
+                ["powershell.exe", "-NoProfile", "-Command",
+                 "Get-PnpDevice -Class Ports -PresentOnly | "
+                 "Select-Object -ExpandProperty FriendlyName"],
+                capture_output=True, text=True, timeout=10,
+            )
+        except Exception:
+            return []
+        rows = []
+        for line in (result.stdout or "").splitlines():
+            line = line.strip()
+            # Match ESP32-family adapters by name; usbipd shows them on COMx.
+            if "COM" not in line:
+                continue
+            if not any(tag in line.lower() for tag in
+                       ("esp32", "jtag", "serial", "cp210", "ch340", "ftdi")):
+                continue
+            import re as _re
+            match = _re.search(r"\(COM(\d+)\)", line)
+            if not match:
+                continue
+            com = f"COM{match.group(1)}"
+            rows.append({
+                "device": com,
+                "name": com.lower(),
+                "description": f"{line} (Windows host, not attached to WSL)",
+                "hwid": "windows-host",
+                "is_usb": True,
+                "windows_only": True,
+            })
+        return rows
+
     def toolchain_status(self) -> dict:
-        arduino_cli = shutil.which("arduino-cli")
+        arduino_cli = _arduino_cli()
         esptool_available = False
         try:
             result = subprocess.run(
@@ -189,7 +348,7 @@ class ESP32Flasher:
         match_id: str = "live",
     ) -> dict:
         """Compile and upload the working HTTPS relay wearable asynchronously."""
-        arduino_cli = shutil.which("arduino-cli")
+        arduino_cli = _arduino_cli()
         if not arduino_cli:
             return {"ok": False, "error": "arduino-cli is not installed in WSL"}
         if not self._port_exists(port):
@@ -228,13 +387,15 @@ class ESP32Flasher:
         try:
             upload_command = [
                 arduino_cli, "upload", "--port", port,
-                "--fqbn", "esp32:esp32:esp32s3", str(self.firmware_dir),
+                "--fqbn", FQBN, str(self.firmware_dir),
             ]
             # Arduino CLI documents compile and upload as separate commands.
             # Keeping them separate produces an accurate failure stage and avoids
-            # relying on board-core-specific upload-property flags.
+            # relying on board-core-specific upload-property flags. CDCOnBoot=cdc
+            # routes the app's Serial prints to the same USB port used for
+            # flashing, so the dashboard serial monitor sees the boot log.
             compile_command = [
-                arduino_cli, "compile", "--fqbn", "esp32:esp32:esp32s3",
+                arduino_cli, "compile", "--fqbn", FQBN,
                 str(self.firmware_dir),
             ]
             return_code = 0

@@ -1,15 +1,15 @@
-"""Jersey-number OCR → automatic wearable binding.
+"""Jersey-number OCR to automatic wearable binding.
 
 Per-frame OCR of small, blurred jersey numbers is unreliable, so this module
 leans on **temporal majority voting**: read the number on a player's shirt every
 few frames, accumulate votes per track id, and only trust a number once it wins a
 clear majority over enough reads. That turns a noisy per-frame reader into a
-confident track→number map over a clip.
+confident track to number map over a clip.
 
 For the wearable demo we only need to find which vision track wears each known
-jersey (the 1–2 wearers). Given a roster ``{jersey_number: player_id}``, the
-:class:`AutoBinder` resolves track→number→player and binds it into the
-``SensorVideoSync`` automatically — no manual ``--roster track:player`` needed.
+jersey (the 1-2 wearers). Given a roster ``{jersey_number: player_id}``, the
+:class:`AutoBinder` resolves track to number to player and binds it into the
+``SensorVideoSync`` automatically, no manual ``--roster track:player`` needed.
 
 EasyOCR is imported lazily (GPU). If it is unavailable, the reader degrades to a
 no-op and the pipeline falls back to manual binding.
@@ -20,17 +20,24 @@ from __future__ import annotations
 from collections import Counter, defaultdict
 from typing import Dict, Optional
 
-import numpy as np
 
 
 class JerseyReader:
-    """Reads a 1–2 digit jersey number from a player crop (EasyOCR, GPU)."""
+    """Reads a 1-2 digit jersey number from a player crop (EasyOCR, GPU)."""
 
     def __init__(self, device: str = "", min_conf: float = 0.4, upscale: int = 4):
         self.min_conf = min_conf
         self.upscale = upscale
         self._reader = None
         self._ok = True
+        self._trained = None
+        # Prefer the reader trained on SoccerNet Jersey-2023 (jersey_model.py);
+        # generic OCR is the fallback when its weights are not present.
+        from .jersey_model import JerseyReader as TrainedReader
+        trained = TrainedReader(device="cpu" if device == "cpu" else "")
+        if trained.available:
+            self._trained = trained
+            return
         gpu = not (device == "cpu")
         try:
             import easyocr
@@ -44,6 +51,18 @@ class JerseyReader:
         return self._ok
 
     def read(self, frame, bbox) -> Optional[int]:
+        if self._trained is not None:
+            tr = self._trained
+            if tr.arch == "mil":                    # a bag of one crop; AutoBinder votes over frames
+                feats = tr.read_batch(frame, [bbox])
+                if not len(feats):
+                    return None
+                p_leg, P = tr.pool(feats)
+                return int(P.argmax()) if p_leg >= max(tr.threshold, 0.8) and P.max() >= 0.6 else None
+            leg, P = tr.read_batch(frame, [bbox])
+            if len(leg) and leg[0] >= 0.8 and P[0].max() >= 0.6:
+                return int(P[0].argmax())
+            return None
         if not self._ok:
             return None
         import cv2
@@ -91,7 +110,7 @@ class JerseyVoteTracker:
         num, votes = ranked[0]
         runner = ranked[1][1] if len(ranked) > 1 else 0
         total = sum(c.values())
-        # strict majority AND a clear margin over the runner-up, so a 2–2 tie
+        # strict majority AND a clear margin over the runner-up, so a 2-2 tie
         # (decided only by insertion order) is never treated as confident.
         if total >= self.min_votes and votes / total > self.min_fraction and votes > runner:
             return num
@@ -113,7 +132,8 @@ class AutoBinder:
     def __init__(self, reader: JerseyReader, roster_numbers: Dict[int, int],
                  every: int = 5):
         self.reader = reader
-        self.roster = {int(k): int(v) for k, v in roster_numbers.items()}
+        self.roster = {(tuple(map(int, k)) if isinstance(k, tuple) else int(k)): int(v)
+                       for k, v in roster_numbers.items()}
         self.votes = JerseyVoteTracker()
         self.every = every
         self.bound: Dict[int, int] = {}          # track_id -> player_id (auto-bound)
@@ -126,19 +146,28 @@ class AutoBinder:
         if not self.reader.available or frame_idx % self.every != 0:
             return {}
         newly = {}
-        for (tid, bbox) in players:
-            # leave already-bound tracks alone — including manual --roster binds,
+        players = list(players)
+        visible = {row[0] for row in players}
+        for row in players:
+            tid, bbox = row[:2]
+            team = int(row[2]) if len(row) > 2 else 0
+            # leave already-bound tracks alone, including manual --roster binds,
             # which are authoritative (never clobber them with an OCR guess).
             if tid in self.bound or sync.player_of(tid) is not None:
                 continue
             self.votes.add(tid, self.reader.read(frame, bbox))
             num = self.votes.confident_number(tid)
-            if num is None or num not in self.roster:
+            if num is None:
                 continue
-            pid = self.roster[num]
+            pid = self.roster.get((team, num), self.roster.get(num))
+            if pid is None:
+                continue
             # one wearable per player: after a track-id switch, move the player's
             # binding to the fresh track instead of double-binding.
             old = self.bound_players.get(pid)
+            occupied = sync.track_of(pid)
+            if occupied is not None and occupied != tid and (occupied != old or occupied in visible):
+                continue
             if old is not None and old != tid:
                 sync.unbind(old)
                 self.bound.pop(old, None)
@@ -146,5 +175,5 @@ class AutoBinder:
             self.bound[tid] = pid
             self.bound_players[pid] = tid
             newly[tid] = pid
-            print(f"[jersey] track {tid} → #{num} → player {pid} (auto-bound)")
+            print(f"[jersey] track {tid} to #{num} to player {pid} (auto-bound)")
         return newly

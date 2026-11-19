@@ -1,43 +1,21 @@
-# Calibration for SNMOT-060 (kickoff view). Point landmarks are the centre
-# circle; the `lines:` section anchors the homography at the frame edges via
-# points ON known pitch lines (far touchline = y0, halfway = x52.5), which fixes
-# the sideline→centre compression that a circle-only fit suffers.
-# Halfway-line pixels were auto-detected (x = 0.00247·y + 960.9); the touchline
-# runs through the halfway intersection (962, 315) with slope ≈ 0.0112.
+# Calibration for SNMOT-060 (kickoff view, frame 0 of demo/sample_match.mp4).
+# Landmarks were read from 4x-5x zoomed crops of the exact pipeline start frame:
+# centre spot under the kickoff ball, the four visible centre-circle cardinals,
+# the far touchline where it meets the halfway line, and two touchline samples
+# either side. The near touchline is below the frame bottom, so the vertical
+# scale is anchored by the full circle ellipse (top arc 77 px for 9.15 m, bottom
+# arc 130 px) plus the far touchline.
 points:
-  centre:        [962, 553]
-  half_top:      [962, 315]
-  circle_left:   [472, 553]
-  circle_right:  [1443, 553]
-  circle_top:    [957, 373]
-  circle_bottom: [957, 743]
+  centre:        [959, 551]
+  circle_left:   [449, 580]
+  circle_right:  [1489, 575]
+  circle_top:    [962, 474]
+  circle_bottom: [962, 681]
 lines:
   far_touchline:
-    - [200, 306]
-    - [700, 312]
-    - [1400, 320]
-    - [1800, 324]
+    - [380, 320]
+    - [962, 322]
+    - [1590, 319]
   halfway:
-    - [962, 650]
-    - [963, 800]
-    - [963, 950]
-    - [964, 1070]
-# auto-detected points ON the centre circle (ellipse-sampled) — the full
-# conic↔circle correspondence fixes the perspective tangency bias
-circle:
-  - [981.6, 751.5]
-  - [794.2, 743.7]
-  - [634.6, 711.1]
-  - [527.1, 658.7]
-  - [488.1, 594.4]
-  - [523.5, 528.1]
-  - [627.9, 469.8]
-  - [785.4, 428.4]
-  - [972.1, 410.2]
-  - [1159.5, 418.0]
-  - [1319.1, 450.6]
-  - [1426.6, 503.0]
-  - [1465.6, 567.3]
-  - [1430.2, 633.7]
-  - [1325.8, 692.0]
-  - [1168.2, 733.4]
+    - [962, 400]
+    - [968, 1030]

@@ -2,11 +2,11 @@
 
 Two interchangeable models sharing one interface (``predict(features) -> InjuryRisk``):
 
-- :class:`HeuristicInjuryModel` — retained name for compatibility; it produces a
+- :class:`HeuristicInjuryModel`, retained name for compatibility; it produces a
   transparent, non-medical load-review score from workload markers.
-- :class:`InjuryRiskModel` — gradient-boosted / random-forest model (the report's
+- :class:`InjuryRiskModel`, gradient-boosted / random-forest model (the report's
   XGBoost/RandomForest approach) trained on historical
-  ``WorkloadFeatures`` → independently collected outcome labels.
+  ``WorkloadFeatures`` to independently collected outcome labels.
 
 Feature order is fixed so a saved model and live features always align.
 """
@@ -22,13 +22,13 @@ from .schema import InjuryRisk, WorkloadFeatures
 FEATURE_ORDER = ["total_distance", "hsr_distance", "sprint_count", "accel_efforts",
                  "decel_efforts", "player_load", "metabolic_power_avg",
                  "high_metabolic_distance", "energy_kcal", "top_speed",
-                 "avg_hr", "hr_drift", "min_spo2", "acwr"]
+                 "avg_hr", "hr_drift", "trimp", "acwr"]
 
 
 def features_to_array(f: WorkloadFeatures) -> np.ndarray:
     v = f.to_vector()
     # Model-only neutral imputation. Missing readings remain null in the API/UI.
-    defaults = {"avg_hr": 150.0, "hr_drift": 0.0, "min_spo2": 97.0, "acwr": 1.0}
+    defaults = {"avg_hr": 150.0, "hr_drift": 0.0, "trimp": 0.0, "acwr": 1.0}
     return np.array([defaults.get(k, 0.0) if (v[k] is None or np.isnan(v[k])) else v[k]
                      for k in FEATURE_ORDER], dtype=float)
 
@@ -50,34 +50,38 @@ class HeuristicInjuryModel:
         elif acwr < 0.8:
             factors["acwr_low"] = float(np.clip((0.8 - acwr) / 0.8, 0, 1))
 
-        # cardiac drift (late-vs-early HR) → accumulating fatigue
+        # cardiac drift (late-vs-early HR) to accumulating fatigue
         if not np.isnan(f.hr_drift) and f.hr_drift > 8:
             factors["cardiac_drift"] = float(np.clip((f.hr_drift - 8) / 22, 0, 1))
 
-        # desaturation
-        if not np.isnan(f.min_spo2) and f.min_spo2 < 94:
-            factors["low_spo2"] = float(np.clip((94 - f.min_spo2) / 6, 0, 1))
+        # sustained cardiac load: TRIMP per minute of 3 means a 70-80 % HRmax
+        # average, 4 means 80-90 %
+        minutes = f.duration_s / 60.0
+        if not np.isnan(f.trimp) and minutes >= 5:
+            rate = f.trimp / minutes
+            if rate > 3.0:
+                factors["cardiac_load"] = float(np.clip((rate - 3.0) / 1.5, 0, 1))
 
-        # high external load (HSR + sprints) — relative to typical match maxima
+        # high external load (HSR + sprints), relative to typical match maxima
         hsr_r = np.clip(f.hsr_distance / 1200.0, 0, 1)          # ~1.2 km HSR = heavy
         sprint_r = np.clip(f.sprint_count / 35.0, 0, 1)
         if hsr_r > 0.6 or sprint_r > 0.6:
             factors["high_intensity_load"] = float(max(hsr_r, sprint_r))
 
-        # accel/decel load — eccentric decelerations are a key soft-tissue risk
+        # accel/decel load, eccentric decelerations are a key soft-tissue risk
         ad = f.accel_efforts + f.decel_efforts
         ad_r = np.clip(ad / 120.0, 0, 1)
         if ad_r > 0.6:
             factors["accel_decel_load"] = float(ad_r)
 
-        # metabolic load (di Prampero) — high sustained energy expenditure
+        # metabolic load (di Prampero), high sustained energy expenditure
         met_r = np.clip(f.high_metabolic_distance / 1500.0, 0, 1)
         if met_r > 0.6:
             factors["metabolic_load"] = float(met_r)
 
         # weighted aggregation
         weights = {"acwr_high": 0.3, "acwr_low": 0.12, "cardiac_drift": 0.16,
-                   "low_spo2": 0.12, "high_intensity_load": 0.12,
+                   "cardiac_load": 0.12, "high_intensity_load": 0.12,
                    "accel_decel_load": 0.1, "metabolic_load": 0.08}
         risk = float(np.clip(sum(factors.get(k, 0) * w for k, w in weights.items())
                              / max(sum(weights[k] for k in factors), 1e-9)
@@ -92,6 +96,7 @@ class InjuryRiskModel:
     def __init__(self):
         self.model = None
         self._backend = None
+        self.metadata = {}
 
     def _new_model(self):
         try:
@@ -130,10 +135,14 @@ class InjuryRiskModel:
         except Exception:
             return {}
 
-    def save(self, path: str):
+    def save(self, path: str, metadata: dict | None = None):
         import pickle
         with open(path, "wb") as fh:
-            pickle.dump({"backend": self._backend, "model": self.model}, fh)
+            pickle.dump({
+                "backend": self._backend,
+                "model": self.model,
+                "metadata": dict(metadata or self.metadata),
+            }, fh)
 
     @classmethod
     def load(cls, path: str) -> "InjuryRiskModel":
@@ -142,4 +151,5 @@ class InjuryRiskModel:
         with open(path, "rb") as fh:
             d = pickle.load(fh)
         obj.model, obj._backend = d["model"], d["backend"]
+        obj.metadata = dict(d.get("metadata") or {})
         return obj

@@ -1,176 +1,101 @@
 import { useEffect, useState } from 'react';
-import { EmptyState, ErrorBanner, PageHeader, StatusBadge, Value } from '../components/common';
+import { Glyph } from '../components/Glyph';
 import { api } from '../lib/api';
+import type { SystemInfo } from '../lib/types';
 
-type Metrics = { epoch?: number; precision?: number; recall?: number; map50?: number; map50_95?: number; box_loss?: number };
-type TrainingJob = { id: string; status: string; epochs: number; progress_pct: number; metrics?: Metrics; error?: string; log_path?: string; best_weights?: string };
+type Metrics = { epoch?: number; precision?: number; recall?: number; map50?: number; map50_95?: number };
+type Job = { id: string; status: string; epochs: number; progress_pct: number; metrics?: Metrics; error?: string };
 type Run = { name: string; metrics: Metrics; best_weights?: string | null; updated_at: number };
-type TrainingStatus = {
-  active_job?: TrainingJob | null;
-  dataset_path?: string;
-  dataset_ready?: boolean;
-  runs?: Run[];
-  gpu_required_for_practical_training?: boolean;
-  strain_model?: { trained?: boolean; backend?: string | null; validation?: Record<string, number> | null; training_source?: string };
+type Status = {
+  active_job?: Job | null; dataset_path?: string; dataset_ready?: boolean; runs?: Run[];
+  strain_model?: { trained?: boolean; validation?: Record<string, number | string> | null };
   outcome_labels?: { collected_samples: number; collected_player_sessions: number; labelled_samples: number; positive_outcomes: number; ready: boolean };
   outcome_window_days?: number;
 };
 
+const fmt = (v?: number) => (v == null || !Number.isFinite(v) ? '' : v.toFixed(3));
+
 export const TrainingHubPage = () => {
-  const [status, setStatus] = useState<TrainingStatus>({});
-  const [dataset, setDataset] = useState('');
-  const [model, setModel] = useState('yolov8m.pt');
-  const [epochs, setEpochs] = useState(50);
-  const [batch, setBatch] = useState(4);
-  const [imgsz, setImgsz] = useState(1280);
+  const [st, setSt] = useState<Status>({});
+  const [info, setInfo] = useState<SystemInfo | null>(null);
+  const [form, setForm] = useState({ dataset: '', model: 'yolov8m.pt', epochs: 50, batch: 2, imgsz: 1280 });
+  const [label, setLabel] = useState({ match: 'live', player: '', outcome: 0, source: '' });
+  const [msg, setMsg] = useState<{ ok: boolean; text: string }>();
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [matchId, setMatchId] = useState('live');
-  const [playerId, setPlayerId] = useState('');
-  const [outcome, setOutcome] = useState(0);
-  const [labelSource, setLabelSource] = useState('');
-  const [outcomeWindow, setOutcomeWindow] = useState(7);
 
-  const refresh = () => api.trainingStatus().then((body) => {
-    const next = body as TrainingStatus;
-    setStatus(next);
-    setDataset((current) => current || next.dataset_path || '');
-    setOutcomeWindow(next.outcome_window_days ?? 7);
-    setError(null);
-  }).catch((reason: unknown) => setError(reason instanceof Error ? reason.message : 'Training API unavailable'));
-
+  const refresh = () => api.trainingStatus().then(b => {
+    const s = b as Status; setSt(s); setForm(f => ({ ...f, dataset: f.dataset || s.dataset_path || '' }));
+  }).catch(() => undefined);
   useEffect(() => {
-    void refresh();
-    const timer = window.setInterval(refresh, 2000);
-    return () => window.clearInterval(timer);
+    void refresh(); api.systemInfo().then(setInfo).catch(() => setInfo(null));
+    const t = window.setInterval(refresh, 3000); return () => window.clearInterval(t);
   }, []);
 
-  const start = async () => {
-    setBusy(true); setError(null);
-    try {
-      const response = await api.startTraining({ data_path: dataset, model_name: model, epochs, batch, imgsz });
-      if (response.ok === false) throw new Error(String(response.error ?? 'Training did not start'));
-      await refresh();
-    } catch (reason) { setError(reason instanceof Error ? reason.message : 'Training did not start'); }
+  const act = async (fn: () => Promise<Record<string, unknown>>, done: string) => {
+    setBusy(true); setMsg(undefined);
+    try { const r = await fn(); if (r.ok === false) throw new Error(String(r.error ?? 'failed')); setMsg({ ok: true, text: done }); await refresh(); }
+    catch (e) { setMsg({ ok: false, text: e instanceof Error ? e.message : String(e) }); }
     finally { setBusy(false); }
   };
 
-  const stop = async () => {
-    try {
-      const response = await api.stopTraining();
-      if (response.ok === false) throw new Error(String(response.error));
-      await refresh();
-    } catch (reason) { setError(reason instanceof Error ? reason.message : 'Unable to stop job'); }
-  };
+  const job = st.active_job;
+  const running = job && ['running', 'starting', 'stopping'].includes(job.status);
+  const inUse = info?.active_config.detector;
+  const labels = st.outcome_labels ?? { collected_samples: 0, collected_player_sessions: 0, labelled_samples: 0, positive_outcomes: 0, ready: false };
+  const need = 100;
 
-  const trainOutcomeModel = async () => {
-    setBusy(true); setError(null);
-    try {
-      const response = await api.trainStrain();
-      if (response.ok === false) throw new Error(String(response.error));
-      await refresh();
-    } catch (reason) { setError(reason instanceof Error ? reason.message : 'Outcome model did not train'); }
-    finally { setBusy(false); }
-  };
+  return <div className="page">
+    <header className="page-header"><h1>Models</h1><p>The detector the tracker uses, and the outcome model trained on your own sessions.</p></header>
+    {msg && <div className={`notice ${msg.ok ? '' : 'bad'}`}>{msg.text}</div>}
 
-  const saveOutcome = async () => {
-    setBusy(true); setError(null);
-    try {
-      await api.labelPlayerSession({
-        match_id: matchId,
-        player_id: Number(playerId),
-        injury_label: outcome,
-        outcome_window_days: outcomeWindow,
-        label_source: labelSource,
-      });
-      setPlayerId(''); setLabelSource('');
-      await refresh();
-    } catch (reason) { setError(reason instanceof Error ? reason.message : 'Outcome label was not saved'); }
-    finally { setBusy(false); }
-  };
+    <section className="panel sys-strip" aria-label="This computer">
+      <span><Glyph g="runtime" size={16} /><b>{info?.gpu.available ? info.gpu.name : 'No GPU visible'}</b></span>
+      <span><Glyph g="model" size={16} />Detector <b>{inUse ?? 'none'}</b></span>
+      <span><Glyph g="eye" size={16} />Tracker <b>{info?.active_config.tracker ?? 'unknown'}</b></span>
+      <span className={info?.hub_connected ? 'state-ok' : 'muted'}><Glyph g="vest" size={16} />Sensor hub {info?.hub_connected ? 'connected' : 'off'}</span>
+    </section>
 
-  const active = status.active_job;
-  const running = active?.status === 'running' || active?.status === 'starting' || active?.status === 'stopping';
-  const labels = status.outcome_labels ?? { collected_samples: 0, collected_player_sessions: 0, labelled_samples: 0, positive_outcomes: 0, ready: false };
+    <section className="panel" aria-label="Detector runs">
+      <div className="panel-head"><h2>Detector runs</h2><span className="muted" style={{ fontSize: 12.5 }}>Each run scored on its own validation set. The Evidence page compares them on the same test clips.</span></div>
+      {!st.runs?.length ? <div className="empty">No trained runs yet</div> : <div className="table-scroll"><table className="runs">
+        <thead><tr><th scope="col">Run</th><th scope="col">Epochs</th><th scope="col">mAP50</th><th scope="col">mAP50-95</th><th scope="col"><span className="sr-only">State</span></th></tr></thead>
+        <tbody>{st.runs.map(r => <tr key={r.name} className={r.name === inUse ? 'active' : ''}>
+          <th scope="row">{r.name}</th><td className="num">{r.metrics.epoch ?? ''}</td><td className="num">{fmt(r.metrics.map50)}</td><td className="num">{fmt(r.metrics.map50_95)}</td>
+          <td>{r.name === inUse && <span className="chip-in-use"><Glyph g="check" size={13} />in use</span>}</td></tr>)}</tbody>
+      </table></div>}
+      {job && <div className="job"><b>{job.id}</b><div className="rate-bar"><i className="ok" style={{ width: `${job.progress_pct ?? 0}%` }} /></div>
+        <span className="num muted">epoch {job.metrics?.epoch ?? 0} of {job.epochs}{job.metrics?.map50_95 != null ? `, mAP50-95 ${fmt(job.metrics.map50_95)}` : ''}</span>
+        {running && <button className="btn ghost small" onClick={() => void act(() => api.stopTraining(), 'Stopping')}>Stop</button>}</div>}
+      <details className="more"><summary>Train a new detector</summary>
+        <div className="row-fields">
+          <label>Dataset<input style={{ minWidth: 320 }} value={form.dataset} onChange={e => setForm({ ...form, dataset: e.target.value })} disabled={Boolean(running)} /></label>
+          <label>Start from<select value={form.model} onChange={e => setForm({ ...form, model: e.target.value })}><option value="yolov8m.pt">YOLOv8 medium</option><option value="yolov8s.pt">YOLOv8 small</option><option value="yolo11m.pt">YOLO11 medium</option></select></label>
+          <label>Image size<select value={form.imgsz} onChange={e => setForm({ ...form, imgsz: Number(e.target.value) })}><option value={960}>960</option><option value={1280}>1280</option><option value={1536}>1536</option></select></label>
+          <label>Epochs<input type="number" min={1} max={500} value={form.epochs} onChange={e => setForm({ ...form, epochs: Number(e.target.value) })} /></label>
+          <button className="btn small" disabled={busy || Boolean(running) || !st.dataset_ready} onClick={() => void act(() => api.startTraining({ data_path: form.dataset, model_name: form.model, epochs: form.epochs, batch: form.batch, imgsz: form.imgsz }), 'Training started')}>Start</button>
+        </div></details>
+    </section>
 
-  return (
-    <div className="page">
-      <PageHeader eyebrow="MODEL OPERATIONS" title="Training and evaluation" description="Launch real Ultralytics jobs, inspect artifact metrics, and keep outcome models gated on labelled evidence." />
-      <ErrorBanner message={error} />
-
-      <div className="two-column">
-        <section className="card-clean">
-          <div className="section-heading">
-            <div><span className="eyebrow">DETECTOR</span><h2>SoccerNet training</h2></div>
-            <StatusBadge status={status.dataset_ready ? 'ready' : 'unavailable'} />
-          </div>
-          <div className="form-grid">
-            <label className="field wide"><span>Dataset YAML</span><input value={dataset} onChange={(event) => setDataset(event.target.value)} disabled={running} /></label>
-            <label className="field"><span>Checkpoint</span><select value={model} onChange={(event) => setModel(event.target.value)} disabled={running}><option value="yolov8m.pt">YOLOv8 medium</option><option value="yolov8s.pt">YOLOv8 small</option><option value="yolo11m.pt">YOLO11 medium</option></select></label>
-            <label className="field"><span>Image size</span><select value={imgsz} onChange={(event) => setImgsz(Number(event.target.value))} disabled={running}><option value={960}>960 px</option><option value={1280}>1280 px</option><option value={1536}>1536 px</option></select></label>
-            <label className="field"><span>Epochs</span><input type="number" min="1" max="500" value={epochs} onChange={(event) => setEpochs(Number(event.target.value))} disabled={running} /></label>
-            <label className="field"><span>Batch</span><input type="number" min="1" max="128" value={batch} onChange={(event) => setBatch(Number(event.target.value))} disabled={running} /></label>
-          </div>
-          {active && (
-            <div className="job-card">
-              <div className="section-heading"><strong>{active.id}</strong><StatusBadge status={active.status} /></div>
-              <div className="progress"><span style={{ width: `${active.progress_pct ?? 0}%` }} /></div>
-              <div className="compact-metrics">
-                <span>Epoch <strong>{active.metrics?.epoch ?? '-'} / {active.epochs}</strong></span>
-                <span>mAP50 <strong><Value value={active.metrics?.map50} digits={3} /></strong></span>
-                <span>mAP50-95 <strong><Value value={active.metrics?.map50_95} digits={3} /></strong></span>
-              </div>
-              {active.error && <p className="field-error">{active.error}</p>}
-            </div>
-          )}
-          <div className="button-row">
-            {running ? <button className="btn-danger" onClick={stop}>Stop process</button> : <button className="btn-solid" disabled={busy || !status.dataset_ready} onClick={start}>Start training process</button>}
-          </div>
-        </section>
-
-        <section className="card-clean">
-          <div className="section-heading">
-            <div><span className="eyebrow">PLAYER AVAILABILITY</span><h2>Outcome model gate</h2></div>
-            <StatusBadge status={status.strain_model?.trained ? 'ready' : 'unavailable'} />
-          </div>
-          <p className="body-copy">The model trains only after clinician-labelled outcomes exist. A chronological holdout reports ROC AUC, average precision and Brier score; heuristic ACWR values are never used as labels.</p>
-          <dl className="definition-grid outcome-grid">
-            <div><dt>Measured rows</dt><dd>{labels.collected_samples}</dd></div>
-            <div><dt>Player-sessions</dt><dd>{labels.collected_player_sessions}</dd></div>
-            <div><dt>Labelled sessions</dt><dd>{labels.labelled_samples}</dd></div>
-            <div><dt>Positive outcomes</dt><dd>{labels.positive_outcomes}</dd></div>
-            <div><dt>Minimum gate</dt><dd>100 / 10 per class</dd></div>
-            <div><dt>Validation</dt><dd>Temporal 20%</dd></div>
-          </dl>
-          {status.strain_model?.validation && (
-            <div className="compact-metrics stacked">
-              {Object.entries(status.strain_model.validation).map(([key, value]) => <span key={key}>{key.replaceAll('_', ' ')} <strong>{value}</strong></span>)}
-            </div>
-          )}
-          <button className="btn-solid" disabled={busy || !labels.ready} onClick={trainOutcomeModel}>Train from labelled outcomes</button>
-          {!labels.ready && <p className="form-help">Add labels with provenance before this action becomes available.</p>}
-          <div className="section-divider" />
-          <h3>Record reviewed session outcome</h3>
-          <p className="form-help">One label represents one player-session, not every five-second sample. Re-entering the same match and player updates that outcome.</p>
-          <div className="form-grid">
-            <label className="field"><span>Match ID</span><input value={matchId} onChange={(event) => setMatchId(event.target.value)} /></label>
-            <label className="field"><span>Wearable player ID</span><input type="number" min="1" value={playerId} onChange={(event) => setPlayerId(event.target.value)} /></label>
-            <label className="field wide"><span>Reviewed outcome</span><select value={outcome} onChange={(event) => setOutcome(Number(event.target.value))}><option value={0}>No documented time-loss injury</option><option value={1}>Documented time-loss injury</option></select></label>
-            <label className="field"><span>Fixed outcome window</span><input type="text" value={`${outcomeWindow} days`} readOnly /></label>
-            <label className="field"><span>Reviewer or record reference</span><input value={labelSource} onChange={(event) => setLabelSource(event.target.value)} placeholder="Physio register 2026-08-20" /></label>
-          </div>
-          <button className="btn-outline" disabled={busy || !matchId || !playerId || labelSource.trim().length < 4} onClick={saveOutcome}>Save reviewed outcome</button>
-        </section>
+    <section className="panel" aria-label="Outcome model">
+      <div className="panel-head"><h2>Outcome model</h2>{st.strain_model?.trained && <span className="chip-in-use"><Glyph g="check" size={13} />trained</span>}</div>
+      <p className="muted" style={{ margin: '0 0 10px', fontSize: 13.5 }}>A gradient-boosted classifier on each player's measured load, trained only once enough sessions carry a reviewed outcome. Until then the app gives load cues, not predictions.</p>
+      <div className="rate" style={{ maxWidth: 560 }}><span>Labelled sessions</span>
+        <div className="rate-bar"><i className={labels.ready ? 'ok' : 'warn'} style={{ width: `${Math.min(100, labels.labelled_samples / need * 100)}%` }} /></div>
+        <b className="num">{labels.labelled_samples} / {need}</b></div>
+      {st.strain_model?.validation && <div className="nums-row">{Object.entries(st.strain_model.validation).slice(0, 4).map(([k, v]) => <div key={k}><b className="num">{String(v)}</b><small>{k.replaceAll('_', ' ')}</small></div>)}</div>}
+      <div className="row-fields">
+        <button className="btn small" disabled={busy || !labels.ready} onClick={() => void act(() => api.trainStrain(), 'Model trained')}>Train</button>
       </div>
-
-      <section className="card-clean">
-        <div className="section-heading"><div><span className="eyebrow">ARTIFACTS</span><h2>Recorded runs</h2></div><span className="muted">Metrics are read from results.csv</span></div>
-        {!status.runs?.length ? <EmptyState title="No completed training artifacts found." /> : (
-          <div className="table-scroll"><table><thead><tr><th>Run</th><th>Epoch</th><th>Precision</th><th>Recall</th><th>mAP50</th><th>mAP50-95</th><th>Weights</th></tr></thead><tbody>
-            {status.runs.map((run) => <tr key={run.name}><td><strong>{run.name}</strong></td><td>{run.metrics.epoch}</td><td><Value value={run.metrics.precision} digits={3} /></td><td><Value value={run.metrics.recall} digits={3} /></td><td><Value value={run.metrics.map50} digits={3} /></td><td><Value value={run.metrics.map50_95} digits={3} /></td><td className="mono small">{run.best_weights ?? 'missing'}</td></tr>)}
-          </tbody></table></div>
-        )}
-      </section>
-    </div>
-  );
+      <details className="more"><summary>Record a session outcome</summary>
+        <div className="row-fields">
+          <label>Session<input value={label.match} onChange={e => setLabel({ ...label, match: e.target.value })} /></label>
+          <label>Vest<input type="number" min={1} value={label.player} onChange={e => setLabel({ ...label, player: e.target.value })} /></label>
+          <label>Outcome within {st.outcome_window_days ?? 7} days<select value={label.outcome} onChange={e => setLabel({ ...label, outcome: Number(e.target.value) })}>
+            <option value={0}>No time-loss injury</option><option value={1}>Time-loss injury</option></select></label>
+          <label>Recorded by<input value={label.source} onChange={e => setLabel({ ...label, source: e.target.value })} placeholder="Physio register, 20 Aug" /></label>
+          <button className="btn ghost small" disabled={busy || !label.player || label.source.trim().length < 4}
+            onClick={() => void act(() => api.labelPlayerSession({ match_id: label.match, player_id: Number(label.player), injury_label: label.outcome, outcome_window_days: st.outcome_window_days ?? 7, label_source: label.source }), 'Outcome saved')}>Save</button>
+        </div></details>
+    </section>
+  </div>;
 };

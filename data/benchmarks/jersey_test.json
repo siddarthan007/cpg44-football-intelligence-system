@@ -1,0 +1,14 @@
+{
+  "accuracy": 0.5334434351775392,
+  "legible_accuracy": 0.48364485981308414,
+  "illegible_accuracy": 0.6535211267605634,
+  "tracklets": 1211,
+  "legible": 856,
+  "illegible": 355,
+  "model": "ResNet-18 attention MIL, torso crops",
+  "threshold_from_val": 0.7,
+  "val_accuracy": 0.823943661971831,
+  "crops_per_track": 48,
+  "dataset": "SoccerNet Jersey-2023 test",
+  "previous_crop_classifier": 0.396
+}

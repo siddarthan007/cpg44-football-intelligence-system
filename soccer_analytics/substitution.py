@@ -2,7 +2,7 @@
 
 Ranks players for coach review from the
 time-course of their physical output. Sports-science grounding: the strongest
-on-pitch fatigue signals are DECLINING RATES of high-intensity work — a tiring
+on-pitch fatigue signals are DECLINING RATES of high-intensity work, a tiring
 player's total distance keeps rising, but their high-speed-running rate, sprint
 frequency and work rate fall between the early and recent phases of play, while
 cardiac drift rises (same output at higher heart rate). Coaches substitute on
@@ -20,13 +20,13 @@ power), turning cumulative counters into fatigue trajectories:
                      metabolic power} + cardiac drift (wearable, when present)
     review priority = fatigue index blended with the load indicator and minutes played
 
-Every factor is exposed in the output (interpretable — a coach can see WHY).
+Every factor is exposed in the output (interpretable, a coach can see WHY).
 The weighting is a transparent heuristic baseline and not an outcome probability.
 """
 
 from __future__ import annotations
 
-from collections import defaultdict
+from collections import defaultdict, deque
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 
@@ -38,9 +38,9 @@ from .loadtypes import WorkloadFeatures
 @dataclass
 class SubAdvice:
     player_id: int
-    priority: float                    # 0..1 — substitution urgency
-    fatigue: float                     # 0..1 — physical-decline component
-    load_indicator: float              # 0..1 — non-medical review score
+    priority: float                    # 0..1, substitution urgency
+    fatigue: float                     # 0..1, physical-decline component
+    load_indicator: float              # 0..1, non-medical review score
     minutes: float
     reasons: List[str] = field(default_factory=list)
     factors: Dict[str, float] = field(default_factory=dict)
@@ -56,7 +56,8 @@ class SubstitutionAdvisor:
     def __init__(self, min_minutes: float = 3.0, min_snapshots: int = 6,
                  early_frac: float = 0.35, recent_frac: float = 0.30):
         # snapshots: player -> list of (t_seconds, dist, hsr, sprints, energy_kcal)
-        self._snaps: Dict[int, list] = defaultdict(list)
+        self._snaps = defaultdict(lambda: deque(maxlen=1800))
+        self._last_recorded = {}
         self._last_feats: Dict[int, WorkloadFeatures] = {}
         self.min_minutes = min_minutes          # need enough play to judge decline
         self.min_snapshots = min_snapshots
@@ -68,6 +69,9 @@ class SubstitutionAdvisor:
         """Record a snapshot of every player's cumulative load at time ``t`` (s).
         Call on the analytics cadence (~every few seconds of play)."""
         for pid, f in features.items():
+            if t - self._last_recorded.get(pid, -1e9) < 1.0:
+                continue
+            self._last_recorded[pid] = t
             self._snaps[pid].append((t, f.total_distance, f.hsr_distance,
                                      float(f.sprint_count), f.energy_kcal))
             self._last_feats[pid] = f
@@ -149,5 +153,5 @@ class SubstitutionAdvisor:
 
     def watchlist(self, load_indicators=None, threshold: float = 0.45,
                   top: int = 3) -> List[SubAdvice]:
-        """The players a coach should be considering — priority ≥ threshold."""
+        """The players a coach should be considering, priority ≥ threshold."""
         return [a for a in self.advise(load_indicators)[:top] if a.priority >= threshold]

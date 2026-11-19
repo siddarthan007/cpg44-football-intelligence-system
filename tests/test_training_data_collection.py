@@ -16,7 +16,6 @@ def measured_snapshot(timestamp: float = 1_800_000_000.0) -> dict:
                 "distance_m": 1540.2,
                 "wearable_metrics": {
                     "hr": 166.0,
-                    "spo2": 96.8,
                     "signal_quality": 0.91,
                 },
                 "load": {
@@ -71,3 +70,24 @@ def test_outcome_label_rejects_unmeasured_session(tmp_path):
     )
     assert result["ok"] is False
     assert "no measured player-session" in result["error"]
+
+
+def test_collection_rejects_unsynced_rows_and_withholds_weak_optical_values(tmp_path):
+    manager = TrainingManager(tmp_path)
+    snapshot = measured_snapshot()
+    metrics = snapshot["players"][0]["wearable_metrics"]
+
+    metrics["clock_synced"] = False
+    assert manager.record_live_snapshot(snapshot) == 0
+
+    metrics["clock_synced"] = True
+    metrics["alignment_offset_ms"] = 40.0
+    metrics["signal_quality"] = 0.2
+    assert manager.record_live_snapshot(snapshot | {"timestamp": snapshot["timestamp"] + 6}) == 1
+
+    with sqlite3.connect(tmp_path / "data" / "multimodal_dataset.db") as connection:
+        hr, quality = connection.execute(
+            "SELECT hr, signal_quality FROM multimodal_samples"
+        ).fetchone()
+    assert hr is None
+    assert quality == 0.2

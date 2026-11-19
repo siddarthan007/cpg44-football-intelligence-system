@@ -3,7 +3,7 @@
 **xG geometry** (standard): a shot's quality is driven by the distance to goal and
 the angle the goal mouth subtends from the shot location. ``xg_from_location``
 computes both and maps them through a logistic model. Default coefficients give
-sensible, monotonic open-play values (closer + wider angle → higher xG); call
+sensible, monotonic open-play values (closer + wider angle to higher xG); call
 ``XGModel.fit`` on labelled shot data to calibrate for your competition.
 
 **Shot detection** uses the Kalman-filtered ball: a shot is flagged when the ball
@@ -11,13 +11,13 @@ accelerates past a speed threshold while travelling toward the attacking goal.
 This is heuristic (no shot-event labels), so treat shot counts / xG sums as
 indicative; it improves directly once real event data is available.
 
-Pure NumPy + optional scikit-learn — the geometry and default model are testable.
+Pure NumPy + optional scikit-learn, the geometry and default model are testable.
 """
 
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
@@ -25,8 +25,8 @@ import numpy as np
 GOAL_WIDTH = 7.32   # metres
 
 
-def shot_geometry(x: float, y: float, goal_x: float, pitch_width: float = 68.0
-                  ) -> Tuple[float, float]:
+def shot_geometry(x: float, y: float, goal_x: float, pitch_width: float = 68.0,
+                  goal_width: float = GOAL_WIDTH) -> Tuple[float, float]:
     """Return (distance_m, angle_rad) from shot point (x,y) to the goal at
     ``goal_x`` (0 or pitch length), centred on the pitch width."""
     gy = pitch_width / 2.0
@@ -34,8 +34,8 @@ def shot_geometry(x: float, y: float, goal_x: float, pitch_width: float = 68.0
     dy = y - gy
     distance = math.hypot(dx, dy)
     # angle subtended by the goal mouth (radians); larger = better shooting angle
-    denom = dx * dx + dy * dy - (GOAL_WIDTH / 2.0) ** 2
-    angle = math.atan2(GOAL_WIDTH * dx, denom)
+    denom = dx * dx + dy * dy - (goal_width / 2.0) ** 2
+    angle = math.atan2(goal_width * dx, denom)
     if angle < 0:
         angle += math.pi
     return distance, angle
@@ -50,8 +50,9 @@ class XGModel:
     b_distance: float = -0.10
     _clf: object = None
 
-    def xg(self, x: float, y: float, goal_x: float, pitch_width: float = 68.0) -> float:
-        dist, ang = shot_geometry(x, y, goal_x, pitch_width)
+    def xg(self, x: float, y: float, goal_x: float, pitch_width: float = 68.0,
+           goal_width: float = GOAL_WIDTH) -> float:
+        dist, ang = shot_geometry(x, y, goal_x, pitch_width, goal_width)
         if self._clf is not None:
             p = self._clf.predict_proba([[ang, dist]])[0, 1]
             return float(p)

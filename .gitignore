@@ -31,8 +31,10 @@ data/*.db
 data/*.db-wal
 data/*.db-shm
 data/live_sessions/
+data/live/
 data/training_jobs/
 data/recorded/
+data/research_validation/
 models/*.pkl
 backend/src/cpg44_api/static/camera_frames/*
 
@@ -47,3 +49,16 @@ configs/relay_ca.pem
 # Local report builds and Windows download metadata
 mid_sem_submission_2026/build/
 **/*:Zone.Identifier
+.exportenv
+
+# Benchmark caches and ReID crops (regenerate with scripts/benchmark_tracking.py / train_reid.py)
+data/benchmarks/dets/
+data/reid/
+demo/analysis/*/annotated.mp4
+demo/analysis/*/review.json
+data/vest_sessions/
+data/calibration_sessions/
+demo/analysis/*/thumb.jpg
+demo/analysis/*/clips/
+data/adapt/
+data/cache/

@@ -12,7 +12,7 @@ Modules
 - ``train``        YOLOv8 detection training + fine-tuning (SoccerNet, then custom footage)
 - ``tracker``      YOLO + ByteTrack detection/tracking wrapper
 - ``team_assign``  jersey-colour team clustering
-- ``pitch``        field-keypoint / manual homography → pitch coordinates
+- ``pitch``        field-keypoint / manual homography to pitch coordinates
 - ``view``         perspective-transform helpers
 - ``metrics``      speed, distance, ball possession
 - ``heatmap``      per-player / team occupancy heatmaps + radar

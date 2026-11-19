@@ -36,22 +36,18 @@ def resolve_device(prefer: str = "") -> DeviceInfo:
 
 
 def recommend_batch_imgsz(info: DeviceInfo, task: str = "train") -> dict:
-    """VRAM-aware training defaults, using **fixed** batch sizes measured to fit
-    entirely in VRAM (no spill to system RAM).
+    """Conservative starting points, not a guarantee for arbitrary checkpoints.
 
-    On the 8 GB RTX 5060, yolov8m@1280 batch 4 uses ~6.4 GB at ~2.5 it/s; batch 8
-    needs ~11 GB and silently spills to system RAM over PCIe (~100× slower), so we
-    do NOT use Ultralytics auto-batch here (its probe OOMs and falls back to a
-    too-large default). Ultralytics auto-accumulates gradients to a nominal batch
-    of 64, so the small physical batch does not hurt convergence. imgsz 1280
-    matters for the ~12 px ball.
+    Keep 1280 for small balls, reduce physical batch first, and measure peak
+    allocated AND reserved memory before increasing it. Gradient accumulation
+    retains a larger effective batch. AutoBatch is an explicit opt-in in CLI.
     """
     if info.device == "cpu":
         return {"imgsz": 640, "batch": 4, "model": "yolov8n.pt", "amp": False}
     v = info.total_vram_gb
     if task == "train":
         if v < 9:       # RTX 5060 8 GB
-            return {"imgsz": 1280, "batch": 4, "model": "yolov8m.pt", "amp": True}
+            return {"imgsz": 1280, "batch": 2, "model": "yolov8m.pt", "amp": True}
         if v < 17:      # 12-16 GB (e.g. 4070/4080)
             return {"imgsz": 1280, "batch": 10, "model": "yolov8m.pt", "amp": True}
         return {"imgsz": 1280, "batch": 16, "model": "yolov8l.pt", "amp": True}  # 24 GB+

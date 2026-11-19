@@ -8,7 +8,7 @@ import json
 import logging
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import List
 
 logger = logging.getLogger("MatchTagger")
 ROOT = Path(__file__).resolve().parents[3]

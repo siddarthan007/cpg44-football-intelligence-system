@@ -1,102 +1,96 @@
-import { useEffect, useState } from 'react';
-import { EmptyState, ErrorBanner, PageHeader, StatusBadge } from '../components/common';
+import { useEffect, useRef, useState } from 'react';
+import { Glyph } from '../components/Glyph';
 import { api } from '../lib/api';
 
-type TeamForm = { name: string; short_name: string; color: string };
-type EventRow = { id: string; timestamp_s: number; time_str: string; type: string; team?: number | null; player_jersey?: number | null; description: string; source: string };
+type Team = { name: string; short_name: string; color: string };
 
 const rgbToHex = (rgb: unknown) => Array.isArray(rgb) && rgb.length === 3
-  ? `#${rgb.map((value) => Number(value).toString(16).padStart(2, '0')).join('')}`
-  : '#64748b';
-const hexToRgb = (hex: string) => [1, 3, 5].map((index) => parseInt(hex.slice(index, index + 2), 16));
+  ? `#${rgb.map((v) => Math.round(Number(v)).toString(16).padStart(2, '0')).join('')}` : '#706e68';
+const hexToRgb = (hex: string) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+
+/** Median colour of a 9 x 9 patch: robust to a stripe, a number or a shadow. */
+function patchColour(ctx: CanvasRenderingContext2D, x: number, y: number) {
+  const r = 4, d = ctx.getImageData(Math.max(0, x - r), Math.max(0, y - r), 2 * r + 1, 2 * r + 1).data;
+  const ch = [0, 1, 2].map(c => { const v: number[] = []; for (let i = c; i < d.length; i += 4) v.push(d[i]); v.sort((a, b) => a - b); return v[v.length >> 1]; });
+  return rgbToHex(ch);
+}
 
 export const PlayerTaggingPage = () => {
-  const [team1, setTeam1] = useState<TeamForm>({ name: 'Team 1', short_name: 'T1', color: '#2563eb' });
-  const [team2, setTeam2] = useState<TeamForm>({ name: 'Team 2', short_name: 'T2', color: '#b91c1c' });
-  const [calibrated, setCalibrated] = useState(false);
-  const [events, setEvents] = useState<EventRow[]>([]);
-  const [eventType, setEventType] = useState('pass');
-  const [eventTeam, setEventTeam] = useState(1);
-  const [jersey, setJersey] = useState('');
-  const [seconds, setSeconds] = useState('');
-  const [description, setDescription] = useState('');
-  const [error, setError] = useState<string | null>(null);
+  const [teams, setTeams] = useState<[Team, Team]>([{ name: 'Home', short_name: 'H', color: '#2251a3' }, { name: 'Away', short_name: 'A', color: '#d1492e' }]);
+  const [saved, setSaved] = useState('');
+  const [active, setActive] = useState<0 | 1>(0);
+  const [frame, setFrame] = useState<string>();
+  const [status, setStatus] = useState<{ ok: boolean; text: string }>();
+  const canvas = useRef<HTMLCanvasElement>(null);
 
-  const refresh = async () => {
-    try {
-      const [profiles, eventRows] = await Promise.all([api.teamProfiles(), api.events()]);
-      const one = profiles.team_1 as Record<string, unknown> | undefined;
-      const two = profiles.team_2 as Record<string, unknown> | undefined;
-      if (one) setTeam1({ name: String(one.name ?? 'Team 1'), short_name: String(one.short_name ?? 'T1'), color: rgbToHex(one.primary_color_rgb) });
-      if (two) setTeam2({ name: String(two.name ?? 'Team 2'), short_name: String(two.short_name ?? 'T2'), color: rgbToHex(two.primary_color_rgb) });
-      setCalibrated(profiles.calibrated === true);
-      setEvents(eventRows as unknown as EventRow[]);
-      setError(null);
-    } catch (reason) { setError(reason instanceof Error ? reason.message : 'Tagging API unavailable'); }
+  useEffect(() => {
+    api.teamProfiles().then(p => {
+      const one = p.team_1 as Record<string, unknown> | undefined, two = p.team_2 as Record<string, unknown> | undefined;
+      const next: [Team, Team] = [
+        one ? { name: String(one.name ?? 'Home'), short_name: String(one.short_name ?? 'H'), color: rgbToHex(one.primary_color_rgb) } : teams[0],
+        two ? { name: String(two.name ?? 'Away'), short_name: String(two.short_name ?? 'A'), color: rgbToHex(two.primary_color_rgb) } : teams[1]];
+      setTeams(next); setSaved(JSON.stringify(next));
+    }).catch(() => setStatus({ ok: false, text: 'The API is not running' }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (!frame || !canvas.current) return;
+    const img = new Image();
+    img.onload = () => {
+      const c = canvas.current!; c.width = img.naturalWidth; c.height = img.naturalHeight;
+      c.getContext('2d', { willReadFrequently: true })!.drawImage(img, 0, 0);
+    };
+    img.src = frame;
+  }, [frame]);
+
+  const set = (k: 0 | 1, patch: Partial<Team>) => setTeams(t => (k === 0 ? [{ ...t[0], ...patch }, t[1]] : [t[0], { ...t[1], ...patch }]));
+  const pick = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    const c = canvas.current!, r = c.getBoundingClientRect();
+    const x = Math.round((e.clientX - r.left) * c.width / r.width), y = Math.round((e.clientY - r.top) * c.height / r.height);
+    set(active, { color: patchColour(c.getContext('2d', { willReadFrequently: true })!, x, y) });
+    setActive(active === 0 ? 1 : 0);
   };
-  useEffect(() => { void refresh(); }, []);
-
-  const saveTeams = async () => {
+  const save = async () => {
     try {
       await api.saveTeamProfiles({
-        team_1: { name: team1.name, short_name: team1.short_name, primary_color_rgb: hexToRgb(team1.color) },
-        team_2: { name: team2.name, short_name: team2.short_name, primary_color_rgb: hexToRgb(team2.color) },
+        team_1: { name: teams[0].name, short_name: teams[0].short_name, primary_color_rgb: hexToRgb(teams[0].color) },
+        team_2: { name: teams[1].name, short_name: teams[1].short_name, primary_color_rgb: hexToRgb(teams[1].color) },
       });
-      await refresh();
-    } catch (reason) { setError(reason instanceof Error ? reason.message : 'Profiles were not saved'); }
+      setSaved(JSON.stringify(teams)); setStatus({ ok: true, text: 'Saved. Tracking uses these colours from the next match.' });
+    } catch (err) { setStatus({ ok: false, text: err instanceof Error ? err.message : 'Not saved' }); }
   };
 
-  const addEvent = async () => {
-    try {
-      await api.addEvent({
-        type: eventType,
-        team: eventTeam,
-        player_jersey: jersey || null,
-        timestamp_s: Number(seconds),
-        description: description || eventType,
-      });
-      setDescription(''); setJersey('');
-      await refresh();
-    } catch (reason) { setError(reason instanceof Error ? reason.message : 'Event was not saved'); }
-  };
+  return <div className="page">
+    <header className="page-header"><h1>Kits</h1><p>Each side's shirt colour, picked from your own footage.</p></header>
 
-  const teamEditor = (team: TeamForm, setTeam: (value: TeamForm) => void) => (
-    <div className="team-editor">
-      <input className="color-input" type="color" value={team.color} onChange={(event) => setTeam({ ...team, color: event.target.value })} aria-label={`${team.name} primary colour`} />
-      <label className="field"><span>Team name</span><input value={team.name} onChange={(event) => setTeam({ ...team, name: event.target.value })} /></label>
-      <label className="field short"><span>Code</span><input value={team.short_name} maxLength={8} onChange={(event) => setTeam({ ...team, short_name: event.target.value })} /></label>
+    <div className="kits">
+      {teams.map((t, k) => <section key={k} className={`panel kit ${active === k ? 'picking' : ''}`} aria-label={`Side ${k + 1}`}>
+        <button type="button" className="kit-swatch" style={{ background: t.color }} onClick={() => setActive(k as 0 | 1)}
+          aria-pressed={active === k} aria-label={`Pick the ${t.name} colour from the frame`}>
+          <Glyph g="kits" size={44} /></button>
+        <div className="kit-fields">
+          <label htmlFor={`kit-name-${k}`}>Team</label>
+          <input id={`kit-name-${k}`} value={t.name} onChange={e => set(k as 0 | 1, { name: e.target.value })} />
+          <label htmlFor={`kit-col-${k}`}>Colour</label>
+          <div className="kit-colour"><input id={`kit-col-${k}`} type="color" value={t.color} onChange={e => set(k as 0 | 1, { color: e.target.value })} />
+            <span className="num">{t.color}</span></div>
+        </div>
+      </section>)}
     </div>
-  );
 
-  return (
-    <div className="page">
-      <PageHeader eyebrow="HUMAN REVIEW" title="Team and event tagging" description="Calibrate kit colours from the actual match, then add time-coded observations with explicit manual provenance." actions={<StatusBadge status={calibrated ? 'ready' : 'unavailable'} />} />
-      <ErrorBanner message={error} />
-      <div className="two-column">
-        <section className="card-clean">
-          <div className="section-heading"><div><span className="eyebrow">KIT CALIBRATION</span><h2>Team colour references</h2></div></div>
-          <p className="body-copy">Pick representative shirt colours from a well-lit frame. The backend converts RGB to CIELAB, reports colour distance, and abstains when the two profiles are ambiguous.</p>
-          <div className="team-editor-list">{teamEditor(team1, setTeam1)}{teamEditor(team2, setTeam2)}</div>
-          <button className="btn-solid" onClick={saveTeams}>Save calibrated profiles</button>
-        </section>
-        <section className="card-clean">
-          <div className="section-heading"><div><span className="eyebrow">MATCH TIMELINE</span><h2>Add reviewed event</h2></div></div>
-          <div className="form-grid">
-            <label className="field"><span>Event</span><select value={eventType} onChange={(event) => setEventType(event.target.value)}><option value="pass">Pass</option><option value="shot">Shot</option><option value="tackle">Tackle</option><option value="interception">Interception</option><option value="goal">Goal</option><option value="sprint">Sprint</option><option value="note">Note</option></select></label>
-            <label className="field"><span>Team</span><select value={eventTeam} onChange={(event) => setEventTeam(Number(event.target.value))}><option value={1}>{team1.name}</option><option value={2}>{team2.name}</option></select></label>
-            <label className="field"><span>Time in seconds</span><input type="number" min="0" value={seconds} onChange={(event) => setSeconds(event.target.value)} placeholder="e.g. 372.4" /></label>
-            <label className="field"><span>Jersey (optional)</span><input type="number" min="0" value={jersey} onChange={(event) => setJersey(event.target.value)} /></label>
-            <label className="field wide"><span>Description</span><input value={description} onChange={(event) => setDescription(event.target.value)} /></label>
-          </div>
-          <button className="btn-solid" disabled={seconds === '' || Number(seconds) < 0} onClick={addEvent}>Save manual event</button>
-        </section>
-      </div>
-      <section className="card-clean">
-        <div className="section-heading"><div><span className="eyebrow">REVIEW LOG</span><h2>Verified timeline</h2></div><span className="muted">{events.length} events</span></div>
-        {!events.length ? <EmptyState title="No verified events. Seeded demonstration events are intentionally excluded." /> : (
-          <div className="event-list">{events.map((event) => <article key={event.id}><time>{event.time_str}</time><div><strong>{event.description}</strong><span>{event.type} | team {event.team ?? '-'} | jersey {event.player_jersey ?? '-'} | {event.source}</span></div></article>)}</div>
-        )}
-      </section>
+    <section className="panel" aria-label="Pick from a frame">
+      <div className="panel-head"><h2>Pick from a frame</h2>
+        <label className="btn ghost small"><input type="file" accept="image/*" hidden onChange={e => { const f = e.target.files?.[0]; if (f) setFrame(URL.createObjectURL(f)); }} />Choose a frame</label></div>
+      {frame ? <>
+        <p className="muted pick-hint">Click a shirt of <b style={{ color: teams[active].color }}>{teams[active].name}</b>. Pick a plain part of the shirt in daylight, not the number.</p>
+        <canvas ref={canvas} className="kit-frame" onClick={pick} />
+      </> : <div className="empty"><Glyph g="camera" size={28} />A screenshot from the match footage works best: the same light and camera as the analysis.</div>}
+    </section>
+
+    <div className="kit-actions">
+      {status && <span className={status.ok ? 'state-ok' : 'state-bad'} role="status">{status.text}</span>}
+      <button className="btn" disabled={JSON.stringify(teams) === saved} onClick={() => void save()}><Glyph g="save" size={15} />Save kits</button>
     </div>
-  );
+  </div>;
 };

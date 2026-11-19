@@ -74,7 +74,7 @@ def _validated_relay_origin(value: str) -> str:
 class ProductStore:
     """Bounded live state plus file-backed artifacts for a single-node demo."""
 
-    LIVE_MAX_AGE_S = 3.0
+    LIVE_MAX_AGE_S = 15.0
     WEARABLE_MAX_AGE_S = 10.0
 
     def __init__(
@@ -192,6 +192,7 @@ class ProductStore:
                 "name": str(cam_dict.get("name") or cid),
                 "type": str(cam_dict.get("type") or "file"),
                 "source": str(cam_dict.get("source") or ""),
+                "calibration_path": str(cam_dict.get("calibration_path") or ""),
                 "status": "registered",
                 "fps": None,
                 "latency_ms": None,
@@ -201,6 +202,11 @@ class ProductStore:
             }
             self.cameras[cid] = camera
             return copy.deepcopy(camera)
+
+    def get_camera(self, camera_id: str) -> Optional[dict]:
+        with self._lock:
+            camera = self.cameras.get(camera_id)
+            return copy.deepcopy(camera) if camera is not None else None
 
     def update_camera_health(self, camera_id: str, **values: Any) -> dict:
         with self._lock:
@@ -245,7 +251,7 @@ class ProductStore:
             f"PLAYER_{player_id}" if player_id is not None else None
         )
         metrics = dict(body.get("metrics") or {})
-        for key in ("hr", "spo2", "player_load", "gps", "speed_mps", "acceleration"):
+        for key in ("hr", "rmssd_ms", "player_load", "gps", "speed_mps", "acceleration"):
             if key in body and key not in metrics:
                 metrics[key] = body[key]
         row = {
@@ -293,6 +299,15 @@ class ProductStore:
             self._latest_live_received_at = now
             self.active_mode = "live"
             self.match.update({"engine_running": True, "status": "playing", "mode": "live"})
+            pitch = frame.get("pitch")
+            if isinstance(pitch, dict):
+                try:
+                    length, width = float(pitch["length_m"]), float(pitch["width_m"])
+                except (KeyError, TypeError, ValueError):
+                    length = width = 0.0
+                if 10.0 <= length <= 130.0 and 5.0 <= width <= 100.0:
+                    self.match.update({"pitch_length_m": length, "pitch_width_m": width,
+                                       "pitch_kind": "futsal" if pitch.get("kind") == "futsal" else "football"})
         return {"ok": True, "received_at": now}
 
     def ingest_live_jpeg(self, body: bytes) -> dict:
@@ -305,16 +320,23 @@ class ProductStore:
         return {"ok": True, "received_at": now, "bytes": len(body)}
 
     def live_jpeg(self) -> Optional[bytes]:
+        image, _ = self.live_jpeg_snapshot()
+        return image
+
+    def live_jpeg_snapshot(self) -> tuple[Optional[bytes], Optional[float]]:
+        """Return the freshest frame and its version timestamp for stream clients."""
         with self._lock:
             image = self._latest_live_jpeg
             received_at = self._latest_live_jpeg_received_at
         if image is None or received_at is None or time.time() - received_at > self.LIVE_MAX_AGE_S:
-            return None
-        return image
+            return None, received_at
+        return image, received_at
 
     def _model_artifacts(self) -> List[dict]:
         rows = []
-        for path in sorted((ROOT / "runs" / "detect").glob("*/weights/best.pt")):
+        paths = list((ROOT / "runs" / "detect").glob("*/weights/best.pt"))
+        paths.extend((ROOT / "runs" / "detect").glob("*/weights/best.engine"))
+        for path in sorted(paths):
             try:
                 rows.append({
                     "name": path.parents[1].name,
@@ -343,8 +365,8 @@ class ProductStore:
             "version": "2.1.0",
             "gpu": {"available": gpu_available, "name": gpu_name},
             "active_config": {
-                "detector": models[-1]["name"] if models else "not configured",
-                "tracker": "ByteTrack",
+                "detector": _active_detector_name(),
+                "tracker": "IMM-EIoU with football ReID and offline linking",
             },
             "hub_connected": hub is not None,
             "hub_url": self.hub_url,
@@ -422,12 +444,12 @@ class ProductStore:
                     "x": None,
                     "y": None,
                     "speed_mps": None,
-                    "top_speed_mps": _finite_number(values.get("top_speed_ms")),
-                    "distance_m": _finite_number(values.get("distance_m"), 0.0),
-                    "hsr_m": _finite_number(values.get("hsr_m"), 0.0),
-                    "sprints": int(values.get("sprints") or 0),
-                    "metabolic_power": _finite_number(values.get("metabolic_power_avg_wkg")),
-                    "player_load": _finite_number(values.get("player_load")),
+                    "top_speed_mps": _finite_number(values.get("top_speed_ms")) if stats.get("metric") else None,
+                    "distance_m": _finite_number(values.get("distance_m")) if stats.get("metric") else None,
+                    "hsr_m": _finite_number(values.get("hsr_m")) if stats.get("metric") else None,
+                    "sprints": int(values["sprints"]) if stats.get("metric") and values.get("sprints") is not None else None,
+                    "metabolic_power": _finite_number(values.get("metabolic_power_avg_wkg")) if stats.get("metric") else None,
+                    "player_load": _finite_number(values.get("player_load")) if stats.get("metric") else None,
                     "wearable": wearable_row is not None,
                     "wearable_metrics": dict((wearable_row or {}).get("metrics") or {}) or None,
                     "load_indicator": {
@@ -457,6 +479,7 @@ class ProductStore:
             "match_name": self.match["name"],
             "match": copy.deepcopy(self.match),
             "mode": "recorded" if stats else "unavailable",
+            "metric": bool(stats.get("metric")),
             "players": players,
             "ball": None,
             "possession_pct": stats.get("possession_pct") or {},
@@ -488,10 +511,16 @@ class ProductStore:
             latest = copy.deepcopy(self._latest_live_frame)
         if latest is not None and received_at is not None and now - received_at <= self.LIVE_MAX_AGE_S:
             latest.setdefault("match", copy.deepcopy(self.match))
-            latest.setdefault("data_quality", {"status": "unreported", "warnings": []})
+            latest.setdefault("data_quality", {"status": "usable", "warnings": []})
             latest["provenance"]["age_s"] = round(now - received_at, 3)
             return latest
         if latest is not None:
             with self._lock:
                 self.match.update({"engine_running": False, "status": "stale"})
         return self._recorded_snapshot()
+
+
+def _active_detector_name() -> str:
+    from soccer_analytics.modes import active_detector
+    path = active_detector(Path(__file__).resolve().parents[3])
+    return path.parent.parent.name if path is not None else "not configured"

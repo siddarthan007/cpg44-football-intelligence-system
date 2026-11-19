@@ -14,6 +14,10 @@ export default defineConfig({
         changeOrigin: true,
         ws: false,
       },
+      '/camera': {
+        target: API_TARGET,
+        changeOrigin: true,
+      },
     },
   },
   build: { outDir: 'dist', sourcemap: true },

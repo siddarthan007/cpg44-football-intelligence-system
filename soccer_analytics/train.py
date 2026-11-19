@@ -2,15 +2,15 @@
 
 Two workflows:
 
-1. **base**     — train the SoccerNet detector (from a COCO-pretrained checkpoint).
-2. **finetune** — adapt that detector to YOUR university-level footage, which is
+1. **base**    , train the SoccerNet detector (from a COCO-pretrained checkpoint).
+2. **finetune**, adapt that detector to YOUR university-level footage, which is
                   lower resolution / lower quality than SoccerNet. Uses two-stage
-                  transfer learning (freeze backbone → unfreeze at low LR) plus
+                  transfer learning (freeze backbone to unfreeze at low LR) plus
                   heavier photometric augmentation so the model generalises across
                   the domain gap (compression, blur, colour, camera differences).
 
 Requires ``ultralytics`` (and ``albumentations`` for the low-quality photometric
-augmentations — Ultralytics auto-applies Blur/CLAHE/ImageCompression when it is
+augmentations, Ultralytics auto-applies Blur/CLAHE/ImageCompression when it is
 installed).
 
 CLI:
@@ -61,16 +61,18 @@ def train_base(
     model: str = "yolov8m.pt",
     epochs: int = 100,
     imgsz: int = 1280,
-    batch: int = 8,
+    batch: int = 2,
     device: str = "",
-    project: Optional[str] = None,   # None → ultralytics default runs/detect/<name>
+    project: Optional[str] = None,   # None to ultralytics default runs/detect/<name>
     name: str = "soccernet",
     **overrides,
 ):
-    """Train the SoccerNet detector. imgsz≥1280 matters — the ball is ~12 px wide.
+    """Train the SoccerNet detector. imgsz≥1280 matters, the ball is ~12 px wide.
 
     ``batch`` may be an integer count, ``-1`` (Ultralytics auto-batch, ~60% VRAM),
-    or a fraction in (0,1) → auto-batch targeting that VRAM fraction."""
+    or a fraction in (0,1) to auto-batch targeting that VRAM fraction."""
+    from .data_split import validate_training_data
+    validate_training_data(data)
     dev = resolve_device(device)
     print("[train]", dev.name, dev.device)
     batch = int(batch) if batch >= 1 else batch     # keep fraction/-1 as float
@@ -80,8 +82,10 @@ def train_base(
         epochs=epochs,
         imgsz=imgsz,
         batch=batch,
+        cache=False,
+        workers=2,
         device=dev.device,
-        amp=dev.half_ok,      # mixed precision → fits 8 GB, ~1.5× faster
+        amp=dev.half_ok,      # mixed precision to fits 8 GB, ~1.5× faster
         name=name,
         exist_ok=True,
         patience=25,          # early stop
@@ -104,14 +108,14 @@ def finetune(
     base: str,
     epochs: int = 60,
     imgsz: int = 1280,
-    batch: int = 8,
+    batch: int = 2,
     device: str = "",
-    project: Optional[str] = None,   # None → ultralytics default runs/detect/<name>
+    project: Optional[str] = None,   # None to ultralytics default runs/detect/<name>
     name: str = "custom_finetune",
     freeze: int = 10,
     lr0: float = 0.005,
     two_stage: bool = True,
-    stage1_epochs: int = 0,          # 0 → 1/3 of total epochs (min 1)
+    stage1_epochs: int = 0,          # 0 to 1/3 of total epochs (min 1)
     low_quality_aug: bool = True,
     **overrides,
 ):
@@ -122,6 +126,8 @@ def finetune(
     Stage 2 unfreezes everything at a lower LR. This is the recommended recipe for a
     small custom dataset with a domain gap.
     """
+    from .data_split import validate_training_data
+    validate_training_data(data)
     aug = _low_quality_transforms() if low_quality_aug else None
     dev = resolve_device(device)
     print("[finetune]", dev.name, dev.device)
@@ -130,6 +136,7 @@ def finetune(
     # augmentation profile geared to a resolution/quality domain gap
     common = dict(
         data=data, imgsz=imgsz, batch=batch, device=dev.device, amp=dev.half_ok,
+        cache=False, workers=2,
         exist_ok=True, patience=20,
         hsv_h=0.02, hsv_s=0.7, hsv_v=0.5,   # stronger colour jitter for camera diff
         scale=0.5, translate=0.1, fliplr=0.5,
@@ -192,21 +199,19 @@ def main(argv: Optional[List[str]] = None) -> int:
     b.add_argument("--model", default="yolov8m.pt")
     b.add_argument("--epochs", type=int, default=100)
     b.add_argument("--imgsz", type=int, default=1280)
-    b.add_argument("--batch", type=float, default=4,
-                   help="int count (default 4 fits 8 GB @1280), -1 (auto, cloud GPUs "
-                        "only — OOMs on 8 GB), or a 0-1 VRAM fraction")
+    b.add_argument("--batch", type=float, default=2,
+                   help="integer count (default 2), -1 for AutoBatch at 60%%, or a 0-1 VRAM fraction; profile before increasing")
     b.add_argument("--device", default="")
     b.add_argument("--name", default="soccernet")
     b.add_argument("--auto", action="store_true",
-                   help="Pick model/imgsz/batch to fill the detected GPU VRAM "
-                        "(recommended: yolov8m@1280, auto-batch ~80%% of 8 GB).")
+                   help="Pick conservative model/imgsz/batch defaults for the detected GPU.")
 
     f = sub.add_parser("finetune", help="Fine-tune on custom lower-quality footage.")
     f.add_argument("--data", required=True, help="Path to custom data.yaml.")
     f.add_argument("--base", required=True, help="SoccerNet best.pt to start from.")
     f.add_argument("--epochs", type=int, default=60)
     f.add_argument("--imgsz", type=int, default=1280)
-    f.add_argument("--batch", type=float, default=4,
+    f.add_argument("--batch", type=float, default=2,
                    help="int count (default 4 fits 8 GB @1280), -1 (auto), or a 0-1 fraction")
     f.add_argument("--device", default="")
     f.add_argument("--name", default="custom_finetune")
@@ -222,7 +227,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         if args.auto:
             rec = recommend_batch_imgsz(resolve_device(args.device), task="train")
             model, imgsz, batch = rec["model"], rec["imgsz"], rec["batch"]
-            print(f"[train] --auto → model={model} imgsz={imgsz} batch={batch}")
+            print(f"[train] --auto to model={model} imgsz={imgsz} batch={batch}")
         train_base(args.data, model=model, epochs=args.epochs, imgsz=imgsz,
                    batch=batch, device=args.device, name=args.name)
     elif args.cmd == "finetune":
