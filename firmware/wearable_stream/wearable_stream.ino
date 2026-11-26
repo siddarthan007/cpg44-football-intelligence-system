@@ -101,7 +101,7 @@ struct SampleRecord {
 
 Adafruit_MPU6050 mpu;
 TinyGPSPlus gps;
-HardwareSerial gpsSerial(1);
+HardwareSerial &gpsSerial = Serial1;   // the core's own UART1 object, not a second one
 int8_t txPowerNow = 78;            // quarter-dBm units, as the Wi-Fi driver uses
 uint8_t txStrongCount = 0;
 
@@ -976,8 +976,23 @@ const char *gpsLineDiagnosis() {
   return "nothing on GPIO16 or GPIO17: check VCC, GND, TX";
 }
 
+uint8_t gpsPreview[16];
+uint8_t gpsPreviewLen = 0;
+
+// A module left in UBX-only output (binary, no text) answers this with NMEA
+// again: CFG-PRT for UART1, 8N1 at the current baud, UBX+NMEA in and out.
+void enableNmeaOutput() {
+  const uint32_t baud = GPS_BAUDS[gpsBaudIndex];
+  const uint8_t prt[20] = {1, 0, 0, 0, 0xD0, 0x08, 0, 0,
+                           uint8_t(baud), uint8_t(baud >> 8), uint8_t(baud >> 16), uint8_t(baud >> 24),
+                           3, 0, 3, 0, 0, 0, 0, 0};
+  sendUBX(0x06, 0x00, prt, sizeof(prt));
+  Serial.println("GPS: binary UBX output seen; asked the module to send NMEA text as well");
+}
+
 void gpsBegin() {
   gpsSerial.end();
+  gpsPreviewLen = 0;
   gpsSerial.begin(GPS_BAUDS[gpsBaudIndex], SERIAL_8N1, gpsPinsSwapped ? gpsTxPin : gpsRxPin, gpsPinsSwapped ? gpsRxPin : gpsTxPin);
   gpsAttemptMS = millis();
   gpsAttemptBytes = 0;
@@ -1005,10 +1020,13 @@ bool gpsReprobe() {                                // true while a probe is runn
   }
   if (now - gpsReprobeStartMS < 1100) return true;
   const int pins[2] = {gpsRxPin, gpsTxPin};
-  bool heldHigh[2];
+  bool heldHigh[2], heldLow[2];
   for (int i = 0; i < 2; ++i) {
     detachInterrupt(digitalPinToInterrupt(pins[i]));
     heldHigh[i] = digitalRead(pins[i]);           // still on the pull-down: high only if something drives it
+    pinMode(pins[i], INPUT_PULLUP);
+    delay(2);
+    heldLow[i] = !digitalRead(pins[i]);            // low against the pull-up: something holds it down
     pinMode(pins[i], INPUT);
   }
   gpsReprobing = false;
@@ -1016,8 +1034,8 @@ bool gpsReprobe() {                                // true while a probe is runn
   ++gpsProbes;
   const uint32_t e0 = gpsScanEdges[0], e1 = gpsScanEdges[1];
   // live line state for the self-test, so moving a wire shows up within seconds
-  gpsLine16 = e0 > 40 ? LINE_SENDING : heldHigh[0] ? LINE_POWERED_SILENT : LINE_OPEN;
-  gpsLine17 = e1 > 40 ? LINE_SENDING : heldHigh[1] ? LINE_POWERED_SILENT : LINE_OPEN;
+  gpsLine16 = e0 > 40 ? LINE_SENDING : heldHigh[0] ? LINE_POWERED_SILENT : heldLow[0] ? LINE_HELD_LOW : LINE_OPEN;
+  gpsLine17 = e1 > 40 ? LINE_SENDING : heldHigh[1] ? LINE_POWERED_SILENT : heldLow[1] ? LINE_HELD_LOW : LINE_OPEN;
   if (e0 > 40 || e1 > 40) {
     ++gpsSeenProbes;
     gpsPinsSwapped = e1 > e0;
@@ -1042,8 +1060,18 @@ void checkGPSWiring() {
     return;
   }
   if (millis() - gpsAttemptMS < 3000) return;
-  if (gpsAttemptBytes > 20 || gpsPinKnown) gpsBaudIndex = (gpsBaudIndex + 1) % GPS_BAUD_COUNT;
-  else gpsPinsSwapped = !gpsPinsSwapped;
+  if (gpsAttemptBytes > 0 && gpsPreviewLen > 0) {
+    // what arrived, so a wrong baud (noise) or binary-only UBX (B5 62) is visible
+    char hex[3 * sizeof(gpsPreview) + 1];
+    size_t k = 0;
+    for (uint8_t i = 0; i < gpsPreviewLen; ++i) k += snprintf(hex + k, sizeof(hex) - k, "%02X ", gpsPreview[i]);
+    Serial.printf("GPS: %lu bytes at %lu baud, none a valid sentence: %s\n", static_cast<unsigned long>(gpsAttemptBytes),
+                  static_cast<unsigned long>(GPS_BAUDS[gpsBaudIndex]), hex);
+    if (gpsPreview[0] == 0xB5 || (gpsPreviewLen > 1 && gpsPreview[1] == 0x62)) enableNmeaOutput();
+  }
+  // Pins only change on evidence (the line probes); a blind swap would drive
+  // GPIO 16 as an output against the GPS TX wire. Here only the baud moves.
+  gpsBaudIndex = (gpsBaudIndex + 1) % GPS_BAUD_COUNT;
   gpsBegin();
   if (gpsNotes < 4) {
     ++gpsNotes;
@@ -1055,7 +1083,9 @@ void checkGPSWiring() {
 void serviceGPS() {
   checkGPSWiring();
   while (!gpsReprobing && gpsSerial.available()) {
-    gps.encode(gpsSerial.read());
+    const int b = gpsSerial.read();
+    if (!gpsLocked && gpsPreviewLen < sizeof(gpsPreview)) gpsPreview[gpsPreviewLen++] = static_cast<uint8_t>(b);
+    gps.encode(b);
     ++gpsAttemptBytes;
     if (gpsLocked) lastGPSByteMS = millis();
   }
@@ -1235,9 +1265,8 @@ void setup() {
     Serial.printf("GPS: measured %lu baud from its shortest pulse\n", static_cast<unsigned long>(GPS_BAUDS[gpsBaudIndex]));
   }
   gpsBegin();
-  delay(100);
-  configureGPS();
-  Serial.println("NEO-6M UART started, 5 Hz RMC+GGA requested");
+  gpsReprobeMS = millis();          // the first re-check comes after a full first attempt
+  Serial.println("NEO-6M UART listening; 5 Hz RMC+GGA is set once a sentence arrives");
 
   WiFi.mode(WIFI_STA);
   WiFi.persistent(false);
