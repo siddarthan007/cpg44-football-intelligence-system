@@ -545,8 +545,25 @@ def parse_check_line(text: str) -> list:
     elif m:
         rows.append(_row("gps", "GPS", "warn", f"receiving, {m.group(2)} satellites",
                          "Waiting for a fix: outdoors, antenna facing the sky, up to a few minutes"))
-    elif gps.startswith("bytes"):
-        rows.append(_row("gps", "GPS", "warn", "data at an unknown speed", "Still trying 9600, 38400 and 115200 baud"))
+    elif gps.startswith("bytes") or gps.startswith("signal present"):
+        rows.append(_row("gps", "GPS", "warn", "data at an unknown speed", "Still trying 9600, 4800, 38400, 57600 and 115200 baud"))
+    elif gps.startswith("seen at times"):
+        rows.append(_row("gps", "GPS", "bad", "comes and goes",
+                         "The vest sees the GPS on some checks and not others: reseat or solder the GPS TX wire "
+                         "and its ground; a breadboard contact is the usual cause"))
+    elif gps.startswith("found on GPIO"):
+        rows.append(_row("gps", "GPS", "warn", gps.split(",")[0],
+                         "The GPS TX wire is on another pin; the vest reads it there, but move it to GPIO 16 to match the build guide"))
+    elif gps.startswith("TX held low"):
+        rows.append(_row("gps", "GPS", "bad", "no power",
+                         "The GPS ground is connected but its VCC is not: check the VCC wire to 3.3 V and its solder joint"))
+    elif gps.startswith("GPS powered but silent"):
+        rows.append(_row("gps", "GPS", "bad", "powered, sends nothing",
+                         "Wiring and power look right, yet a NEO-6M sends text every second even indoors. "
+                         "Measure VCC at the module (needs 3.0 V or more under load); if it is fine the module is faulty"))
+    elif gps.startswith("nothing connected"):
+        rows.append(_row("gps", "GPS", "bad", "TX wire open",
+                         "Neither GPIO 16 nor 17 sees the GPS: the TX wire is missing, broken or on another pin"))
     else:
         rows.append(_row("gps", "GPS", "bad", "no data",
                          "Check GPS VCC to 3.3 V, GND to GND and GPS TX to GPIO 16 (the vest also tries GPIO 17)"))
@@ -574,7 +591,7 @@ def parse_check_line(text: str) -> list:
                          "" if pct >= 15 else "Charge soon"))
     else:
         rows.append(_row("battery", "Battery", "warn", "not measured",
-                         "Wire the two 100 kΩ resistors from the switched battery line to GPIO 1"))
+                         "0 V on GPIO 1: the battery switch is off (normal on USB power) or the divider is not wired"))
 
     wifi = parts.get("wifi", "not connected")
     m = re.match(r"(.+) (-\d+) dBm$", wifi)

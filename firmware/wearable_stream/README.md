@@ -42,14 +42,35 @@ Every 2 s the vest prints one line on USB, which the app's Flash a vest page
 turns into a checklist:
 
 ```text
-[check] i2c 2C 68 77 | imu 9.4 m/s2 at 50 Hz | mag QMC5883P 25 uT | gps nothing on GPIO16 or GPIO17: check VCC, GND, TX | ecg 0-2099, electrodes off | battery not wired (GPIO1) | wifi EACCESS-M1 -61 dBm | relay sent 862
+[check] i2c 2C 68 77 | imu 9.4 m/s2 at 50 Hz | mag QMC5883P 31 uT | gps nothing connected on GPIO16 or GPIO17: check TX wire | ecg 364-1980, electrodes off | battery 0 V on GPIO1 | wifi EACCESS-M1 -70 dBm | relay sent 555 | chip 47 C, tx 17.0 dBm, 160 MHz
 ```
 
-It also finds a few wiring faults by itself: GPS TX and RX swapped (it
-listens on the other pin), a GPS module set to another baud rate (it tries
-9600, 38400 and 115200), a battery divider that is not wired (it reports no
-level instead of reading a floating pin) and a Wi-Fi network out of range (it
-lists the networks it can see).
+It also finds a few wiring faults by itself:
+
+- **GPS.** Before the serial port takes the GPS pins, the vest tests each line
+  electrically: with its own pull-down and pull-up, and by counting edges for a
+  second. That separates four cases a serial port cannot: the module is
+  sending, it is powered but silent, it has ground but no power (the line is
+  held low), or nothing is connected (the line just follows the pull). If
+  neither GPIO 16 nor 17 carries a signal, it listens on every free pin at once
+  and reads the GPS wherever its TX wire actually is. The baud rate is measured
+  from the shortest pulse on the line instead of guessed. While no sentence
+  arrives it checks again every 20 s, so a loose wire recovers by itself and
+  shows up as "seen at times".
+- **Battery.** 0 V on GPIO 1 means the battery switch is off (normal on USB
+  power) or the divider is not wired.
+- **Wi-Fi.** A network out of range: it lists the networks it can see.
+
+## Heat
+
+The chip temperature, transmit power and CPU clock are on every self-test line
+and in the status the vest sends. The CPU runs at 160 MHz (sampling and
+compression use a fraction of it), and transmit power follows the access
+point's signal: 11 dBm on a strong link, up to 19.5 dBm on a weak one or when
+deliveries start failing. The radio itself stays awake, because modem sleep
+would delay every relay reply by up to a beacon interval. On the bench the chip
+reads 47 to 48 °C while streaming, normal for an ESP32-S3 on Wi-Fi (rated to
+85 °C); the metal can feels hot to the touch at that temperature.
 
 ## Delivery
 
@@ -69,8 +90,8 @@ conda run -n soccer arduino-cli compile \
   firmware/wearable_stream
 ```
 
-With arduino-esp32 3.3.12 this uses 1,081,499 bytes of flash (34 %) and
-72,796 bytes of static RAM (22 %).
+With arduino-esp32 3.3.11 this uses 1,110,915 bytes of flash (35 %) and
+about 73 KB of static RAM.
 
 ## References
 
