@@ -637,7 +637,6 @@ progress.spinner.light:indeterminate { --spinner-color: #f3efe5; --track-color: 
 .live-checks .warn .ico { background: #f6e2bd; color: var(--warn); }
 .live-checks strong { display: block; font: 700 14px var(--display); }
 .live-checks small { color: var(--ink-3); font-size: 12.5px; }
-.live-warnings { display: grid; gap: 6px; }
 .live-nums { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 10px; margin: 0; }
 .live-nums div { background: var(--paper); border-radius: 9px; padding: 10px 12px; }
 .live-nums dt { font: 600 11.5px var(--text); color: var(--ink-3); }
@@ -743,4 +742,50 @@ progress.spinner.light:indeterminate { --spinner-color: #f3efe5; --track-color: 
   .flow small { font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .flow .tick { top: 8px; right: 8px; }
   .top-actions .btn { padding-inline: 12px; }
+}
+
+/* ---------- vest setup ---------- */
+.port-chip { display: inline-flex; align-items: center; gap: 7px; padding: 5px 12px; border-radius: 999px; border: 1px solid var(--rule-strong);
+  font: 600 12.5px var(--text); color: var(--ink-3); }
+.port-chip.on { border-color: var(--ok); color: var(--ok); }
+.flash-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(320px, 400px); gap: 14px; align-items: start; }
+@media (max-width: 1100px) { .flash-layout { grid-template-columns: minmax(0, 1fr); } }
+.flash-steps-col { display: grid; gap: 14px; min-width: 0; }
+.step-note { font-size: 12.5px; margin: 4px 0 0; }
+.pass-field { position: relative; display: flex; }
+.pass-field input { padding-right: 38px; width: 100%; }
+.pass-field .icon-btn { position: absolute; right: 4px; top: 50%; translate: 0 -50%; }
+.bench { position: sticky; top: 16px; display: grid; gap: 10px; }
+.bench .panel-head { margin-bottom: 0; }
+.bench-summary { margin: 0; font: 600 13px var(--text); color: var(--ink-2); }
+.bench-rows { list-style: none; margin: 0; padding: 0; display: grid; }
+.bench-rows li { display: grid; grid-template-columns: 30px minmax(0, 1fr) 10px; gap: 10px; align-items: start; padding: 9px 2px;
+  border-bottom: 1px solid var(--rule); }
+.bench-rows li:last-child { border-bottom: 0; }
+.bench-rows .ico { width: 30px; height: 30px; border-radius: 8px; display: grid; place-items: center; background: var(--paper-2); color: var(--ink-2); }
+.bench-rows strong { display: block; font: 700 13.5px var(--display); }
+.bench-rows span { display: block; font-size: 12.5px; color: var(--ink-2); overflow-wrap: anywhere; }
+.bench-rows small { display: block; margin-top: 3px; font-size: 12px; color: var(--ink-3); }
+.bench-rows .dot { width: 10px; height: 10px; margin-top: 10px; }
+.bench-rows li.ok .dot { background: var(--ok); }
+.bench-rows li.warn .dot { background: #d99a2b; }
+.bench-rows li.bad .dot { background: var(--bad); }
+.bench-rows li.bad .ico { background: #f5dcd5; color: var(--bad); }
+.bench-rows li.warn .ico { background: #f6e2bd; color: var(--warn); }
+.bench-note { margin: 0; padding: 8px 10px; border-radius: 8px; background: var(--paper-2); font-size: 12.5px; color: var(--ink-2); }
+.flash-steps-col .row-fields label { flex: 1 1 200px; }
+.flash-steps-col .row-fields label:has(input[type=number]) { flex: 0 0 130px; }
+.ecg-strip.empty.off { background-image: none; background-color: var(--paper); border-color: var(--rule); }
+.ecg-strip.empty span { display: grid; gap: 4px; text-align: center; max-width: 34ch; }
+.ecg-strip.empty strong { font: 700 15px var(--display); color: var(--bad); }
+.feed-notes { list-style: none; margin: 0; padding: 10px 14px; display: grid; gap: 6px; border-radius: var(--radius);
+  background: #f6ead2; border-left: 3px solid var(--warn); font-size: 13px; color: var(--ink-2); }
+.feed-notes li { display: flex; gap: 8px; align-items: baseline; }
+.feed-notes svg { flex: none; color: var(--warn); translate: 0 2px; }
+.heart-figures b.word { font-family: var(--display); }
+@media (max-width: 640px) {
+  .chain { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+  .chain .link { display: none; }
+  .chain .node { padding: 10px 6px; }
+  .chain .node small { font-size: 11px; }
 }

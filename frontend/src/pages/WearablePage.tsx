@@ -11,6 +11,7 @@ type Status = {
   battery?: { pct: number; volts: number | null; minutes_left: number | null; level: string } | null;
   gps?: { fix?: boolean; sat?: number; hdop?: number; filtered?: { speed_mps: number; distance_m: number; pos_sigma_m: number } };
   imu?: { accel_cal_poses?: number; accel_calibrated?: boolean; player_load?: number; player_load_per_min?: number | null; stationary?: boolean };
+  parts?: { imu?: boolean | null; magnetometer?: boolean | null; ecg?: boolean | null; gnss?: boolean | null };
   heart?: { bpm?: number | null; steady_bpm?: number | null; rmssd_ms?: number | null; quality?: number | null; reason?: string | null; electrodes?: 'on' | 'off' | null };
 };
 type Trace = { ok: boolean; fs?: number; values?: number[]; range?: [number, number]; beats?: number[]; lead_off?: boolean };
@@ -29,6 +30,9 @@ const REASON: Record<string, string> = {
 function EcgStrip({ trace }: { trace?: Trace }) {
   const W = 1000, H = 220, pad = 18;
   if (!trace?.ok || !trace.values?.length) return <div className="ecg-strip empty"><span>Waiting for the ECG</span></div>;
+  // With an electrode off the AD8232 swings between its limits; drawing that is
+  // noise, not a heart, so the strip says so instead.
+  if (trace.lead_off) return <div className="ecg-strip empty off"><span><strong>Electrodes off</strong>Press the three pads onto the skin; the trace starts by itself.</span></div>;
   const [lo, hi] = trace.range ?? [Math.min(...trace.values), Math.max(...trace.values)];
   const span = Math.max(hi - lo, 1), n = trace.values.length, secs = n / (trace.fs || 125);
   const x = (i: number) => (i / Math.max(n - 1, 1)) * W;
@@ -95,7 +99,7 @@ export const WearablePage = () => {
     <section className="panel" aria-label="Link">
       <div className="chain">
         <div className={`node ${on ? 'ok' : 'off'}`}><Glyph g="vest" size={22} /><b>Vest</b>
-          <small>{on ? (s.battery ? `${Math.round(s.battery.pct)} % battery${s.battery.minutes_left != null ? `, ${s.battery.minutes_left} min left` : ''}` : 'battery not reported') : 'not heard from'}</small></div>
+          <small>{on ? (s.battery ? `${Math.round(s.battery.pct)} % battery${s.battery.minutes_left != null ? `, ${s.battery.minutes_left} min left` : ''}` : 'battery not measured') : 'not heard from'}</small></div>
         <div className="link"><span>{s.rssi_dbm != null && on ? `Wi-Fi ${s.rssi_dbm} dBm` : ''}</span></div>
         <div className={`node ${on ? 'ok' : 'off'}`}><Glyph g="sources" size={22} /><b>Relay</b>
           <small>{s.transport_delay_ms != null && on ? `${Math.round(s.transport_delay_ms)} ms from vest to here` : 'no samples passing'}</small></div>
@@ -115,7 +119,7 @@ export const WearablePage = () => {
           <span>{h.bpm != null ? (h.steady_bpm != null ? `steady ${Math.round(h.steady_bpm)} bpm` : 'settling') : REASON[h.reason ?? ''] ?? 'waiting for clean beats'}</span></div>
         <div><small>Variability</small><b className="num">{h.rmssd_ms != null ? Math.round(h.rmssd_ms) : '--'}<i>ms</i></b>
           <span>{h.rmssd_ms != null ? 'RMSSD, still' : 'measured when still for 30 s'}</span></div>
-        <div><small>Electrodes</small><b className={electrodesOff ? 'state-bad' : h.electrodes === 'on' ? 'state-ok' : ''}>{electrodesOff ? 'Off' : h.electrodes === 'on' ? 'On' : '--'}</b>
+        <div><small>Electrodes</small><b className={`word ${electrodesOff ? 'state-bad' : h.electrodes === 'on' ? 'state-ok' : ''}`}>{electrodesOff ? 'Off' : h.electrodes === 'on' ? 'On' : '--'}</b>
           <span>{electrodesOff ? 'press the three pads onto the skin' : h.quality != null ? `${Math.round(h.quality * 100)} % clean beats` : ''}</span></div>
       </div>
       <EcgStrip trace={trace} />
@@ -125,7 +129,7 @@ export const WearablePage = () => {
       <Tile label="PlayerLoad per minute" value={s.imu?.player_load_per_min != null ? s.imu.player_load_per_min.toFixed(1) : null}
         why={s.imu?.player_load != null ? `${s.imu.player_load.toFixed(1)} this session` : undefined} />
       <Tile label="Speed" value={s.gps?.filtered ? (s.gps.filtered.speed_mps * 3.6).toFixed(1) : null} unit=" km/h"
-        why={s.gps?.fix ? `${s.gps.sat ?? 0} satellites, HDOP ${s.gps.hdop ?? '?'}` : 'no GNSS fix; the camera still measures speed'} />
+        why={s.gps?.fix ? `${s.gps.sat ?? 0} satellites, HDOP ${s.gps.hdop ?? '?'}` : s.parts?.gnss === false ? 'the GPS module sends nothing: check its wiring' : 'no GPS fix yet; the camera still measures speed'} />
       <Tile label="Distance" value={s.gps?.filtered ? s.gps.filtered.distance_m.toFixed(0) : null} unit=" m"
         why={s.gps?.filtered ? `position within ${s.gps.filtered.pos_sigma_m.toFixed(1)} m` : undefined} />
     </div>}
@@ -135,7 +139,8 @@ export const WearablePage = () => {
       <div className="rates">
         <Rate kind="Movement" got={s.rates_hz?.imu} want={want.imu} />
         <Rate kind="ECG" got={s.rates_hz?.ecg} want={want.ecg} />
-        <Rate kind="GNSS fixes" got={s.rates_hz?.gps} want={want.gps} />
+        {s.parts?.gnss === false ? <div className="rate"><span>GPS</span><div className="rate-bar"><i className="bad" style={{ width: '0%' }} /></div><b className="num">no data</b></div>
+          : <Rate kind="GPS fixes" got={s.gps?.fix ? s.rates_hz?.gps : 0} want={want.gps} />}
         {(s.dropped_samples ?? 0) > 0 && <p className="muted" style={{ fontSize: 12.5 }}>The vest reports {s.dropped_samples} samples dropped since it started.</p>}
       </div>
     </section>}

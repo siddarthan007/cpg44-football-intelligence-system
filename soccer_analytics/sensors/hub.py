@@ -112,9 +112,13 @@ async def relay_clock_loop(engine, relay_url, every_s: float = 30.0, probes: int
     import urllib.request
     url = relay_url.rstrip("/") + "/api/v1/time"
 
+    # Cloudflare answers Python's default "Python-urllib" agent with 403, which
+    # left the offset unmeasured; a named client gets through.
+    request = urllib.request.Request(url, headers={"User-Agent": "cpg44-sensor-hub/1.0", "Accept": "application/json"})
+
     def probe():
         t0 = time.time_ns()
-        with urllib.request.urlopen(url, timeout=3) as r:
+        with urllib.request.urlopen(request, timeout=3) as r:
             body = json.loads(r.read())
         return t0, int(body["t_ns"]), time.time_ns()
 
@@ -560,7 +564,10 @@ class TelemetryEngine:
         # accelerometer offset/scale from still poses in different orientations.
         self._still_accel.append(a_raw.copy())
         accel = self.accel_cal.apply(a_raw)
-        if self.gyro_cal.update(g_raw, accel):
+        # Until the accelerometer's own scale is fitted, "gravity only" is judged
+        # loosely (a 4 % scale error put this vest at 9.4 m/s2 and no window ever
+        # counted as still, so neither sensor could calibrate).
+        if self.gyro_cal.update(g_raw, accel, accel_tolerance=0.35 if self.accel_cal.calibrated else 1.5):
             if self.accel_cal.add_still_mean(np.mean(np.asarray(self._still_accel), axis=0)):
                 self._save_calibration()
         self.gyro_bias = self.gyro_cal.bias
@@ -1147,7 +1154,7 @@ def main():
     ENGINE.state["match_id"] = ARGS.match_id
 
     print(f"\n=== {BUILD_ID} ===")
-    print(f"Dashboard: http://127.0.0.1:{ARGS.http_port}/")
+    print(f"Sensor hub API: http://127.0.0.1:{ARGS.http_port}/api/latest (shown in the app under Vest readings)")
     print(f"Debug:     http://127.0.0.1:{ARGS.http_port}/debug/routes")
     print("Registered routes:")
     for route in sorted(

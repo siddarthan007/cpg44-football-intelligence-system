@@ -167,7 +167,7 @@ export const LivePage = () => {
       </section>
     </div>
 
-    {warnings.length > 0 && <div className="live-warnings">{warnings.map(w => <p key={w} className="notice">{w}</p>)}</div>}
+    {warnings.length > 0 && <ul className="feed-notes" aria-label="About this feed">{warnings.map(w => <li key={w}><Glyph g="info" size={14} />{w}</li>)}</ul>}
 
     <div className="lower">
       <section className="panel" aria-label="Players">

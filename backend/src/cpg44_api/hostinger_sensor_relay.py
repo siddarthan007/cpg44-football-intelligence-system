@@ -19,11 +19,12 @@ import re
 import secrets
 import threading
 import time
+import zlib
 from collections import deque
 from dataclasses import asdict, dataclass
 from typing import Any, Deque, Dict, List, Optional, Tuple
 
-from fastapi import Body, FastAPI, Header, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Header, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
 import uvicorn
@@ -547,13 +548,40 @@ async def server_time():
     return {"t_ns": time.time_ns()}
 
 
+MAX_DECODED_BYTES = 1_048_576
+
+
+def _decode_body(raw: bytes, encoding: str) -> Any:
+    """JSON body, optionally deflated (zlib) or gzipped by the vest.
+
+    Compressed batches are about a sixth of the size, which keeps a vest on a
+    busy campus uplink ahead of its sensors. The decoded size is capped so a
+    small compressed body cannot expand into a large one."""
+    encoding = (encoding or "").strip().lower()
+    if encoding in ("deflate", "gzip"):
+        inflater = zlib.decompressobj(wbits=zlib.MAX_WBITS | 32)        # zlib or gzip header
+        try:
+            raw = inflater.decompress(raw, MAX_DECODED_BYTES)
+        except zlib.error as exc:
+            raise HTTPException(status_code=400, detail="body is not valid compressed data") from exc
+        if inflater.unconsumed_tail:
+            raise HTTPException(status_code=413, detail="decoded body too large")
+    elif encoding not in ("", "identity"):
+        raise HTTPException(status_code=415, detail="unsupported content encoding")
+    try:
+        return json.loads(raw)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail="body is not JSON") from exc
+
+
 @app.post("/api/v1/sensors/ingest")
 async def ingest(
-    body: Any = Body(...),
+    request: Request,
     x_auth: Optional[str] = Header(None, alias="X-Auth"),
 ):
     if not _authorized(x_auth):
         raise HTTPException(status_code=401, detail="invalid relay token")
+    body = _decode_body(await request.body(), request.headers.get("content-encoding", ""))
     rows = body if isinstance(body, list) else [body]
     if not 1 <= len(rows) <= 100:
         raise HTTPException(status_code=422, detail="send 1 to 100 observations")

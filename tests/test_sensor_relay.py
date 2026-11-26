@@ -133,3 +133,31 @@ def test_relay_keeps_ecg_blocks_and_battery_status():
     assert st["battery_v"] == 3.9 and st["battery_pct"] == 71.5 and st["gps_rate_hz"] == 4.9 and st["ecg"] is True
     imu = _raw_payload("imu", {"device_us": 1, "a": [0, 0, 9.8], "g": [0, 0, 0], "m": [20.0, -5.0, 40.0]})
     assert imu["m"] == [20.0, -5.0, 40.0]
+
+
+def test_relay_accepts_deflated_batches_and_caps_their_size(monkeypatch):
+    """The vest deflates its batches; plain JSON still works, bombs are refused."""
+    import json as _json
+    import zlib
+    from fastapi.testclient import TestClient
+    from cpg44_api import hostinger_sensor_relay as relay
+    monkeypatch.setattr(relay, "_authorized", lambda token: token == "t" * 40)
+    client = TestClient(relay.app)
+    import time as _time
+    now = _time.time_ns()
+    rows = [{"match_id": "deflate", "player_id": 3, "source": "wearable", "source_seq": k, "source_timestamp_ns": now + k * 20_000_000,
+             "device_boot_id": "77", "sample_type": "imu", "clock": {"valid": True},
+             "payload": {"device_us": k * 20000, "a": [0.1, 9.81, 0.2], "g": [0.01, 0.0, -0.01]}} for k in range(96)]
+    plain = _json.dumps(rows).encode()
+    packed = zlib.compress(plain, 6)
+    assert len(packed) * 4 < len(plain)
+    headers = {"X-Auth": "t" * 40, "Content-Type": "application/json"}
+    r = client.post("/api/v1/sensors/ingest", content=packed, headers={**headers, "Content-Encoding": "deflate"})
+    assert r.status_code == 200 and r.json()["accepted"] == 96
+    r = client.post("/api/v1/sensors/ingest", content=plain, headers=headers)
+    assert r.status_code == 200 and r.json()["duplicates"] == 96          # same events: deduplicated
+    bomb = zlib.compress(b"[" + b" " * 3_000_000 + b"]")
+    r = client.post("/api/v1/sensors/ingest", content=bomb, headers={**headers, "Content-Encoding": "deflate"})
+    assert r.status_code == 413
+    r = client.post("/api/v1/sensors/ingest", content=b"not deflate", headers={**headers, "Content-Encoding": "deflate"})
+    assert r.status_code == 400

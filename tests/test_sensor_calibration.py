@@ -134,3 +134,19 @@ def test_live_associator_binds_after_two_confident_runs():
     for now in np.arange(t0 + 60, t0 + 150, 10):
         binds.update(la.step(now))
     assert binds == {9: 5}
+
+
+def test_gyro_calibrates_even_with_a_4_percent_accelerometer_scale_error():
+    """A real MPU6050 read 9.4 m/s2 at rest; the strict gravity test never saw it as still."""
+    rng = np.random.default_rng(2)
+    bias = np.array([0.03, -0.02, 0.01])
+    cal = GyroBias(fs=50.0)
+    for _ in range(120):
+        accel = np.array([0.0, 0.0, 9.4]) + rng.normal(0, 0.01, 3)
+        cal.update(bias + rng.normal(0, 0.002, 3), accel, accel_tolerance=1.5)
+    assert cal.calibrated and np.allclose(cal.bias, bias, atol=0.003)
+    moving = GyroBias(fs=50.0)
+    for k in range(120):                                   # handled pod: gravity reading wobbles
+        accel = np.array([0.0, 0.3 * np.sin(k / 3), 9.4 + 0.4 * np.sin(k / 2)])
+        moving.update(bias + rng.normal(0, 0.002, 3), accel, accel_tolerance=1.5)
+    assert not moving.calibrated

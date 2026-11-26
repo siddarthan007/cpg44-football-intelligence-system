@@ -30,9 +30,28 @@ Heart rate, heart-rate variability and electrode quality are worked out on the
 laptop (`soccer_analytics/sensors/ecg.py`), where a whole window of signal can
 be checked before a number is shown.
 
-The clock uses SNTP and anchors every acquisition timestamp to `esp_timer`;
-the anchor is refreshed every minute and the relay keeps the source timestamp
-unchanged.
+The clock is set by an NTP query over a plain UDP socket once Wi-Fi is up
+(every 10 minutes; the relay's HTTP Date header is the fallback) and every
+acquisition timestamp is anchored to `esp_timer`. The core's built-in SNTP
+client is not used: when its first DNS lookup failed before Wi-Fi connected,
+its retry ran outside the network-stack lock and rebooted the board.
+
+## Bench self-test
+
+Every 2 s the vest prints one line on USB, which the app's Flash a vest page
+turns into a checklist:
+
+```text
+[check] i2c 2C 68 77 | imu 9.4 m/s2 at 50 Hz | mag QMC5883P 25 uT | gps nothing on GPIO16 or GPIO17: check VCC, GND, TX | ecg 0-2099, electrodes off | battery not wired (GPIO1) | wifi EACCESS-M1 -61 dBm | relay sent 862
+```
+
+It also finds a few wiring faults by itself: GPS TX and RX swapped (it
+listens on the other pin), a GPS module set to another baud rate (it tries
+9600, 38400 and 115200), a battery divider that is not wired (it reports no
+level instead of reading a floating pin) and a Wi-Fi network out of range (it
+lists the networks it can see). Batches to the relay are deflated with the
+compressor in the chip's ROM when the relay accepts it, and sent as plain JSON
+otherwise.
 
 ## Build check
 
