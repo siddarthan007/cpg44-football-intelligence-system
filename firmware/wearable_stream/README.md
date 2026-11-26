@@ -49,9 +49,17 @@ It also finds a few wiring faults by itself: GPS TX and RX swapped (it
 listens on the other pin), a GPS module set to another baud rate (it tries
 9600, 38400 and 115200), a battery divider that is not wired (it reports no
 level instead of reading a floating pin) and a Wi-Fi network out of range (it
-lists the networks it can see). Batches to the relay are deflated with the
-compressor in the chip's ROM when the relay accepts it, and sent as plain JSON
-otherwise.
+lists the networks it can see).
+
+## Delivery
+
+Up to 288 samples per POST, deflated with the compressor in the chip's ROM.
+Samples wait up to 15 s in a 1024-sample queue in PSRAM, so a slow network
+patch delays data instead of losing it. Against an older relay (100 per POST,
+no compressed bodies) the vest falls back to 96 plain samples at a time, and
+offers the larger, compressed batches again after 10 minutes. With nothing
+accepted for 90 s while on Wi-Fi it rebuilds the HTTPS connection, and after
+5 minutes it restarts.
 
 ## Build check
 

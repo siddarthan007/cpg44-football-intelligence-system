@@ -161,3 +161,24 @@ def test_relay_accepts_deflated_batches_and_caps_their_size(monkeypatch):
     assert r.status_code == 413
     r = client.post("/api/v1/sensors/ingest", content=b"not deflate", headers={**headers, "Content-Encoding": "deflate"})
     assert r.status_code == 400
+
+
+def test_relay_takes_large_batches_up_to_its_limit(monkeypatch):
+    """A vest on a slow uplink sends up to 288 per POST; 501 is refused."""
+    import json as _json
+    import time as _time
+    import zlib
+    from fastapi.testclient import TestClient
+    from cpg44_api import hostinger_sensor_relay as relay
+    monkeypatch.setattr(relay, "_authorized", lambda token: token == "t" * 40)
+    client = TestClient(relay.app)
+    now = _time.time_ns()
+    def rows(n, base):
+        return [{"match_id": "big", "player_id": 4, "source": "wearable", "source_seq": base + k, "source_timestamp_ns": now + (base + k) * 20_000_000,
+                 "device_boot_id": "9", "sample_type": "imu", "clock": {"valid": True},
+                 "payload": {"device_us": (base + k) * 20000, "a": [0.1, 9.81, 0.2], "g": [0.0, 0.0, 0.0]}} for k in range(n)]
+    headers = {"X-Auth": "t" * 40, "Content-Type": "application/json", "Content-Encoding": "deflate"}
+    r = client.post("/api/v1/sensors/ingest", content=zlib.compress(_json.dumps(rows(288, 0)).encode()), headers=headers)
+    assert r.status_code == 200 and r.json()["accepted"] == 288
+    r = client.post("/api/v1/sensors/ingest", content=zlib.compress(_json.dumps(rows(501, 1000)).encode()), headers=headers)
+    assert r.status_code == 422

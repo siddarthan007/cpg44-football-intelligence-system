@@ -58,12 +58,26 @@ def test_gps_kalman_speed_and_distance_with_doppler():
     assert abs(st["distance_m"] - 6.0 * 19.8) < 8.0               # no jitter distance while standing
 
 
-def test_battery_time_left_from_soc_slope():
+def test_battery_time_left_starts_from_the_vests_draw():
+    """A flat stretch of the LiPo curve must not promise 25 hours."""
     h = deque()
     out = None
-    for i in range(40):                                          # 13 min at 30 %/h
-        out = battery_state(h, i * 20.0, 80 - 30 * i * 20 / 3600, 3.9, -25.0)
-    assert out["level"] == "ok" and abs(out["rate_pct_h"] + 30) < 1 and 120 < out["minutes_left"] < 160
+    for i in range(40):                                          # 13 min reading only 1.7 %/h
+        out = battery_state(h, i * 20.0, 42.7 - 1.7 * i * 20 / 3600, 3.78)
+    assert out["estimate"] == "typical draw" and 350 < out["minutes_left"] < 420   # about 6.5 h, not 25
+
+
+def test_battery_uses_the_measured_slope_once_it_is_long_and_plausible():
+    h = deque()
+    out = None
+    for i in range(80):                                          # 26 min at 8 %/h
+        out = battery_state(h, i * 20.0, 80 - 8 * i * 20 / 3600, 3.9)
+    assert out["estimate"] == "measured" and abs(out["rate_pct_h"] + 8) < 0.5
+    flat = deque()
+    for i in range(80):                                          # 26 min that looks like 1 %/h: not trusted
+        out = battery_state(flat, i * 20.0, 60 - 1 * i * 20 / 3600, 3.8)
+    assert out["estimate"] == "typical draw"
+    assert battery_state(deque(), 0.0, 10.0, 3.5)["level"] == "low"
 
 
 def _running_profiles(n=20, secs=150, seed=0):
