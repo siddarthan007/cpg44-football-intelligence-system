@@ -659,6 +659,10 @@ void relayTask(void *) {
   uint32_t retryMS = 500;
 
   for (;;) {
+    // With a backlog this loop never waits on its queue: it serialises,
+    // compresses and posts back to back. One tick per pass lets core 0's idle
+    // task run; without it the task watchdog fired after 5 s at 160 MHz.
+    vTaskDelay(1);
     if (WiFi.status() != WL_CONNECTED) {
       scanWifiIfLost();
       vTaskDelay(pdMS_TO_TICKS(1000));
@@ -986,7 +990,8 @@ void gpsBegin() {
 bool gpsReprobe() {                                // true while a probe is running
   const uint32_t now = millis();
   if (!gpsReprobing) {
-    if (now - gpsReprobeMS < 20000) return false;
+    // every 6 s for the first 10 minutes (bench work, wiggle tests), then 20 s
+    if (now - gpsReprobeMS < (now < 600000 ? 6000UL : 20000UL)) return false;
     gpsSerial.end();
     const int pins[2] = {gpsRxPin, gpsTxPin};
     for (uintptr_t i = 0; i < 2; ++i) {
@@ -1000,14 +1005,19 @@ bool gpsReprobe() {                                // true while a probe is runn
   }
   if (now - gpsReprobeStartMS < 1100) return true;
   const int pins[2] = {gpsRxPin, gpsTxPin};
+  bool heldHigh[2];
   for (int i = 0; i < 2; ++i) {
     detachInterrupt(digitalPinToInterrupt(pins[i]));
+    heldHigh[i] = digitalRead(pins[i]);           // still on the pull-down: high only if something drives it
     pinMode(pins[i], INPUT);
   }
   gpsReprobing = false;
   gpsReprobeMS = now;
   ++gpsProbes;
   const uint32_t e0 = gpsScanEdges[0], e1 = gpsScanEdges[1];
+  // live line state for the self-test, so moving a wire shows up within seconds
+  gpsLine16 = e0 > 40 ? LINE_SENDING : heldHigh[0] ? LINE_POWERED_SILENT : LINE_OPEN;
+  gpsLine17 = e1 > 40 ? LINE_SENDING : heldHigh[1] ? LINE_POWERED_SILENT : LINE_OPEN;
   if (e0 > 40 || e1 > 40) {
     ++gpsSeenProbes;
     gpsPinsSwapped = e1 > e0;
