@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { Glyph } from '../components/Glyph';
 import { apiUrl } from '../lib/api';
 
@@ -46,6 +46,8 @@ export const PitchSetupPage = () => {
   const [name, setName] = useState('Campus main pitch');
   const [saved, setSaved] = useState<string>();
   const imgRef = useRef<HTMLImageElement>(null);
+  const [params] = useSearchParams();
+  const [liveCams, setLiveCams] = useState<{ id: string; name: string }[]>([]);
 
   useEffect(() => {
     fetch(apiUrl(`/api/v1/calibration/landmarks?length=${size.l}&width=${size.w}&kind=${size.kind}`)).then(r => r.json()).then(setTpl).catch(() => setTpl(undefined));
@@ -69,6 +71,23 @@ export const PitchSetupPage = () => {
       setSession(j); setPoints({}); setSolve(undefined); setStep(1);
     } catch (e) { setError((e as Error).message); } finally { setBusy(false); }
   };
+  // a still from a connected camera (a paired phone on its tripod) is the best
+  // frame to calibrate from: exactly the view the tracker will see
+  const fromCamera = useCallback(async (cameraId: string) => {
+    setBusy(true); setError(undefined);
+    try {
+      setSession(await post<Session>('/api/v1/calibration/sessions/from-camera', { camera_id: cameraId }));
+      setPoints({}); setSolve(undefined); setStep(1);
+    } catch (e) { setError((e as Error).message); } finally { setBusy(false); }
+  }, []);
+  useEffect(() => {
+    fetch(apiUrl('/api/v1/cameras')).then(r => r.json())
+      .then((rows: { id: string; name: string; status: string }[]) => setLiveCams(rows.filter(c => c.status === 'online')))
+      .catch(() => setLiveCams([]));
+  }, []);
+  const askedCamera = params.get('camera');
+  useEffect(() => { if (askedCamera && !session) void fromCamera(askedCamera); }, [askedCamera]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const regrab = async (at: number) => {
     if (!session) return;
     try { setSession({ ...session, ...(await post<Session>(`/api/v1/calibration/sessions/${session.id}/frame`, { at_s: at })) }); }
@@ -124,11 +143,18 @@ export const PitchSetupPage = () => {
 
     <div className="setup">
       <section className="panel" aria-label="Camera frame">
-        {!session ? <label className="drop">
-          <input type="file" accept="video/*,image/*" onChange={e => e.target.files?.[0] && void upload(e.target.files[0])} />
-          <Glyph g="camera" size={34} />
-          <span><strong>{busy ? 'Reading the clip' : 'Drop a clip or photo from the match camera'}</strong>The same position and zoom you will record with</span>
-        </label> : <>
+        {!session ? <div className="frame-sources">
+          <label className="drop">
+            <input type="file" accept="video/*,image/*" onChange={e => e.target.files?.[0] && void upload(e.target.files[0])} />
+            <Glyph g="camera" size={34} />
+            <span><strong>{busy ? 'Reading the frame' : 'Drop a clip or photo from the match camera'}</strong>The same position and zoom you will record with</span>
+          </label>
+          {liveCams.length > 0 && <div className="still-from">
+            <span className="muted">or take a still from</span>
+            {liveCams.map(c => <button key={c.id} className="btn ghost small" disabled={busy} onClick={() => void fromCamera(c.id)}>
+              <Glyph g="camera" size={14} />{c.name}</button>)}
+          </div>}
+        </div> : <>
           <div className={`frame-box ${step === 2 ? 'picking' : ''}`} onClick={clickFrame}>
             <img ref={imgRef} src={frameUrl} alt="Frame used for calibration" draggable={false} />
             <svg viewBox={`0 0 ${session.width} ${session.height}`} preserveAspectRatio="none">

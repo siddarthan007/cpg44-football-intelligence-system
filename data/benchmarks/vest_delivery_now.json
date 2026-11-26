@@ -1,0 +1,11 @@
+{
+  "measured_at": "2026-11-26T16:02:07+00:00",
+  "seconds": 60.0,
+  "readings": 60,
+  "imu_completeness_median": 1.0,
+  "ecg_completeness_median": 1.0,
+  "transport_delay_ms_p50": 256.1,
+  "transport_delay_ms_p90": 390.5,
+  "dropped_during_run": 0,
+  "note": "Live vest over Wi-Fi through the relay, read from the running app once a second."
+}

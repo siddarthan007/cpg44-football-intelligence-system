@@ -77,11 +77,14 @@ arduino-cli upload --port /dev/ttyACM0 \
 ## Placement
 
 The wearable design (compression vest, back pod between the shoulder blades,
-optical pad on the left upper chest, harness, enclosure, power budget, BOM and
-validation tests) is in [docs/hardware/BUILD_GUIDE.md](docs/hardware/BUILD_GUIDE.md).
-Replaying 21 recorded bench sessions (`python -m soccer_analytics.sensors.session_report`)
-showed the main field risks: incomplete relay delivery, no GNSS fix indoors and
-the optical sensor rarely on skin, so heart rate was correctly withheld.
+three ECG electrodes on the chest, harness, enclosure, power budget, parts list
+and bench tests) is in [docs/hardware/BUILD_GUIDE.md](docs/hardware/BUILD_GUIDE.md).
+Replaying 21 bench sessions from the first prototype
+(`python -m soccer_analytics.sensors.session_report`) showed three field risks:
+samples lost on the way to the laptop, no GNSS fix indoors, and an optical pulse
+sensor that was rarely on the skin. The first was fixed in the firmware and
+relay (all samples now arrive, about a quarter of a second after they are
+taken); the third by replacing the optical sensor with a chest ECG.
 
 
 - Fix the IMU firmly in the same upper-back position for each session.

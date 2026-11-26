@@ -3,7 +3,7 @@
 Capstone CPG 44, Thapar Institute of Engineering and Technology (2026).
 
 CPG44 follows every player and the ball from one fixed camera, pairs each
-player's ESP32-S3 sensor vest (IMU, optical pulse, GNSS) with the right track,
+player's ESP32-S3 sensor vest (IMU, chest ECG, GNSS) with the right track,
 and turns both into a short list of findings a coach can act on, each with the
 evidence behind it. Wearable traffic always passes through the authenticated
 memory-only relay at `cpg44.nivaspms.com`; all vision and fusion run locally.

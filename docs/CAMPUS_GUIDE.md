@@ -100,21 +100,38 @@ error than one camera alone (`tests/test_multicam.py`).
 
 ## 3c. A phone as the pitch camera (`/workshop/cameras`)
 
-Press *Show pairing code*, scan it with the phone and press Start. Fix the
-phone sideways on a tripod as high as possible.
+1. Press *Pair a phone*, scan the code with the phone and press Start.
+2. Fix the phone sideways on a tripod, as high as you can, with the whole
+   pitch in view. The Cameras page shows what the phone sees within a few
+   seconds, so you can aim it from the laptop.
+3. Press *Calibrate from this view*. Pitch setup opens on a still from the
+   phone; mark the landmarks and save.
+4. Press *Run tracking*. Live fills in at the phone's frame rate.
 
-* The phone page is served by the relay over HTTPS, the only way a phone
+How it holds together:
+
+* The phone page comes from the relay over HTTPS, the only way a phone
   browser will open its camera. Only the connection set-up passes through the
-  relay; the video goes straight from the phone to the laptop over WebRTC
+  relay; video goes straight from the phone to the laptop over WebRTC
   (hardware H.264, about 100 to 200 ms on the same Wi-Fi).
-* If no direct path exists (some campus networks block it), the phone falls
-  back to JPEG frames through the relay at up to 15 per second; the relay keeps
-  only the newest frame so a slow link lowers the frame rate instead of adding
-  delay. The status line says which path is in use.
-* The QR code carries a per-room key that expires after 4 hours, never the
-  relay token.
-* Tested here with a simulated camera in Chromium: direct link at 1920 x 1080,
-  relay fallback at 960 x 540, no frame queued behind another.
+* The laptop app keeps one steady link to the phone from the moment it is
+  paired. Starting and stopping tracking does not touch that link, and a
+  short Wi-Fi drop or a relay restart does not stop tracking: it waits for
+  frames and carries on.
+* If no direct path exists (some campus networks block it), the phone sends
+  JPEG frames through the relay at up to 15 per second. The relay keeps only
+  the newest frame, so a slow link lowers the frame rate instead of adding
+  delay. The status pill says which path is in use.
+* The code is valid for 12 hours and survives a relay restart. It carries a
+  key for that one pairing, never the relay token. *New code* or *Forget this
+  phone* ends it at once; the phone then says the code has ended.
+* Opening the same code on a second phone moves the video to that phone; the
+  first one says so and stops.
+
+Tested with a simulated camera in Chromium against a local relay: 1080p at
+20 frames per second over the direct link for 3 minutes, unbroken through a
+relay restart, a second phone taking over and handing back, and the laptop
+ending the code.
 
 ## 4. Add footage and review
 

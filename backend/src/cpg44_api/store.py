@@ -130,9 +130,10 @@ class ProductStore:
             "away_team": os.environ.get("CPG44_AWAY_TEAM", "Team 2"),
         }
 
-        # Empty until a source is actually registered. Previous versions exposed
-        # invented RTSP cameras with invented FPS and latency.
+        # Empty until a source is actually registered. Sources are kept in a
+        # small JSON file (see load_cameras) so a paired phone survives a restart.
         self.cameras: Dict[str, dict] = {}
+        self.cameras_path: Optional[Path] = None
 
     @property
     def roster(self) -> List[dict]:
@@ -184,7 +185,41 @@ class ProductStore:
             self.active_mode = mode
             self.match["mode"] = mode
 
-    def register_camera(self, cam_dict: dict) -> dict:
+    _CAMERA_KEEP = ("id", "name", "type", "source", "calibration_path", "registered_at")
+
+    def load_cameras(self, path: Path) -> None:
+        """Read the saved sources and keep saving changes to ``path``."""
+        self.cameras_path = Path(path)
+        try:
+            rows = json.loads(self.cameras_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            rows = []
+        for row in rows if isinstance(rows, list) else []:
+            if isinstance(row, dict) and row.get("id") and row.get("source"):
+                self.register_camera(row, save=False)
+                if row.get("registered_at"):
+                    self.cameras[str(row["id"])]["registered_at"] = float(row["registered_at"])
+
+    def _save_cameras(self) -> None:
+        if self.cameras_path is None:
+            return
+        rows = [{k: c.get(k) for k in self._CAMERA_KEEP} for c in self.cameras.values()]
+        try:
+            self.cameras_path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = self.cameras_path.with_suffix(".tmp")
+            tmp.write_text(json.dumps(rows, indent=1), encoding="utf-8")
+            tmp.replace(self.cameras_path)
+        except OSError:
+            pass
+
+    def remove_camera(self, camera_id: str) -> Optional[dict]:
+        with self._lock:
+            camera = self.cameras.pop(camera_id, None)
+            if camera is not None:
+                self._save_cameras()
+            return camera
+
+    def register_camera(self, cam_dict: dict, save: bool = True) -> dict:
         with self._lock:
             cid = str(cam_dict.get("id") or f"cam_{len(self.cameras) + 1}")
             camera = {
@@ -201,6 +236,8 @@ class ProductStore:
                 "last_frame_at": None,
             }
             self.cameras[cid] = camera
+            if save:
+                self._save_cameras()
             return copy.deepcopy(camera)
 
     def get_camera(self, camera_id: str) -> Optional[dict]:
@@ -211,7 +248,7 @@ class ProductStore:
     def update_camera_health(self, camera_id: str, **values: Any) -> dict:
         with self._lock:
             if camera_id not in self.cameras:
-                self.register_camera({"id": camera_id})
+                self.register_camera({"id": camera_id}, save=False)
             allowed = {"status", "fps", "latency_ms", "calibrated", "last_frame_at"}
             self.cameras[camera_id].update({k: v for k, v in values.items() if k in allowed})
             return copy.deepcopy(self.cameras[camera_id])

@@ -360,6 +360,7 @@ class TelemetryEngine:
         self.auto_gyro_samples = []
         self.auto_gyro_calibrated = False
         self.linear_lp = np.zeros(3, dtype=np.float64)
+        self._amag_window: deque = deque(maxlen=50)      # 1 s of |accel| at 50 Hz
         self.previous_linear = np.zeros(3, dtype=np.float64)
         self.short_delta_v = np.zeros(3, dtype=np.float64)
 
@@ -595,7 +596,14 @@ class TelemetryEngine:
         jerk = (self.linear_lp - self.previous_linear) / max(dt, 1e-3)
         self.previous_linear = self.linear_lp.copy()
 
-        stationary = linear_mag < 0.60 and gyro_mag < 0.25
+        # Still = no rotation and either no linear acceleration or, when the
+        # accelerometer is not yet calibrated (an offset of a few tenths of a
+        # m/s2 then shows up as constant "motion"), a magnitude that has barely
+        # varied for a second. Lying on a desk upside down read 10.5 m/s2 and
+        # was never counted as still before this.
+        self._amag_window.append(float(np.linalg.norm(accel)))
+        steady = len(self._amag_window) == self._amag_window.maxlen and float(np.std(self._amag_window)) < 0.06
+        stationary = gyro_mag < 0.25 and (linear_mag < 0.60 or steady)
 
         row = {
             "host_mono_ns": int(p["host_mono_ns"]),

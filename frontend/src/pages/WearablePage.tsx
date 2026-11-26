@@ -47,6 +47,11 @@ function EcgStrip({ trace }: { trace?: Trace }) {
   </div>;
 }
 
+// a few seconds or more means the relay is handing over samples it queued
+// while this laptop was away; it settles once they are through
+const delayText = (ms: number) => ms < 1000 ? `${Math.round(ms)} ms from vest to here`
+  : `${(ms / 1000).toFixed(ms < 10000 ? 1 : 0)} s behind, catching up`;
+
 const hoursMinutes = (m: number) => {
   const r = Math.round(m / 5) * 5;                     // battery estimates are not minute-precise
   return r >= 60 ? `${Math.floor(r / 60)} h${r % 60 ? ` ${r % 60} min` : ''}` : `${Math.max(5, r)} min`;
@@ -107,7 +112,7 @@ export const WearablePage = () => {
           <small>{on ? (s.battery ? `${Math.round(s.battery.pct)} % battery${s.battery.minutes_left != null ? `, about ${hoursMinutes(s.battery.minutes_left)} left` : ''}` : 'battery not measured') : 'not heard from'}</small></div>
         <div className="link"><span>{s.rssi_dbm != null && on ? `Wi-Fi ${s.rssi_dbm} dBm` : ''}</span></div>
         <div className={`node ${on ? 'ok' : 'off'}`}><Glyph g="sources" size={22} /><b>Relay</b>
-          <small>{s.transport_delay_ms != null && on ? `${Math.round(s.transport_delay_ms)} ms from vest to here` : 'no samples passing'}</small></div>
+          <small>{s.transport_delay_ms != null && on ? delayText(s.transport_delay_ms) : 'no samples passing'}</small></div>
         <div className="link"><span>{off ? `clock ${off.offset_ms > 0 ? '+' : ''}${off.offset_ms} ms, ±${off.uncertainty_ms}` : ''}</span></div>
         <div className={`node ${down ? 'off' : 'ok'}`}><Glyph g="runtime" size={22} /><b>This laptop</b>
           <small>{down ? 'API not running' : off ? 'clock aligned to the relay' : 'measuring clock offset'}</small></div>
@@ -121,11 +126,11 @@ export const WearablePage = () => {
       <div className="heart-figures">
         <div className="heart-now"><small>Heart rate</small>
           <b className="num">{h.bpm != null ? Math.round(h.bpm) : '--'}<i>bpm</i></b>
-          <span>{h.bpm != null ? (h.steady_bpm != null ? `steady ${Math.round(h.steady_bpm)} bpm` : 'settling') : REASON[h.reason ?? ''] ?? 'waiting for clean beats'}</span></div>
+          <span>{h.bpm != null ? (h.steady_bpm != null ? `steady ${Math.round(h.steady_bpm)} bpm` : 'settling') : electrodesOff ? '' : REASON[h.reason ?? ''] ?? 'waiting for clean beats'}</span></div>
         <div><small>Variability</small><b className="num">{h.rmssd_ms != null ? Math.round(h.rmssd_ms) : '--'}<i>ms</i></b>
           <span>{h.rmssd_ms != null ? 'RMSSD, still' : 'measured when still for 30 s'}</span></div>
         <div><small>Electrodes</small><b className={`word ${electrodesOff ? 'state-bad' : h.electrodes === 'on' ? 'state-ok' : ''}`}>{electrodesOff ? 'Off' : h.electrodes === 'on' ? 'On' : '--'}</b>
-          <span>{electrodesOff ? 'press the three pads onto the skin' : h.quality != null ? `${Math.round(h.quality * 100)} % clean beats` : ''}</span></div>
+          <span>{!electrodesOff && h.quality != null ? `${Math.round(h.quality * 100)} % clean beats` : ''}</span></div>
       </div>
       <EcgStrip trace={trace} />
     </section>}
@@ -133,10 +138,14 @@ export const WearablePage = () => {
     {on && <div className="vgrid">
       <Tile label="PlayerLoad per minute" value={s.imu?.player_load_per_min != null ? s.imu.player_load_per_min.toFixed(1) : null}
         why={s.imu?.player_load != null ? `${s.imu.player_load.toFixed(1)} this session` : undefined} />
-      <Tile label="Speed" value={s.gps?.filtered ? (s.gps.filtered.speed_mps * 3.6).toFixed(1) : null} unit=" km/h"
-        why={s.gps?.fix ? `${s.gps.sat ?? 0} satellites, HDOP ${s.gps.hdop ?? '?'}` : s.parts?.gnss === false ? 'the GPS module sends nothing: check its wiring' : 'no GPS fix yet; the camera still measures speed'} />
-      <Tile label="Distance" value={s.gps?.filtered ? s.gps.filtered.distance_m.toFixed(0) : null} unit=" m"
-        why={s.gps?.filtered ? `position within ${s.gps.filtered.pos_sigma_m.toFixed(1)} m` : undefined} />
+      {s.parts?.gnss === false
+        ? <Tile label="Speed and distance" why="The GPS module sends nothing: check its VCC, GND and TX wires. The camera still measures speed." />
+        : <>
+          <Tile label="Speed" value={s.gps?.filtered ? (s.gps.filtered.speed_mps * 3.6).toFixed(1) : null} unit=" km/h"
+            why={s.gps?.fix ? `${s.gps.sat ?? 0} satellites, HDOP ${s.gps.hdop ?? '?'}` : 'no GPS fix yet; the camera still measures speed'} />
+          <Tile label="Distance" value={s.gps?.filtered ? s.gps.filtered.distance_m.toFixed(0) : null} unit=" m"
+            why={s.gps?.filtered ? `position within ${s.gps.filtered.pos_sigma_m.toFixed(1)} m` : undefined} />
+        </>}
     </div>}
 
     {on && <section className="panel" aria-label="Samples arriving">

@@ -126,6 +126,10 @@ export const LivePage = () => {
     <StartPanel vision={vision} onStarted={() => void pollVision()} />
   </div>;
 
+  // the fastest players first; everyone tracked stays in the list
+  const byPace = [...players].sort((a, b) => (b.speed_mps ?? -1) - (a.speed_mps ?? -1));
+  const anyVest = players.some(p => p.wearable);
+
   return <div className="page live">
     <div className="top">
       <div className="live-title"><h1>Live</h1><span className={`live-pill ${connected ? 'on' : ''}`}><i />{connected ? 'on air' : 'reconnecting'}</span>
@@ -167,26 +171,11 @@ export const LivePage = () => {
       </section>
     </div>
 
-    {warnings.length > 0 && <ul className="feed-notes" aria-label="About this feed">{warnings.map(w => <li key={w}><Glyph g="info" size={14} />{w}</li>)}</ul>}
+    {warnings.length > 0 && <details className="feed-notes">
+      <summary><Glyph g="info" size={14} /><span>{warnings[0]}</span>{warnings.length > 1 && <b>{warnings.length - 1} more</b>}</summary>
+      <ul>{warnings.slice(1).map(w => <li key={w}>{w}</li>)}</ul>
+    </details>}
 
-    <div className="lower">
-      <section className="panel" aria-label="Players">
-        <div className="panel-head"><h2>Players</h2><span className="muted num">{players.length} in view</span></div>
-        {!players.length ? <div className="empty"><Glyph g="squad" size={30} />Waiting for players</div>
-          : <div style={{ overflowX: 'auto' }}><table className="players">
-            <thead><tr><th>Player</th><th className="num">km/h</th><th className="num">Distance</th><th className="num">Top</th><th className="num">bpm</th></tr></thead>
-            <tbody>{players.map(p => <tr key={p.track_id} aria-selected={player?.track_id === p.track_id} onClick={() => setSelected(p.track_id)}
-              tabIndex={0} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelected(p.track_id); } }}>
-              <td><i className="dot" style={{ background: TEAM_HEX[p.team] ?? TEAM_HEX[0], marginRight: 8 }} />{label(p)}{p.wearable && <Glyph g="vest" size={13} />}</td>
-              <td className="num">{fmt(kmh(p.speed_mps))}</td>
-              <td className="num">{p.distance_m != null ? `${p.distance_m.toFixed(0)} m` : 'n/a'}</td>
-              <td className="num">{fmt(kmh(p.top_speed_mps), 1)}</td>
-              <td className="num">{p.wearable ? fmt(num(p.wearable_metrics?.hr)) : ''}</td>
-            </tr>)}</tbody>
-          </table></div>}
-      </section>
-      {player ? <PlayerPanel p={player} team={teamName(player.team)} /> : <aside className="panel"><div className="empty"><Glyph g="run" size={30} />Pick a player</div></aside>}
-    </div>
 
     {insights.length > 0 && <section className="panel" aria-label="Worth acting on">
       <div className="panel-head"><h2>Worth acting on</h2></div>
@@ -197,5 +186,25 @@ export const LivePage = () => {
         <span />
       </div>)}
     </section>}
+
+    <div className="lower">
+      <section className="panel" aria-label="Players">
+        <div className="panel-head"><h2>Players</h2><span className="muted num">{players.length} in view</span></div>
+        {!players.length ? <div className="empty"><Glyph g="squad" size={30} />Waiting for players</div>
+          : <div style={{ overflowX: 'auto' }}><table className="players">
+            <thead><tr><th>Player</th><th className="num">km/h</th><th className="num">Distance</th><th className="num">Top</th>{anyVest && <th className="num">bpm</th>}</tr></thead>
+            <tbody>{byPace.map(p => <tr key={p.track_id} aria-selected={player?.track_id === p.track_id} onClick={() => setSelected(p.track_id)}
+              tabIndex={0} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelected(p.track_id); } }}>
+              <td><i className="dot" style={{ background: TEAM_HEX[p.team] ?? TEAM_HEX[0], marginRight: 8 }} />{label(p)}{p.wearable && <Glyph g="vest" size={13} />}</td>
+              <td className="num">{fmt(kmh(p.speed_mps))}</td>
+              <td className="num">{p.distance_m != null ? `${p.distance_m.toFixed(0)} m` : 'n/a'}</td>
+              <td className="num">{fmt(kmh(p.top_speed_mps), 1)}</td>
+              {anyVest && <td className="num">{p.wearable ? fmt(num(p.wearable_metrics?.hr)) : ''}</td>}
+            </tr>)}</tbody>
+          </table></div>}
+      </section>
+      {player ? <PlayerPanel p={player} team={teamName(player.team)} /> : <aside className="panel"><div className="empty"><Glyph g="run" size={28} />Pick a player for speed, distance and load</div></aside>}
+    </div>
+
   </div>;
 };

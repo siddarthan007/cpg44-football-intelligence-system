@@ -22,6 +22,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 from starlette.concurrency import run_in_threadpool
 
 from cpg44_api import __version__
+from cpg44_api.phone_bridge import PhoneBridge
 from cpg44_api.store import ProductStore
 from cpg44_api.training_manager import TrainingManager
 from cpg44_api.flasher import ESP32Flasher
@@ -56,7 +57,41 @@ def _vest_session_log(session_id: str) -> Optional[Path]:
     return raw if raw.is_file() and raw.stat().st_size > 0 else None
 
 
-def _vest_sessions(limit: int = 40) -> list:
+_SPAN_CACHE: dict = {}
+
+
+def _log_span(raw: Path) -> Optional[float]:
+    """Seconds between the first and last sample in a vest log, read from its
+    two ends only (logs run to hundreds of megabytes). Cached by size."""
+    st = raw.stat()
+    key = (str(raw), st.st_size, st.st_mtime_ns)
+    if key in _SPAN_CACHE:
+        return _SPAN_CACHE[key]
+
+    def stamp(line: bytes) -> Optional[float]:
+        try:
+            row = json.loads(line)
+        except ValueError:
+            return None
+        ns = row.get("source_unix_ns") or row.get("host_unix_ns")
+        return ns / 1e9 if isinstance(ns, (int, float)) else None
+
+    span = None
+    try:
+        with raw.open("rb") as fh:
+            first = stamp(fh.readline())
+            fh.seek(max(0, st.st_size - 65536))
+            tail = fh.read().splitlines()
+        last = next((t for t in (stamp(x) for x in reversed(tail[1:] or tail)) if t is not None), None)
+        if first is not None and last is not None and last >= first:
+            span = round(last - first, 1)
+    except OSError:
+        pass
+    _SPAN_CACHE[key] = span
+    return span
+
+
+def _vest_sessions(limit: int = 40, min_s: float = 60.0) -> list:
     base = ROOT / "data" / "live_sessions"
     rows = []
     for d in sorted(base.iterdir(), reverse=True) if base.is_dir() else []:
@@ -81,8 +116,11 @@ def _vest_sessions(limit: int = 40) -> list:
         if start is None:          # the folder name is the UTC start time
             from datetime import datetime, timezone
             start = datetime.strptime(d.name, "%Y%m%dT%H%M%SZ").replace(tzinfo=timezone.utc).timestamp()
-        rows.append({"id": d.name, "start_unix": start, "duration_s": meta.get("duration_s"),
-                     "active_s": (meta.get("sampling") or {}).get("active_s"), "vests": sorted(vests)})
+        span = meta.get("duration_s") or _log_span(raw)
+        if span is not None and span < min_s:
+            continue            # bench restarts and quick checks, not a session to analyse
+        rows.append({"id": d.name, "start_unix": start, "duration_s": span,
+                     "active_s": (meta.get("sampling") or {}).get("active_s") or span, "vests": sorted(vests)})
         if len(rows) >= limit:
             break
     return rows
@@ -104,6 +142,8 @@ FLASHER = ESP32Flasher()
 TAGGER = MatchTagger()
 CALIB = CalibrationStudio(ROOT / "data" / "calibration_sessions", ROOT / "configs" / "calibrations")
 ANALYSES = AnalysisLibrary([ROOT / "data" / "matches", ROOT / "demo" / "analysis"])
+PHONES = PhoneBridge()
+STORE.load_cameras(Path(os.environ.get("CPG44_CAMERAS_FILE") or ROOT / "data" / "live" / "cameras.json"))
 
 
 def _range_response(path: Path, request: Request):
@@ -143,12 +183,27 @@ async def lifespan(app: FastAPI):
     app.state.engine = ENGINE
     app.state.trainer = TRAINER
     app.state.hub_client = httpx.AsyncClient(timeout=0.5, trust_env=False)
+    _reopen_phone_links()
     try:
         yield
     finally:
         if ENGINE.live_status().get("running"):
             await run_in_threadpool(ENGINE.stop_live_processing)
+        await run_in_threadpool(PHONES.close)
         await app.state.hub_client.aclose()
+
+
+def _reopen_phone_links() -> None:
+    """Reconnect to phones paired before a restart; forget expired codes."""
+    from soccer_analytics.phone_camera import source_expiry
+    for camera in STORE.camera_list():
+        if camera.get("type") != "phone":
+            continue
+        exp = source_expiry(camera["source"])
+        if exp is None or exp < time.time():
+            STORE.remove_camera(camera["id"])
+        else:
+            PHONES.ensure(camera["id"], camera["source"])
 
 
 def create_app() -> FastAPI:
@@ -266,8 +321,17 @@ def create_app() -> FastAPI:
     async def get_live_snapshot():
         return STORE.live_frame_snapshot()
 
+    def _not_in_charge(request: Request) -> bool:
+        """A tracker started from the app owns the Live page; any other tracker
+        (a demo started from the command line) is turned away meanwhile."""
+        sender = request.headers.get("x-camera-id")
+        live = ENGINE.live_status()
+        return bool(sender and live.get("running") and live.get("camera_id") and sender != live["camera_id"])
+
     @app.post("/api/v1/live")
-    async def post_live_snapshot(body: dict):
+    async def post_live_snapshot(body: dict, request: Request):
+        if _not_in_charge(request):
+            raise HTTPException(status_code=409, detail="another camera is being tracked")
         if not isinstance(body.get("players", []), list):
             raise HTTPException(status_code=422, detail="players must be a list")
         normalized = dict(body)
@@ -328,6 +392,8 @@ def create_app() -> FastAPI:
 
     @app.post("/api/v1/live/frame")
     async def post_live_annotated_frame(request: Request):
+        if _not_in_charge(request):
+            raise HTTPException(status_code=409, detail="another camera is being tracked")
         content_type = request.headers.get("content-type", "").split(";", 1)[0]
         if content_type != "image/jpeg":
             raise HTTPException(status_code=415, detail="expected image/jpeg")
@@ -769,33 +835,52 @@ def create_app() -> FastAPI:
         return result
 
     # --- Camera Network (Single & Multi-Camera Gateway) ---
+    def _with_link(camera: dict) -> dict:
+        """Phone rows carry the API's live link state; status follows real frames."""
+        if camera.get("type") == "phone":
+            link = PHONES.status(camera["id"])
+            camera["link"] = link
+            if link and link.get("age_s") is not None and link["age_s"] < 3:
+                camera["status"] = "online"
+                camera["frame_age_s"] = link["age_s"]
+            elif link and link.get("ended"):
+                camera["status"] = "ended"
+            else:
+                camera["status"] = "waiting"
+            camera.pop("source", None)                # holds the room key
+        return camera
+
     @app.get("/api/v1/cameras")
     async def list_cameras():
-        cameras = STORE.camera_list()
+        cameras = [_with_link(c) for c in STORE.camera_list() if c.get("source")]
         live = ENGINE.live_status()
-        if live.get("running"):
-            for camera in cameras:
-                if camera["id"] == live.get("camera_id") and camera["status"] != "online":
-                    camera["status"] = live.get("status") or "starting"
-        return cameras
+        for camera in cameras:
+            camera["tracking"] = bool(live.get("running") and camera["id"] == live.get("camera_id"))
+        return sorted(cameras, key=lambda c: -(c.get("registered_at") or 0))
 
     @app.post("/api/v1/cameras/register")
     async def register_camera(cam: dict):
         camera = dict(cam)
-        camera_id = str(camera.get("id") or f"cam_{len(STORE.camera_list()) + 1}")
+        camera_id = str(camera.get("id") or f"cam_{int(time.time() * 1000) % 10**8:08d}")
         camera_type = str(camera.get("type") or "file")
         source = str(camera.get("source") or "").strip()
         if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", camera_id):
             raise HTTPException(status_code=422, detail="camera id may contain letters, numbers, _ and -")
-        if camera_type not in {"rtsp", "usb", "file", "browser_jpeg", "phone"}:
+        if camera_type not in {"rtsp", "usb", "file", "browser_jpeg"}:
             raise HTTPException(status_code=422, detail="unsupported camera transport")
         if not source:
             raise HTTPException(status_code=422, detail="camera source is required")
         if camera_type == "usb" and not source.isdigit():
             raise HTTPException(status_code=422, detail="USB source must be a camera number such as 0")
-        if camera_type == "rtsp" and not source.lower().startswith(("rtsp://", "rtsps://")):
-            raise HTTPException(status_code=422, detail="RTSP source must begin with rtsp:// or rtsps://")
-        camera.update({"id": camera_id, "type": camera_type, "source": source})
+        if camera_type == "rtsp" and not source.lower().startswith(("rtsp://", "rtsps://", "http://", "https://")):
+            raise HTTPException(status_code=422, detail="a network camera address begins with rtsp:// or http://")
+        if camera_type == "file":
+            path = Path(source).expanduser()
+            path = path if path.is_absolute() else ROOT / path
+            if not path.is_file():
+                raise HTTPException(status_code=422, detail=f"no video file at {source}")
+        camera.update({"id": camera_id, "type": camera_type, "source": source,
+                       "name": str(camera.get("name") or "").strip()[:40] or camera_id})
         return STORE.register_camera(camera)
 
     def _relay_client():
@@ -805,12 +890,49 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=422, detail="Set CPG44_RELAY_URL and CPG44_RELAY_TOKEN to pair a phone")
         return relay, httpx.AsyncClient(timeout=8.0, verify=_relay_tls(), headers={"X-Auth": token})
 
-    @app.post("/api/v1/phone-camera/pair")
-    async def pair_phone_camera(body: Optional[dict] = None):
-        """Open a relay room for a phone and return the QR the phone scans."""
+    def _pairing(camera: dict) -> dict:
         import io
+        from urllib.parse import parse_qs, urlparse
         import qrcode
         import qrcode.image.svg
+        u = urlparse(camera["source"])
+        q = {k: v[0] for k, v in parse_qs(u.query).items()}
+        url = f"{q['relay']}/cam#r={u.netloc}&k={q['key']}" + (f"&e={q['exp']}" if q.get("exp") else "")
+        buf = io.BytesIO()
+        qrcode.make(url, image_factory=qrcode.image.svg.SvgPathImage, box_size=10, border=2).save(buf)
+        return {"camera_id": camera["id"], "room": u.netloc, "url": url, "qr_svg": buf.getvalue().decode(),
+                "expires_at": float(q["exp"]) if q.get("exp", "").isdigit() else None}
+
+    async def _forget_camera(camera: dict) -> None:
+        live = ENGINE.live_status()
+        if live.get("running") and live.get("camera_id") == camera["id"]:
+            await run_in_threadpool(ENGINE.stop_live_processing)
+            STORE.match.update({"status": "paused", "engine_running": False})
+        if camera.get("type") == "phone":
+            await run_in_threadpool(PHONES.drop, camera["id"])
+            room = camera["id"].removeprefix("phone_")
+            try:                                              # tell the phone; fine if the relay is away
+                relay, client = _relay_client()
+                async with client:
+                    await client.delete(f"{relay}/api/v1/cam/rooms/{room}")
+            except Exception:
+                pass
+        STORE.remove_camera(camera["id"])
+        (CAMERA_FRAME_DIR / f"{camera['id']}.jpg").unlink(missing_ok=True)
+
+    @app.delete("/api/v1/cameras/{camera_id}")
+    async def delete_camera(camera_id: str):
+        camera = STORE.get_camera(camera_id)
+        if camera is None:
+            raise HTTPException(status_code=404, detail="camera not found")
+        await _forget_camera(camera)
+        return {"ok": True}
+
+    @app.post("/api/v1/phone-camera/pair")
+    async def pair_phone_camera(body: Optional[dict] = None):
+        """Open a relay room for a phone, start the API's link to it and return
+        the QR the phone scans. ``replace`` forgets an earlier phone code."""
+        body = body or {}
         relay, client = _relay_client()
         async with client:
             try:
@@ -820,33 +942,41 @@ def create_app() -> FastAPI:
         if r.status_code != 200:
             raise HTTPException(status_code=502, detail=f"relay refused the room ({r.status_code})")
         room = r.json()
-        url = f"{relay}{room['phone_path']}"
-        buf = io.BytesIO()
-        qrcode.make(url, image_factory=qrcode.image.svg.SvgPathImage, box_size=10, border=2).save(buf)
-        calibration = str((body or {}).get("calibration_path") or "")
-        if (body or {}).get("calibration_id"):
+        old = STORE.get_camera(str(body.get("replace") or ""))
+        calibration = str(body.get("calibration_path") or (old or {}).get("calibration_path") or "")
+        if body.get("calibration_id"):
             saved = CALIB.saved_path(str(body["calibration_id"]))
             calibration = str(saved) if saved else calibration
-        camera = STORE.register_camera({
-            "id": f"phone_{room['room']}", "name": "Phone camera", "type": "phone",
-            "source": f"phone://{room['room']}?key={room['key']}&relay={relay}",
-            "calibration_path": calibration})
-        return {"camera_id": camera["id"], "room": room["room"], "url": url,
-                "qr_svg": buf.getvalue().decode(), "expires_at": room["expires_at"]}
+        if old is not None and old.get("type") == "phone":
+            await _forget_camera(old)
+        source = f"phone://{room['room']}?key={room['key']}&relay={relay}"
+        if room.get("expires_at"):
+            source += f"&exp={int(room['expires_at'])}"
+        camera = STORE.register_camera({"id": f"phone_{room['room']}", "name": "Phone camera", "type": "phone",
+                                        "source": source, "calibration_path": calibration})
+        PHONES.ensure(camera["id"], source)
+        return _pairing(camera)
 
-    @app.get("/api/v1/phone-camera/{room}")
-    async def phone_camera_status(room: str):
-        if not re.fullmatch(r"[0-9a-f]{8}", room):
-            raise HTTPException(status_code=422, detail="invalid room")
-        relay, client = _relay_client()
-        async with client:
-            try:
-                r = await client.get(f"{relay}/api/v1/cam/rooms/{room}")
-            except Exception as exc:
-                raise HTTPException(status_code=502, detail=f"relay unreachable: {exc}") from exc
-        if r.status_code != 200:
-            raise HTTPException(status_code=r.status_code, detail="room closed")
-        return r.json()
+    @app.get("/api/v1/cameras/{camera_id}/pairing")
+    async def phone_pairing(camera_id: str):
+        camera = STORE.get_camera(camera_id)
+        if camera is None or camera.get("type") != "phone":
+            raise HTTPException(status_code=404, detail="no phone with this id")
+        return _pairing(camera)
+
+    @app.post("/api/v1/calibration/sessions/from-camera")
+    async def calibration_from_camera(body: dict):
+        """Start Pitch setup from a still of a connected camera."""
+        camera_id = str(body.get("camera_id") or "")
+        still = await run_in_threadpool(_camera_still, camera_id, 0)
+        if still is None:
+            raise HTTPException(status_code=409, detail="no recent frame from this camera")
+        camera = STORE.get_camera(camera_id) or {}
+        try:
+            meta = await run_in_threadpool(CALIB.create, still, f"{camera.get('name') or camera_id}.jpg", 0.0)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc))
+        return meta
 
     SQUAD_FILE = Path(os.environ.get("CPG44_SQUAD_FILE") or ROOT / "data" / "squad.json")
 
@@ -904,14 +1034,18 @@ def create_app() -> FastAPI:
                 raise HTTPException(status_code=404, detail="calibration not found")
             camera = STORE.register_camera({**camera, "calibration_path": str(saved)})
         product_api = os.environ.get("CPG44_PRODUCT_API", "http://127.0.0.1:8000").rstrip("/")
-        source = camera["source"]
-        if camera["type"] == "browser_jpeg":
-            source = f"{product_api}/api/v1/cameras/{camera_id}/mjpeg"
+        source, kind = camera["source"], camera["type"]
+        if kind == "phone":
+            link = PHONES.status(camera_id)
+            if not link or link.get("age_s") is None or link["age_s"] > 3:
+                raise HTTPException(status_code=409, detail="no video from the phone yet: open the code on the phone and press Start")
+        if kind in ("browser_jpeg", "phone"):
+            source, kind = f"{product_api}/api/v1/cameras/{camera_id}/mjpeg", "stream"
         result = await run_in_threadpool(
             ENGINE.start_live_processing,
             camera_id,
             source,
-            camera["type"],
+            kind,
             camera.get("calibration_path") or None,
             product_api,
         )
@@ -951,37 +1085,55 @@ def create_app() -> FastAPI:
         STORE.update_camera_health(camera_id, status="online", last_frame_at=time.time())
         return {"ok": True, "camera_id": camera_id, "bytes": len(body)}
 
+    def _camera_still(camera_id: str, max_width: int) -> Optional[bytes]:
+        camera = STORE.get_camera(camera_id)
+        if camera is not None and camera.get("type") == "phone":
+            hit = PHONES.jpeg(camera_id, max_width, quality=80 if max_width else 90)
+            return hit[1] if hit else None
+        path = CAMERA_FRAME_DIR / f"{camera_id}.jpg"
+        return path.read_bytes() if path.is_file() else None
+
     @app.get("/api/v1/cameras/{camera_id}/frame")
-    async def get_camera_frame(camera_id: str):
+    async def get_camera_frame(camera_id: str, w: int = 0):
         if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", camera_id):
             raise HTTPException(status_code=422, detail="invalid camera id")
-        path = CAMERA_FRAME_DIR / f"{camera_id}.jpg"
-        if not path.is_file():
+        still = await run_in_threadpool(_camera_still, camera_id, max(0, min(w, 1920)))
+        if still is None:
             raise HTTPException(status_code=404, detail="camera has not sent a frame")
-        return FileResponse(path, media_type="image/jpeg", headers={"Cache-Control": "no-store"})
+        return Response(still, media_type="image/jpeg", headers={"Cache-Control": "no-store"})
 
     @app.get("/api/v1/cameras/{camera_id}/mjpeg", include_in_schema=False)
-    async def stream_camera_frames(camera_id: str):
+    async def stream_camera_frames(camera_id: str, w: int = 0):
         if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", camera_id):
             raise HTTPException(status_code=422, detail="invalid camera id")
+        camera = STORE.get_camera(camera_id)
+        phone = camera is not None and camera.get("type") == "phone"
         path = CAMERA_FRAME_DIR / f"{camera_id}.jpg"
+        width = max(0, min(w, 1920))
+
+        def part(image: bytes) -> bytes:
+            return (b"--frame\r\nContent-Type: image/jpeg\r\n"
+                    + f"Content-Length: {len(image)}\r\n\r\n".encode("ascii") + image + b"\r\n")
 
         async def frames():
-            last_version = None
+            last = None
             while True:
-                try:
-                    version = path.stat().st_mtime_ns
-                except FileNotFoundError:
-                    version = None
-                if version is not None and version != last_version:
-                    image = await run_in_threadpool(path.read_bytes)
-                    last_version = version
-                    yield (
-                        b"--frame\r\nContent-Type: image/jpeg\r\n"
-                        + f"Content-Length: {len(image)}\r\n\r\n".encode("ascii")
-                        + image
-                        + b"\r\n"
-                    )
+                if phone:
+                    seq = PHONES.frame_seq(camera_id)
+                    if seq and seq != last:
+                        hit = await run_in_threadpool(PHONES.jpeg, camera_id, width)
+                        if hit is not None:
+                            last = hit[0]
+                            yield part(hit[1])
+                else:
+                    try:
+                        version = path.stat().st_mtime_ns
+                    except FileNotFoundError:
+                        version = None
+                    if version is not None and version != last:
+                        image = await run_in_threadpool(path.read_bytes)
+                        last = version
+                        yield part(image)
                 await asyncio.sleep(0.01)
 
         return StreamingResponse(

@@ -494,7 +494,7 @@ app.add_middleware(
 
 from cpg44_api.relay_camera import make_router as _camera_router  # noqa: E402
 
-app.include_router(_camera_router(_authorized))
+app.include_router(_camera_router(_authorized, lambda: RELAY_TOKEN))
 
 
 @app.middleware("http")
