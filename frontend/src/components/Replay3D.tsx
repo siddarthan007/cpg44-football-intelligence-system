@@ -116,7 +116,7 @@ interface Figure {
   ring: THREE.Mesh; heading: number; keeper: boolean; phase: number; last?: THREE.Vector3; lastT?: number; lean: number; bank: number;
 }
 
-const SEG = { cap: 10, radial: 32 };
+const SEG = { cap: 6, radial: 18 };
 /** A smooth limb or torso from a side profile [radius, height] turned about its axis. */
 function lathe(profile: [number, number][], segments = SEG.radial) {
   const g = new THREE.LatheGeometry(profile.map(([r, y]) => new THREE.Vector2(r, y)), segments);
@@ -132,7 +132,7 @@ function makeFigure(id: number, team: number, keeper: boolean, label = String(id
   const sock = new THREE.MeshStandardMaterial({ color: kitColour, roughness: 0.78 });
   const boot = new THREE.MeshStandardMaterial({ color: '#16181a', roughness: 0.35, metalness: 0.1 });
   const hair = new THREE.MeshStandardMaterial({ color: ['#1d140e', '#3b2618', '#0e0c0b', '#5a3b22'][id % 4], roughness: 0.92 });
-  const mesh = (g: THREE.BufferGeometry, m: THREE.Material) => { const o = new THREE.Mesh(g, m); o.castShadow = true; o.receiveShadow = true; return o; };
+  const mesh = (g: THREE.BufferGeometry, m: THREE.Material) => { const o = new THREE.Mesh(g, m); o.castShadow = true; return o; };
   const root = new THREE.Group();
   const body = new THREE.Group(); root.add(body);
   // pelvis and chest are separate so they can counter-rotate while running
@@ -143,11 +143,11 @@ function makeFigure(id: number, team: number, keeper: boolean, label = String(id
   // shirt: waist, ribs, chest and shoulders as one turned profile, flattened front to back
   const shirt = mesh(lathe([[0.001, -0.02], [0.15, 0], [0.16, 0.12], [0.185, 0.28], [0.2, 0.4], [0.17, 0.5], [0.09, 0.56], [0.001, 0.57]]), kit);
   shirt.scale.set(1.2, 1, 0.72); chest.add(shirt);
-  const neck = mesh(new THREE.CylinderGeometry(0.05, 0.058, 0.12, 24), skin); neck.position.y = 0.58; chest.add(neck);
-  const head = mesh(new THREE.SphereGeometry(0.112, 40, 28), skin); head.position.set(0, 0.72, 0.008); head.scale.set(0.92, 1.08, 1); chest.add(head);
-  const jaw = mesh(new THREE.SphereGeometry(0.085, 32, 20), skin); jaw.position.set(0, 0.665, 0.03); jaw.scale.set(1, 0.8, 1); chest.add(jaw);
-  for (const x of [-0.105, 0.105]) { const ear = mesh(new THREE.SphereGeometry(0.022, 16, 12), skin); ear.position.set(x, 0.72, 0); ear.scale.set(0.5, 1, 0.8); chest.add(ear); }
-  const cap = mesh(new THREE.SphereGeometry(0.118, 40, 18, 0, Math.PI * 2, 0, Math.PI * 0.52), hair); cap.position.set(0, 0.74, -0.01); cap.rotation.x = -0.28; chest.add(cap);
+  const neck = mesh(new THREE.CylinderGeometry(0.05, 0.058, 0.12, 12), skin); neck.position.y = 0.58; chest.add(neck);
+  const head = mesh(new THREE.SphereGeometry(0.112, 20, 14), skin); head.position.set(0, 0.72, 0.008); head.scale.set(0.92, 1.08, 1); chest.add(head);
+  const jaw = mesh(new THREE.SphereGeometry(0.085, 16, 10), skin); jaw.position.set(0, 0.665, 0.03); jaw.scale.set(1, 0.8, 1); chest.add(jaw);
+  for (const x of [-0.105, 0.105]) { const ear = mesh(new THREE.SphereGeometry(0.022, 10, 8), skin); ear.position.set(x, 0.72, 0); ear.scale.set(0.5, 1, 0.8); chest.add(ear); }
+  const cap = mesh(new THREE.SphereGeometry(0.118, 20, 9, 0, Math.PI * 2, 0, Math.PI * 0.52), hair); cap.position.set(0, 0.74, -0.01); cap.rotation.x = -0.28; chest.add(cap);
   const leg = (x: number): Limb => {
     const hip = new THREE.Group(); hip.position.set(x, 0.88, 0); body.add(hip);
     // thigh: wide at the hip, tapering to the knee, with the quadriceps bulge
@@ -155,7 +155,7 @@ function makeFigure(id: number, team: number, keeper: boolean, label = String(id
     thigh.material = shortsM; hip.add(thigh);
     const skinThigh = mesh(lathe([[0.05, -0.43], [0.061, -0.36], [0.071, -0.26], [0.072, -0.22], [0.001, -0.21]]), skin); hip.add(skinThigh);
     const knee = new THREE.Group(); knee.position.y = -0.43; hip.add(knee);
-    const kneecap = mesh(new THREE.SphereGeometry(0.052, 24, 16), skin); kneecap.position.set(0, 0, 0.012); knee.add(kneecap);
+    const kneecap = mesh(new THREE.SphereGeometry(0.052, 12, 8), skin); kneecap.position.set(0, 0, 0.012); knee.add(kneecap);
     // calf: muscle belly high, slim ankle; sock and shin pad over it
     const calf = mesh(lathe([[0.03, -0.42], [0.036, -0.34], [0.058, -0.16], [0.06, -0.1], [0.05, -0.02], [0.001, 0]]), sock); knee.add(calf);
     const ankle = new THREE.Group(); ankle.position.y = -0.43; knee.add(ankle);
@@ -164,13 +164,13 @@ function makeFigure(id: number, team: number, keeper: boolean, label = String(id
   };
   const arm = (x: number): Arm => {
     const shoulder = new THREE.Group(); shoulder.position.set(x, 1.43, 0); body.add(shoulder);
-    const delt = mesh(new THREE.SphereGeometry(0.068, 28, 18), kit); delt.scale.set(1, 0.9, 0.95); shoulder.add(delt);
+    const delt = mesh(new THREE.SphereGeometry(0.068, 14, 9), kit); delt.scale.set(1, 0.9, 0.95); shoulder.add(delt);
     const upper = mesh(lathe([[0.04, -0.29], [0.047, -0.2], [0.052, -0.08], [0.05, 0], [0.001, 0.01]], 24), keeper ? kit : skin); shoulder.add(upper);
     const sleeve = mesh(lathe([[0.055, -0.13], [0.06, -0.06], [0.058, 0.02], [0.001, 0.03]], 24), kit); shoulder.add(sleeve);
     const elbow = new THREE.Group(); elbow.position.y = -0.29; shoulder.add(elbow);
     const fore = mesh(lathe([[0.03, -0.25], [0.034, -0.2], [0.043, -0.08], [0.038, 0], [0.001, 0.01]], 24),
       keeper ? new THREE.MeshStandardMaterial({ color: '#f2f2f2', roughness: 0.6 }) : skin); elbow.add(fore);
-    const hand = mesh(new THREE.SphereGeometry(0.04, 20, 14), keeper ? new THREE.MeshStandardMaterial({ color: '#f2f2f2' }) : skin);
+    const hand = mesh(new THREE.SphereGeometry(0.04, 10, 8), keeper ? new THREE.MeshStandardMaterial({ color: '#f2f2f2' }) : skin);
     hand.position.y = -0.28; hand.scale.set(0.8, 1.15, 0.55); elbow.add(hand);
     return { shoulder, elbow };
   };
@@ -261,11 +261,11 @@ export function Replay3D({ analysis, t, selected, shot }: Props) {
   useEffect(() => {
     const el = host.current!;
     const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
     renderer.setSize(el.clientWidth, el.clientHeight);
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.05;
-    renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFShadowMap;
     el.appendChild(renderer.domElement);
     const scene = new THREE.Scene();
     scene.background = skyTexture();
@@ -277,7 +277,7 @@ export function Replay3D({ analysis, t, selected, shot }: Props) {
     scene.add(new THREE.HemisphereLight('#f5f7ff', '#4c6a43', 0.85));
     const sun = new THREE.DirectionalLight('#fff4e0', 2.4);
     sun.position.set(-40, 70, 30); sun.castShadow = true;
-    sun.shadow.mapSize.set(4096, 4096); sun.shadow.bias = -0.0004; sun.shadow.normalBias = 0.02;
+    sun.shadow.mapSize.set(2048, 2048); sun.shadow.bias = -0.0004; sun.shadow.normalBias = 0.02;
     Object.assign(sun.shadow.camera, { left: -75, right: 75, top: 55, bottom: -55, near: 1, far: 220 });
     scene.add(sun);
 
@@ -324,14 +324,21 @@ export function Replay3D({ analysis, t, selected, shot }: Props) {
     goal(-L / 2, -1); goal(L / 2, 1);
 
     // ball
-    const ball = new THREE.Mesh(new THREE.SphereGeometry(0.11, 40, 28),          // FIFA size 5: 22 cm across
+    const ball = new THREE.Mesh(new THREE.SphereGeometry(0.11, 32, 24),          // FIFA size 5: 22 cm across
        new THREE.MeshStandardMaterial({ map: ballTexture(), roughness: 0.45 }));
     ball.castShadow = true; scene.add(ball);
     const shadow = new THREE.Mesh(new THREE.CircleGeometry(0.32, 24), new THREE.MeshBasicMaterial({ color: '#000', transparent: true, opacity: 0.32, depthWrite: false }));
     shadow.rotation.x = -Math.PI / 2; shadow.position.y = 0.012; scene.add(shadow);
     const arcMat = new THREE.LineBasicMaterial({ color: '#f2b705', linewidth: 2 });
-    let arc = new THREE.Line(new THREE.BufferGeometry(), arcMat); scene.add(arc);
-    const drop = new THREE.Line(new THREE.BufferGeometry(), new THREE.LineDashedMaterial({ color: '#1b2320', dashSize: 0.3, gapSize: 0.2, transparent: true, opacity: 0.55 }));
+    const ARC_MAX = 512;                          // 1.6 s of ball track at any sampling rate we record
+    const arcGeo = new THREE.BufferGeometry();
+    arcGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(ARC_MAX * 3), 3).setUsage(THREE.DynamicDrawUsage));
+    arcGeo.setDrawRange(0, 0);
+    const arc = new THREE.Line(arcGeo, arcMat); arc.frustumCulled = false; scene.add(arc);
+    const dropGeo = new THREE.BufferGeometry();
+    dropGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(6), 3).setUsage(THREE.DynamicDrawUsage));
+    const drop = new THREE.Line(dropGeo, new THREE.LineDashedMaterial({ color: '#1b2320', dashSize: 0.3, gapSize: 0.2, transparent: true, opacity: 0.55 }));
+    drop.frustumCulled = false;
     scene.add(drop);
     const wedge = new THREE.Mesh(new THREE.BufferGeometry(), new THREE.MeshBasicMaterial({ color: '#f2b705', transparent: true, opacity: 0.22, side: THREE.DoubleSide, depthWrite: false }));
     wedge.position.y = 0.02; scene.add(wedge);
@@ -394,8 +401,12 @@ export function Replay3D({ analysis, t, selected, shot }: Props) {
           const q = [p.x, p.y], d1 = sign(q, tri[0], tri[1]), d2 = sign(q, tri[1], tri[2]), d3 = sign(q, tri[2], tri[0]);
           if (!((d1 < 0 || d2 < 0 || d3 < 0) && (d1 > 0 || d2 > 0 || d3 > 0))) inWay.add(p.id);
         }
-        const geo = new THREE.BufferGeometry().setFromPoints(tri.map(([x, y]) => new THREE.Vector3(x - L / 2, 0, y - W / 2)));
-        geo.setIndex([0, 1, 2]); wedge.geometry.dispose(); wedge.geometry = geo; wedge.visible = true;
+        if (!wedge.geometry.attributes.position) {
+          wedge.geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(9), 3).setUsage(THREE.DynamicDrawUsage));
+          wedge.geometry.setIndex([0, 1, 2]); wedge.frustumCulled = false;
+        }
+        const wp = wedge.geometry.attributes.position as THREE.BufferAttribute;
+        tri.forEach(([x, y], i) => wp.setXYZ(i, x - L / 2, 0.02, y - W / 2)); wp.needsUpdate = true; wedge.visible = true;
         // second-last defender from the defended goal line (keepers count)
         const defenders = s.players.filter(p => p.team !== e.team && p.team !== REF && p.team !== 0)
           .map(p => ({ id: p.id, d: Math.abs(p.x - gx), x: p.x })).sort((a, b) => a.d - b.d);
@@ -460,8 +471,11 @@ export function Replay3D({ analysis, t, selected, shot }: Props) {
         const pts = (track.length ? trackWindow(track, time - 1.6, time).map(r => [r[1], r[2], r[3]])
           : frames.filter(fr => fr.t > time - 1.6 && fr.t <= time && fr.b).map(fr => fr.b!))
           .map(b => new THREE.Vector3(b[0] - L / 2, Math.max(0.11, b[2] + 0.11), b[1] - W / 2));
-        scene.remove(arc); arc.geometry.dispose(); arc = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), arcMat); scene.add(arc);
-        drop.geometry.dispose(); drop.geometry = new THREE.BufferGeometry().setFromPoints([ballPos, new THREE.Vector3(ballPos.x, 0, ballPos.z)]);
+        const ap = arcGeo.attributes.position as THREE.BufferAttribute, from = Math.max(0, pts.length - ARC_MAX);
+        for (let i = from; i < pts.length; i++) ap.setXYZ(i - from, pts[i].x, pts[i].y, pts[i].z);
+        ap.needsUpdate = true; arcGeo.setDrawRange(0, pts.length - from);
+        const dp = dropGeo.attributes.position as THREE.BufferAttribute;
+        dp.setXYZ(0, ballPos.x, ballPos.y, ballPos.z); dp.setXYZ(1, ballPos.x, 0, ballPos.z); dp.needsUpdate = true;
         drop.computeLineDistances(); drop.visible = bAt[2] > 0.4;
       } else ball.visible = shadow.visible = drop.visible = false;
       if (current === 'ball' || current === 'broadcast') place(current);
@@ -475,27 +489,42 @@ export function Replay3D({ analysis, t, selected, shot }: Props) {
         else if (phase === 'broadcast') { place('broadcast'); current = 'director'; }
       }
     };
-    api.current = { update, setView: (v: View) => { directing = v === 'director'; shot = ''; place(v === 'director' ? 'broadcast' : v); if (v === 'director') current = 'director'; } };
+    let dirty = true, onScreen = true;
+    const draw = (time: number) => { update(time); dirty = true; };
+    api.current = { update: draw, setView: (v: View) => { directing = v === 'director'; shot = ''; place(v === 'director' ? 'broadcast' : v); if (v === 'director') current = 'director'; dirty = true; } };
     update(t); api.current.setView(view);
     camera.position.copy(camGoal!.pos); controls.target.copy(camGoal!.target);
 
+    // Draw only when something changed: the moment (update), the camera (easing
+    // or the user orbiting) or the size. A paused replay then costs nothing, and
+    // an off-screen or hidden tab stops drawing altogether.
     let raf = 0, lastFrame = performance.now();
     const loop = () => {
+      raf = requestAnimationFrame(loop);
       const now = performance.now(), dtc = Math.min(0.1, (now - lastFrame) / 1000); lastFrame = now;
+      if (!onScreen || document.hidden) return;
       if (camGoal) {
         if (cut) { camera.position.copy(camGoal.pos); controls.target.copy(camGoal.target); cut = false; }
         const kp = 1 - Math.exp(-dtc * 3.2), kt = 1 - Math.exp(-dtc * 4.5);          // eased, same speed at any frame rate
+        const before = camera.position.distanceToSquared(camGoal.pos) + controls.target.distanceToSquared(camGoal.target);
         camera.position.lerp(camGoal.pos, kp); controls.target.lerp(camGoal.target, kt);
+        if (before > 1e-6) dirty = true;
         if (camera.position.distanceTo(camGoal.pos) < 0.05 && current !== 'broadcast' && current !== 'ball' && current !== 'director') camGoal = null;
       }
-      controls.update(); renderer.render(scene, camera); raf = requestAnimationFrame(loop);
+      if (controls.update()) dirty = true;
+      if (!dirty) return;
+      dirty = false;
+      renderer.render(scene, camera);
     };
     loop();
     controls.addEventListener('start', () => { camGoal = null; });
-    const ro = new ResizeObserver(() => { camera.aspect = el.clientWidth / Math.max(1, el.clientHeight); camera.updateProjectionMatrix(); renderer.setSize(el.clientWidth, el.clientHeight); });
+    controls.addEventListener('change', () => { dirty = true; });
+    const io = new IntersectionObserver(([entry]) => { onScreen = entry.isIntersecting; dirty = true; });
+    io.observe(el);
+    const ro = new ResizeObserver(() => { camera.aspect = el.clientWidth / Math.max(1, el.clientHeight); camera.updateProjectionMatrix(); renderer.setSize(el.clientWidth, el.clientHeight); dirty = true; });
     ro.observe(el);
     return () => {
-      cancelAnimationFrame(raf); ro.disconnect(); controls.dispose();
+      cancelAnimationFrame(raf); ro.disconnect(); io.disconnect(); controls.dispose();
       scene.traverse(o => { const m = o as THREE.Mesh; m.geometry?.dispose?.(); });
       renderer.dispose(); el.removeChild(renderer.domElement); api.current = null;
     };

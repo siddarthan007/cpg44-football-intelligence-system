@@ -193,7 +193,8 @@ export const ReviewPage = () => {
         : <div>{a.insights.map(c => <div key={c.id} className={`finding ${c.kind}`}>
           <span className="kind" title={c.kind}><Glyph g={KIND_GLYPH[c.kind]} size={16} /></span>
           <div>
-            <h3>{c.title}{c.team ? <i className="dot" style={{ background: TEAM_HEX[c.team], marginLeft: 8 }} /> : null}</h3>
+            {c.team ? <span className="team-tag"><i className="dot" style={{ background: TEAM_HEX[c.team] }} />{name(c.team)}</span> : null}
+            <h3>{c.team && c.title.startsWith(name(c.team)) ? c.title.slice(name(c.team).length).replace(/^[:\s]+/, '').replace(/^./, m => m.toUpperCase()) : c.title}</h3>
             <p>{c.finding}</p>
             <p className="act"><Glyph g="fwd" size={14} />{c.action}</p>
             {c.evidence.length > 0 && <div className="nums">{c.evidence.slice(0, 3).map(ev => <div key={ev.label}><b>{ev.value}</b><small>{ev.label}</small></div>)}</div>}

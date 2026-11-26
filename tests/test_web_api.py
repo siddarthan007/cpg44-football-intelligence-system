@@ -204,3 +204,43 @@ def test_relay_tls_trusts_public_roots_and_the_saved_file(tmp_path, monkeypatch)
     assert ctx.cert_store_stats()["x509_ca"] >= 100          # the public roots, not only the file
     monkeypatch.setenv("CPG44_RELAY_CA_FILE", str(tmp_path / "missing.pem"))
     assert main._relay_tls().cert_store_stats()["x509_ca"] >= 100
+
+
+def test_camera_sources_persist_delete_and_phone_needs_video(tmp_path):
+    saved = tmp_path / "cameras.json"
+    store = ProductStore()
+    store.load_cameras(saved)
+    store.register_camera({"id": "cam_a", "name": "Stand", "type": "rtsp", "source": "rtsp://10.0.0.2/s"})
+    again = ProductStore()
+    again.load_cameras(saved)
+    assert again.get_camera("cam_a")["name"] == "Stand"
+    assert again.remove_camera("cam_a") is not None and ProductStore().get_camera("cam_a") is None
+
+    async def check():
+        transport = httpx.ASGITransport(app=create_app())
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            # a phone row never exposes its room key, and cannot track before video arrives
+            STORE.register_camera({"id": "phone_0badc0de", "name": "Phone camera", "type": "phone",
+                                   "source": "phone://0badc0de?key=secret&relay=https://cpg44.nivaspms.com&exp=1"})
+            rows = (await client.get("/api/v1/cameras")).json()
+            row = next(r for r in rows if r["id"] == "phone_0badc0de")
+            assert "source" not in row and row["status"] == "waiting"
+            assert (await client.post("/api/v1/cameras/phone_0badc0de/start", json={})).status_code == 409
+            pairing = (await client.get("/api/v1/cameras/phone_0badc0de/pairing")).json()
+            assert pairing["url"].endswith("/cam#r=0badc0de&k=secret&e=1") and "<svg" in pairing["qr_svg"]
+            assert (await client.delete("/api/v1/cameras/phone_0badc0de")).status_code == 200
+            assert (await client.delete("/api/v1/cameras/phone_0badc0de")).status_code == 404
+            assert (await client.get("/api/v1/cameras/nope/pairing")).status_code == 404
+            bad = await client.post("/api/v1/cameras/register", json={"type": "file", "source": "no/such/clip.mp4"})
+            assert bad.status_code == 422
+    asyncio.run(check())
+
+
+def test_pitch_tracker_reset_returns_to_calibration():
+    import numpy as np
+    from soccer_analytics.view import PitchHomographyTracker
+    H0 = np.eye(3)
+    t = PitchHomographyTracker(H0, (1080, 1920))
+    t.H = np.diag([2.0, 2.0, 1.0]); t.prev_gray = np.zeros((4, 4), np.uint8)
+    t.reset()
+    assert np.allclose(t.H, H0) and t.prev_gray is None

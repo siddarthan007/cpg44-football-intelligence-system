@@ -11,8 +11,11 @@ import httpx
 
 
 class LiveSnapshotPublisher:
-    def __init__(self, api_base: str, preview_hz: float = 10.0, preview_width: int = 960):
+    def __init__(self, api_base: str, preview_hz: float = 10.0, preview_width: int = 960,
+                 camera_id: str = ""):
         self.url = f"{api_base.rstrip('/')}/api/v1/live" if api_base else ""
+        # lets the API keep the tracker it started in charge of the Live page
+        self.camera_headers = {"X-Camera-Id": camera_id} if camera_id else {}
         self.preview_width = preview_width
         self.preview_interval = 1.0 / max(preview_hz, 1.0)
         self.last_error = None
@@ -68,10 +71,10 @@ class LiveSnapshotPublisher:
                         if not ok:
                             raise ValueError("could not encode preview")
                         response = client.post(self.url + "/frame", content=encoded.tobytes(),
-                                               headers={"Content-Type": "image/jpeg"})
+                                               headers={"Content-Type": "image/jpeg", **self.camera_headers})
                     else:
                         response = client.post(self.url, content=json.dumps(item, allow_nan=False),
-                                               headers={"Content-Type": "application/json"})
+                                               headers={"Content-Type": "application/json", **self.camera_headers})
                     response.raise_for_status()
                     self.sent[kind] += 1
                     self.last_error = None

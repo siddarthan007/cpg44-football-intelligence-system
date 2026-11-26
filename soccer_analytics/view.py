@@ -310,6 +310,15 @@ class PitchHomographyTracker:
 
     is_metric = True
 
+    def reset(self) -> None:
+        """Back to the calibrated view, e.g. when a looping clip restarts:
+        chaining across the cut would carry the last frame's pan into frame 0."""
+        self.H = self.H0.copy()
+        self.prev_gray = self.prev_mask = None
+        self._keyframes.clear()
+        self._upd = 0
+        self.valid = True
+
     def update(self, frame, exclude_boxes=None):
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         if self.scale != 1.0:

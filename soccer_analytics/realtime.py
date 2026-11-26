@@ -53,9 +53,15 @@ from .sensors.source import SensorSource
 
 
 class LatestFrameCapture:
-    """Camera reader that keeps one frame so slow inference cannot build latency."""
+    """Camera reader that keeps one frame so slow inference cannot build latency.
+
+    A network source (RTSP, HTTP MJPEG) that drops is reopened in the
+    background instead of ending the run; ``stalled`` is true meanwhile."""
 
     def __init__(self, source):
+        self.source = source
+        self.reconnect = isinstance(source, str) and "://" in source
+        self.stalled = False
         self.cap = cv2.VideoCapture(source)
         if not self.cap.isOpened():
             raise FileNotFoundError(f"cannot open camera or stream source {source!r}")
@@ -81,10 +87,18 @@ class LatestFrameCapture:
         while self._running:
             ok, frame = self.cap.read()
             if not ok or frame is None:
+                if self.reconnect and self._running:
+                    self.stalled = True
+                    self.cap.release()
+                    time.sleep(1.0)
+                    if self._running:
+                        self.cap = cv2.VideoCapture(self.source)
+                    continue
                 with self._condition:
                     self._running = False
                     self._condition.notify_all()
                 return
+            self.stalled = False
             with self._condition:
                 self.overwritten_frames += int(self._sequence > self._delivered)
                 self._frame = frame
@@ -94,7 +108,7 @@ class LatestFrameCapture:
                 self._condition.notify_all()
 
     def isOpened(self) -> bool:
-        return self.cap.isOpened() and self._running
+        return self._running and (self.reconnect or self.cap.isOpened())
 
     def get(self, prop: int) -> float:
         if prop == cv2.CAP_PROP_FRAME_WIDTH:
@@ -175,7 +189,7 @@ class RealtimePipeline:
         self.latency_budget_s = max(0.08, min(float(latency_budget_ms) / 1000.0, 1.0))
         self._formation = {1: "", 2: ""}
         self._shots = {1: {"shots": 0, "xg": 0.0}, 2: {"shots": 0, "xg": 0.0}}
-        self.publisher = LiveSnapshotPublisher(product_api)
+        self.publisher = LiveSnapshotPublisher(product_api, camera_id=camera_id or "")
         self.camera_id = camera_id or None
         self.loop_count = 0
         self.profiler = StageProfiler()
@@ -234,9 +248,15 @@ class RealtimePipeline:
                 matches = sum(1 for c in colors if self.team._predict_conf(c)[1])
                 match_rate = matches / max(1, len(colors))
                 if match_rate < 0.25:
-                    self._team_calibration_warning = "Kit colours look different here; teams may be mixed up."
-                    print(f"[realtime] WARNING: Calibrated seeds matched only {matches}/{len(colors)} ({match_rate:.0%}) samples in this video.")
-                    print("[realtime] Keeping calibrated team labels; unmatched kits will abstain. Review kit colours.")
+                    # Saved kits belong to another ground or match. Holding on to
+                    # them would leave nearly every player unassigned, so split the
+                    # teams by colour from this footage and say so.
+                    self._team_calibration_warning = ("Saved kit colours do not match this footage; "
+                                                      "teams were split by shirt colour instead.")
+                    print(f"[realtime] saved kit colours matched only {matches}/{len(colors)} "
+                          f"({match_rate:.0%}) samples; splitting teams by colour from this footage")
+                    self.team._seeds = None
+                    self.team.fit(colors)
                 else:
                     print(f"[realtime] Calibrated kit seeds confirmed ({matches}/{len(colors)} matching samples)")
             print(f"[realtime] team model fit on {len(colors)} colour samples")
@@ -316,12 +336,30 @@ class RealtimePipeline:
         W = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 1920)
         H = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 1080)
 
-        # larger lost buffer to ByteTrack itself recovers longer gaps; the ReID
-        # layer then handles the very-long / out-of-view cases.
-        tracker = SoccerTracker(frame_rate=int(round(fps)), lost_track_buffer=self.cfg.track_buffer,
+        def fresh_match_state():
+            """Tracker, metric and tactical state for one pass of the footage."""
+            # larger lost buffer so ByteTrack itself recovers longer gaps; the ReID
+            # layer then handles the very-long / out-of-view cases.
+            trk = SoccerTracker(frame_rate=int(round(fps)), lost_track_buffer=self.cfg.track_buffer,
                                 track_activation_threshold=self.cfg.conf,
                                 backend=self.cfg.tracker, track_low_conf=self.cfg.track_low_conf)
-        self.reid.frame_rate = fps
+            self.reid = ReIDManager()
+            self.reid.frame_rate = fps
+            self.subs = SubstitutionAdvisor()
+            self._vest_rows.clear()
+            self._traj_hist.clear()
+            self._coach_samples.clear()
+            eng = MetricsEngine(fps=fps, metric=self.metric,
+                                possession_dist=2.0 if self.metric else 70.0,
+                                max_speed_mps=self.cfg.max_speed_mps,
+                                history_limit=max(300, round(fps * 120)))
+            eng.pitch_width = self.cfg.pitch.width
+            eng.pitch_length = self.cfg.pitch.length
+            return (trk, eng, TacticalEngine(self.cfg.pitch),
+                    KalmanBank(max_speed=self.cfg.max_speed_mps if self.metric else 1e9), BallKalman(),
+                    ShotDetector(pitch_length=self.cfg.pitch.length, pitch_width=self.cfg.pitch.width))
+
+        tracker, engine, tactic, kbank, ball_kf, shot_detector = fresh_match_state()
         # metric mode: per-frame homography that follows the camera pan (replaces
         # the static homography + separate camera-motion pass, same optical-flow
         # cost, no FPS hit). pixel mode: keep the translation-only camera comp.
@@ -333,17 +371,6 @@ class RealtimePipeline:
                 self.view.H, (H, W), pitch_length=self.cfg.pitch.length,
                 pitch_width=self.cfg.pitch.width) if self.metric else None
         cam = None if self.metric else CameraMotionEstimator((H, W))
-        engine = MetricsEngine(fps=fps, metric=self.metric,
-                               possession_dist=2.0 if self.metric else 70.0,
-                               max_speed_mps=self.cfg.max_speed_mps,
-                               history_limit=max(300, round(fps * 120)))
-        engine.pitch_width = self.cfg.pitch.width
-        engine.pitch_length = self.cfg.pitch.length
-        tactic = TacticalEngine(self.cfg.pitch)
-        kbank = KalmanBank(max_speed=self.cfg.max_speed_mps if self.metric else 1e9)
-        ball_kf = BallKalman()
-        shot_detector = ShotDetector(pitch_length=self.cfg.pitch.length,
-                                     pitch_width=self.cfg.pitch.width)
 
         if self.sensor_source is not None:
             self.sensor_source.start()
@@ -403,7 +430,20 @@ class RealtimePipeline:
                     ok, frame = cap.read()
                     if ok:
                         self.loop_count += 1
+                        # the clip jumped back to its first frame: the camera
+                        # pan estimate and motion compensation start over too
+                        if hasattr(pitch_tracker, "reset"):
+                            pitch_tracker.reset()
+                        if cam is not None:
+                            cam = CameraMotionEstimator((H, W))
+                        cum = np.array([0.0, 0.0])
+                        last_capture_time = None
+                        # each pass is a fresh replay: per-player state from the
+                        # last pass would only grow and slow every later frame
+                        tracker, engine, tactic, kbank, ball_kf, shot_detector = fresh_match_state()
                 if not ok:
+                    if not file_playback and cap.isOpened():
+                        continue      # a live source paused (phone link, network): wait for it
                     break
                 frame = undistort_frame(frame, getattr(self, "lens_k1", 0.0))
                 # wall-clock capture time so vision aligns with the wearable's
@@ -820,7 +860,7 @@ class RealtimePipeline:
             warnings.append("No players in view right now.")
         if self.loop_count:
             warnings.append(
-                "The clip is looping; totals include repeats."
+                "Recorded clip on repeat; figures restart with each pass."
             )
         assigned_per_team = {
             team_id: sum(row.get("team") == team_id for row in rows)
@@ -880,7 +920,7 @@ class RealtimePipeline:
                             + ([self._team_calibration_warning] if self._team_calibration_warning else [])
                             + (["Recorded clip: the vest is shown separately, not linked to a player."]
                                if self.sensor_source is not None and not getattr(self, "_wearable_time_supported", False) else [])
-                            + (["The clip is looping; totals include repeats."] if self.loop_count else []),
+                            + (["Recorded clip on repeat; figures restart with each pass."] if self.loop_count else []),
             },
         }
 

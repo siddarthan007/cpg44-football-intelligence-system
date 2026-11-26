@@ -1275,7 +1275,7 @@ def _game_plan(samples, sample_frames, velocity, decisions, attack_dir, cfg, tea
             if own_half[j] >= 0.55:
                 side = ["far-side", "central", "near-side"][j]
                 plan["cards"].append({"id": f"plan-space-{team}", "kind": "tactical", "team": team,
-                    "title": f"Space conceded in the {side} defensive third",
+                    "title": f"{names} concede space in the {side} defensive third",
                     "finding": f"When defending, the opponent controls {own_half[j]:.0%} of the {side} channel in front of goal.",
                     "action": "Narrow the back line on that side or drop a midfielder into it when possession is lost.",
                     "confidence": "medium" if cnt >= 30 else "low",
@@ -1294,7 +1294,7 @@ def _game_plan(samples, sample_frames, velocity, decisions, attack_dir, cfg, tea
             prog = {"channel": ["far side", "centre", "near side"][c], "share": round(float(routes[c] / routes.sum()), 2),
                     "mean_success": round(float(safe[c] / max(routes[c], 1)), 2)}
             plan["cards"].append({"id": f"plan-route-{team}", "kind": "tactical", "team": team,
-                "title": f"Best route forward: the {prog['channel']}",
+                "title": f"{names}: best route forward is the {prog['channel']}",
                 "finding": f"The best pass available most often went to the {prog['channel']}, arriving {prog['mean_success']:.0%} of the time in the model.",
                 "action": "Build attacks towards that channel and keep a runner there to receive.",
                 "confidence": "medium" if routes.sum() >= 40 else "low",

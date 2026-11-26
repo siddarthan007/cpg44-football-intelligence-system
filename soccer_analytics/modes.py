@@ -124,6 +124,8 @@ class EngineManager:
             return {"ok": False, "error": "USB source must be a camera number"}
         if source_kind == "rtsp" and not source.lower().startswith(("rtsp://", "rtsps://")):
             return {"ok": False, "error": "invalid RTSP source"}
+        if source_kind == "stream" and not source.startswith(("http://127.0.0.1:", "http://localhost:")):
+            return {"ok": False, "error": "a relayed camera stream must come from the local API"}
         if source_kind == "phone":
             try:
                 from .phone_camera import parse_source

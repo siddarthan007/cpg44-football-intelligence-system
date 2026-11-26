@@ -31,6 +31,8 @@ class Pass:
 
 
 class MetricsEngine:
+    TOP_SPEED_STEPS = 5      # 5-frame steps averaged for top speed (1 s at 25 fps)
+
     def __init__(self, fps: float, metric: bool = True,
                  possession_dist: float = 2.0,       # metres (≈70 px if pixel mode)
                  possession_hysteresis: int = 12,     # frames before possession flips
@@ -89,6 +91,7 @@ class MetricsEngine:
             acc = self._distance.setdefault(tid, {
                 "frames": 0, "valid": 0, "anchor": None,
                 "distance": 0.0, "speed_sum": 0.0, "steps": 0, "top": 0.0,
+                "recent": deque(maxlen=self.TOP_SPEED_STEPS),
             })
             acc["frames"] += 1
             if x is not None and y is not None and np.isfinite([x, y]).all():
@@ -102,7 +105,15 @@ class MetricsEngine:
                             acc["distance"] += distance
                             acc["speed_sum"] += speed
                             acc["steps"] += 1
-                            acc["top"] = max(acc["top"], speed)
+                            # top speed is the best speed held for about a second
+                            # (five 0.2 s steps), as wearable trackers report it;
+                            # a single step mostly measures position jitter
+                            acc["recent"].append((distance, dt))
+                            if len(acc["recent"]) == acc["recent"].maxlen:
+                                held = sum(d for d, _ in acc["recent"]) / sum(t for _, t in acc["recent"])
+                                acc["top"] = max(acc["top"], held)
+                        else:
+                            acc["recent"].clear()
                     acc["anchor"] = (frame_idx, x, y)
                 acc["valid"] += 1
             if teams.get(tid):
