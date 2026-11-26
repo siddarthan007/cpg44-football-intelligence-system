@@ -45,3 +45,4 @@ easyocr>=1.7
 
 # Optional, pitch-keypoint homography via Roboflow sports templates:
 #   pip install git+https://github.com/roboflow/sports.git
+certifi>=2024.2

@@ -234,7 +234,7 @@ class RealtimePipeline:
                 matches = sum(1 for c in colors if self.team._predict_conf(c)[1])
                 match_rate = matches / max(1, len(colors))
                 if match_rate < 0.25:
-                    self._team_calibration_warning = "Calibrated kit colours do not match this footage; review team calibration."
+                    self._team_calibration_warning = "Kit colours look different here; teams may be mixed up."
                     print(f"[realtime] WARNING: Calibrated seeds matched only {matches}/{len(colors)} ({match_rate:.0%}) samples in this video.")
                     print("[realtime] Keeping calibrated team labels; unmatched kits will abstain. Review kit colours.")
                 else:
@@ -817,10 +817,10 @@ class RealtimePipeline:
             "Pitch is not calibrated; positions, speed and load are withheld."
         ]
         if not rows:
-            warnings.append("No confirmed player tracks are available in this frame.")
+            warnings.append("No players in view right now.")
         if self.loop_count:
             warnings.append(
-                "The demo clip has repeated; cumulative values include repeated footage."
+                "The clip is looping; totals include repeats."
             )
         assigned_per_team = {
             team_id: sum(row.get("team") == team_id for row in rows)
@@ -828,7 +828,7 @@ class RealtimePipeline:
         }
         if self.metric and any(count < 5 for count in assigned_per_team.values()):
             warnings.append(
-                "Tactical recommendations require at least five measured players per team."
+                "Tactical cues need five players per side in view."
             )
         coach_cards = self._coach_step(frame_index, source_fps, players_xy, teams, vision_state,
                                        ball_pitch, engine, bound)
@@ -874,13 +874,13 @@ class RealtimePipeline:
                 "ambiguous_reidentifications": self.reid.ambiguous,
                 "simultaneous_players": len(rows),
                 "ball_observed": ball_pitch is not None,
-                "warnings": (["Pitch calibration is required for positions, speed and heatmaps."]
-                             if not self.metric else ["Pitch mapping lost visual support; position pins are withheld."]
+                "warnings": (["No pitch calibration: no positions or speeds."]
+                             if not self.metric else ["The camera moved away from the calibrated view."]
                              if not self._calibration_quality.get("valid") else [])
                             + ([self._team_calibration_warning] if self._team_calibration_warning else [])
-                            + (["Wearable fusion withheld: recorded footage needs a video-start epoch anchor."]
+                            + (["Recorded clip: the vest is shown separately, not linked to a player."]
                                if self.sensor_source is not None and not getattr(self, "_wearable_time_supported", False) else [])
-                            + (["Repeated footage: cumulative metrics include replayed observations."] if self.loop_count else []),
+                            + (["The clip is looping; totals include repeats."] if self.loop_count else []),
             },
         }
 

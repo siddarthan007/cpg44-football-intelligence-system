@@ -36,30 +36,40 @@ class GyroBias:
     def __init__(self, fs: float = 50.0, still_s: float = 1.0, track_alpha: float = 0.05):
         self.n = max(10, int(fs * still_s))
         self.win: deque = deque(maxlen=self.n)
+        self.amag: deque = deque(maxlen=self.n)
         self.bias = np.zeros(3)
         self.calibrated = False
         self.alpha = track_alpha
         self.windows = 0
 
-    def update(self, gyro_raw: np.ndarray, accel: np.ndarray) -> bool:
-        """Feed one raw sample; returns True while the device is still."""
-        still_now = abs(float(np.linalg.norm(accel)) - G) < 0.35 and \
+    def update(self, gyro_raw: np.ndarray, accel: np.ndarray, accel_tolerance: float = 0.35) -> bool:
+        """Feed one raw sample; returns True while the device is still.
+
+        Still means a steady gravity-only reading (within ``accel_tolerance`` of
+        g, which the caller widens before the accelerometer is calibrated) and
+        a gyro that barely moves over the whole window."""
+        mag = float(np.linalg.norm(accel))
+        still_now = abs(mag - G) < accel_tolerance and \
             float(np.linalg.norm(gyro_raw - self.bias)) < (0.6 if not self.calibrated else 0.08)
         if not still_now:
             self.win.clear()
+            self.amag.clear()
             return False
         self.win.append(np.asarray(gyro_raw, float))
+        self.amag.append(mag)
         if len(self.win) < self.n:
             return False
         w = np.asarray(self.win)
-        if float(np.max(np.std(w, axis=0))) > 0.01:          # rad/s: someone is touching it
+        if float(np.max(np.std(w, axis=0))) > 0.01 or float(np.std(self.amag)) > 0.08:   # someone is touching it
             self.win.popleft()
+            self.amag.popleft()
             return False
         m = w.mean(axis=0)
         self.bias = m if not self.calibrated else (1 - self.alpha) * self.bias + self.alpha * m
         self.calibrated = True
         self.windows += 1
         self.win.clear()
+        self.amag.clear()
         return True
 
 

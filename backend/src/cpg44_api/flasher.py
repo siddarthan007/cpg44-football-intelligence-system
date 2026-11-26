@@ -95,13 +95,21 @@ class ESP32Flasher:
 
     def monitor_status(self) -> dict:
         with self.monitor_lock:
-            return {
-                "port": self.monitor_port,
-                "running": bool(
-                    self.monitor_thread is not None and self.monitor_thread.is_alive()
-                ),
-                "lines": list(self.monitor_lines[-self.MONITOR_MAX_LINES:]),
-            }
+            lines = list(self.monitor_lines[-self.MONITOR_MAX_LINES:])
+            running = bool(self.monitor_thread is not None and self.monitor_thread.is_alive())
+            port = self.monitor_port
+        check = next((row for row in reversed(lines) if row["text"].startswith("[check]")), None)
+        notes = [row["text"] for row in lines if row["text"].startswith(("Wi-Fi:", "GPS:", "Battery divider", "Clock set", "Relay does", "Relay takes", "assert failed"))]
+        crashed = any(row["text"].startswith(("assert failed", "Guru Meditation", "Backtrace")) for row in lines[-120:])
+        return {
+            "port": port,
+            "running": running,
+            "lines": lines,
+            "check": parse_check_line(check["text"]) if check else None,
+            "check_age_s": round(time.time() - check["t"], 1) if check else None,
+            "notes": notes[-6:],
+            "crashed": crashed,
+        }
 
     def _monitor_worker(self, port: str) -> None:
         try:
@@ -110,15 +118,21 @@ class ESP32Flasher:
             self._append_monitor_line({"t": time.time(), "text": "pyserial is not installed"})
             return
         try:
-            ser = pyserial.Serial(port, 115200, timeout=0.5)
+            # Set the control lines before opening: opening with them in their
+            # default state and changing them afterwards resets the ESP32-S3
+            # (its USB serial treats that toggle as a reset request), so just
+            # watching the vest rebooted it.
+            ser = pyserial.Serial()
+            ser.port, ser.baudrate, ser.timeout = port, 115200, 0.5
+            ser.dtr = False
+            ser.rts = False
+            ser.open()
         except Exception as exc:
             self._append_monitor_line({
                 "t": time.time(), "text": f"could not open {port}: {exc}",
             })
             return
         try:
-            ser.dtr = False
-            ser.rts = False
             buffer = b""
             while not self.monitor_stop.is_set():
                 try:
@@ -241,6 +255,21 @@ class ESP32Flasher:
             })
         return rows
 
+    def last_flash_settings(self) -> dict:
+        """Player, match and Wi-Fi name of the last build (never the password)."""
+        header = self.firmware_dir / "generated_config.h"
+        try:
+            text = header.read_text(encoding="utf-8")
+        except OSError:
+            return {}
+        out = {}
+        for key, pattern in (("player_id", r"PLAYER_ID = (\d+);"), ("match_id", r'MATCH_ID\[\] = (".*?");'),
+                             ("wifi_ssid", r'WIFI_SSID\[\] = (".*?");')):
+            m = re.search(pattern, text)
+            if m:
+                out[key] = int(m.group(1)) if key == "player_id" else json.loads(m.group(1))
+        return out
+
     def toolchain_status(self) -> dict:
         arduino_cli = _arduino_cli()
         esptool_available = False
@@ -263,6 +292,7 @@ class ESP32Flasher:
             "serial_ports": ports,
             "wsl_usb_required": not bool(ports),
             "relay": relay,
+            "last_flash": self.last_flash_settings(),
             "message": (
                 "Ready to compile and flash the relay-only firmware."
                 if arduino_cli and ports and relay["ready"]
@@ -274,24 +304,18 @@ class ESP32Flasher:
         return any(item["device"] == port for item in self.list_ports())
 
     def get_chip_info(self, port: str) -> dict:
-        if not self._port_exists(port):
+        """Identify the board from its USB identity, without touching it.
+
+        The old probe ran ``esptool chip-id``, which resets the ESP32 into its
+        bootloader: merely opening the setup page rebooted a running vest and
+        fought the serial monitor for the port."""
+        match = next((item for item in self.list_ports() if item["device"] == port), None)
+        if match is None:
             return {"ok": False, "port": port, "error": "serial port is not attached to WSL"}
-        try:
-            result = subprocess.run(
-                [sys.executable, "-m", "esptool", "--port", port, "chip-id"],
-                capture_output=True,
-                text=True,
-                timeout=12,
-            )
-        except Exception as exc:
-            return {"ok": False, "port": port, "error": str(exc)}
-        output = (result.stdout + "\n" + result.stderr).strip()
-        return {
-            "ok": result.returncode == 0,
-            "port": port,
-            "output": output,
-            "error": None if result.returncode == 0 else output or "esptool failed",
-        }
+        hwid = (match.get("hwid") or "").upper()
+        espressif = "VID:PID=303A" in hwid
+        return {"ok": True, "port": port, "espressif_usb": espressif,
+                "label": "ESP32-S3 (USB serial)" if espressif else (match.get("description") or port)}
 
     def generate_config_header(
         self,
@@ -316,6 +340,11 @@ class ESP32Flasher:
             raise ValueError("Wi-Fi password must contain 8 to 63 bytes, or be blank for an open network")
         if endpoint and endpoint != RELAY_ENDPOINT:
             raise ValueError(f"relay endpoint is fixed to {RELAY_ENDPOINT}")
+        # Re-read the certificate file so a refreshed one (scripts/prepare_relay_ca.sh)
+        # is used without restarting the app.
+        fresh_ca = self._load_relay_ca(os.environ.get("CPG44_RELAY_CA_FILE", ""))
+        if fresh_ca:
+            self.relay_ca_pem = fresh_ca
         relay = self.relay_configuration_status()
         if not relay["token_configured"]:
             raise ValueError("CPG44_RELAY_TOKEN must contain at least 32 characters")
@@ -399,7 +428,12 @@ class ESP32Flasher:
                 str(self.firmware_dir),
             ]
             return_code = 0
+            resume_monitor = None
             for stage, stage_command in (("compile", compile_command), ("upload", upload_command)):
+                if stage == "upload" and self.monitor_port:
+                    # the monitor holds the port open; the upload needs it
+                    resume_monitor = self.monitor_port
+                    self.stop_monitor()
                 with self.lock:
                     self.active_flash_job["logs"].append(f"Starting {stage}…")
                     self.active_flash_job["status"] = stage
@@ -435,6 +469,10 @@ class ESP32Flasher:
                         "progress_pct": 100 if return_code == 0 else None,
                     })
                 self._process = None
+            # Watch the fresh boot: reopen the monitor on the vest's port.
+            if return_code == 0 or resume_monitor:
+                time.sleep(1.5)
+                self.start_monitor(resume_monitor or port)
         except Exception as exc:
             with self.lock:
                 if self.active_flash_job and self.active_flash_job.get("id") == job_id:
@@ -448,3 +486,110 @@ class ESP32Flasher:
     def get_flash_status(self) -> dict:
         with self.lock:
             return {"active_job": copy.deepcopy(self.active_flash_job)}
+
+
+# ---- the vest's serial self-test, as a checklist ----------------------------
+# The firmware prints one line every 2 s, for example:
+# [check] i2c 2C 68 77 | imu 9.4 m/s2 at 50 Hz | mag QMC5883P 25 uT | gps 1234 chars, 7 sats, fix |
+#         ecg 1500-2600, electrodes on | battery 3.95 V 82 % | wifi EACCESS-M1 -61 dBm | relay sent 862
+I2C_NAMES = {"68": "MPU6050", "69": "MPU6050", "77": "BMP180", "1E": "HMC5883L", "0D": "QMC5883L", "2C": "QMC5883P"}
+
+
+def _row(key, label, state, value, hint=""):
+    return {"key": key, "label": label, "state": state, "value": value, "hint": hint}
+
+
+def parse_check_line(text: str) -> list:
+    """Turn one ``[check]`` line into rows of (state ok/warn/bad, value, what to do)."""
+    parts = {}
+    for chunk in text.replace("[check]", "", 1).split("|"):
+        chunk = chunk.strip()
+        if " " in chunk:
+            name, rest = chunk.split(" ", 1)
+            parts[name] = rest.strip()
+    rows = []
+
+    found = [a for a in parts.get("i2c", "").split() if re.fullmatch(r"[0-9A-F]{2}", a)]
+    if "68" in found or "69" in found:
+        rows.append(_row("bus", "Sensor bus", "ok", ", ".join(I2C_NAMES.get(a, "0x" + a) for a in found)))
+    else:
+        rows.append(_row("bus", "Sensor bus", "bad", "no MPU6050" if found else "nothing found",
+                         "GY-87 SDA to GPIO 4, SCL to GPIO 5, VCC_IN to 3.3 V, GND to GND"))
+
+    imu = parts.get("imu", "missing")
+    m = re.match(r"([\d.]+) m/s2(?: at ([\d.]+) Hz)?(?:, loop paused (\d+) ms)?", imu)
+    if not m:
+        rows.append(_row("imu", "Motion", "bad", "no data", "Check the GY-87 wiring (sensor bus above)"))
+    else:
+        g, hz = float(m.group(1)), float(m.group(2) or 0)
+        state = "ok" if 7.5 <= g <= 12.0 and (hz == 0 or hz >= 45) else "warn"
+        hint = "" if state == "ok" else ("Fewer than 50 samples a second: the vest is overloaded" if hz and hz < 45
+                                        else "Should read about 9.8 at rest; calibrate on the Vest readings page")
+        rows.append(_row("imu", "Motion", state, f"{g:.1f} m/s² at {hz:.0f} Hz" if hz else f"{g:.1f} m/s²", hint))
+
+    mag = parts.get("mag", "none")
+    m = re.match(r"(\S+)\s+([\d.]+) uT", mag)
+    if mag == "none":
+        rows.append(_row("mag", "Heading", "warn", "no magnetometer", "Heading is unavailable; everything else works"))
+    elif m:
+        ut = float(m.group(2))
+        rows.append(_row("mag", "Heading", "ok" if 15 <= ut <= 100 else "warn", f"{m.group(1)}, {ut:.0f} µT",
+                         "" if 15 <= ut <= 100 else "Unusual field strength: keep the pod away from metal and magnets"))
+    else:
+        rows.append(_row("mag", "Heading", "warn", mag))
+
+    gps = parts.get("gps", "")
+    m = re.match(r"(\d+) chars, (\d+) sats, (fix|no fix)", gps)
+    if m and m.group(3) == "fix":
+        rows.append(_row("gps", "GPS", "ok", f"fix, {m.group(2)} satellites"))
+    elif m:
+        rows.append(_row("gps", "GPS", "warn", f"receiving, {m.group(2)} satellites",
+                         "Waiting for a fix: outdoors, antenna facing the sky, up to a few minutes"))
+    elif gps.startswith("bytes"):
+        rows.append(_row("gps", "GPS", "warn", "data at an unknown speed", "Still trying 9600, 38400 and 115200 baud"))
+    else:
+        rows.append(_row("gps", "GPS", "bad", "no data",
+                         "Check GPS VCC to 3.3 V, GND to GND and GPS TX to GPIO 16 (the vest also tries GPIO 17)"))
+
+    ecg = parts.get("ecg", "")
+    m = re.match(r"(\d+)-(\d+), electrodes (on|off)", ecg)
+    if not m:
+        rows.append(_row("ecg", "ECG", "bad", "no data", "AD8232 OUTPUT to GPIO 2, 3.3v through 10 Ω, LO+ to GPIO 11, LO- to GPIO 12"))
+    else:
+        lo, hi, on = int(m.group(1)), int(m.group(2)), m.group(3) == "on"
+        if not on:
+            rows.append(_row("ecg", "ECG", "warn", "electrodes off", "Put on three gel electrodes and plug the cable fully into the jack"))
+        elif hi - lo < 20:
+            rows.append(_row("ecg", "ECG", "bad", "flat signal", "AD8232 OUTPUT to GPIO 2 and its 3.3 V supply"))
+        elif hi >= 4000 or lo <= 5:
+            rows.append(_row("ecg", "ECG", "warn", f"signal {lo} to {hi}", "Signal hits the limit: press the electrodes on and keep still"))
+        else:
+            rows.append(_row("ecg", "ECG", "ok", f"signal {lo} to {hi}"))
+
+    batt = parts.get("battery", "")
+    m = re.match(r"([\d.]+) V ([\d.]+) %", batt)
+    if m:
+        pct = float(m.group(2))
+        rows.append(_row("battery", "Battery", "ok" if pct >= 15 else "warn", f"{float(m.group(1)):.2f} V, {pct:.0f} %",
+                         "" if pct >= 15 else "Charge soon"))
+    else:
+        rows.append(_row("battery", "Battery", "warn", "not measured",
+                         "Wire the two 100 kΩ resistors from the switched battery line to GPIO 1"))
+
+    wifi = parts.get("wifi", "not connected")
+    m = re.match(r"(.+) (-\d+) dBm$", wifi)
+    if m:
+        rssi = int(m.group(2))
+        rows.append(_row("wifi", "Wi-Fi", "ok" if rssi >= -80 else "warn", f"{m.group(1)}, {rssi} dBm",
+                         "" if rssi >= -80 else "Weak signal: move closer to the access point"))
+    else:
+        rows.append(_row("wifi", "Wi-Fi", "bad", "not connected",
+                         "Needs a 2.4 GHz network or hotspot; flash again with its name and password"))
+
+    sent = parts.get("relay", "")
+    m = re.match(r"sent (\d+)", sent)
+    n = int(m.group(1)) if m else 0
+    wifi_ok = rows[-1]["state"] != "bad"
+    rows.append(_row("relay", "Relay", "ok" if n else ("warn" if wifi_ok else "bad"), f"{n} samples sent" if n else "nothing sent yet",
+                     "" if n else ("Connected but nothing accepted: check the relay token and certificates" if wifi_ok else "Waiting for Wi-Fi")))
+    return rows

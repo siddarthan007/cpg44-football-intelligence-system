@@ -35,6 +35,20 @@ ROOT = Path(__file__).resolve().parents[3]
 SESSION_ID = re.compile(r"^\d{8}T\d{6}Z$")
 
 
+def _relay_tls():
+    """TLS trust for calls to the relay: the standard public roots, plus the
+    roots in CPG44_RELAY_CA_FILE when set. Using only a saved file broke when
+    Cloudflare renewed the edge certificate, because that file held the served
+    chain without a self-signed root."""
+    import ssl
+    import certifi
+    ctx = ssl.create_default_context(cafile=certifi.where())
+    ca = os.environ.get("CPG44_RELAY_CA_FILE", "").strip()
+    if ca and Path(ca).is_file():
+        ctx.load_verify_locations(cafile=ca)
+    return ctx
+
+
 def _vest_session_log(session_id: str) -> Optional[Path]:
     if not SESSION_ID.match(session_id):
         return None
@@ -789,9 +803,7 @@ def create_app() -> FastAPI:
         relay, token = STORE.hostinger_url, STORE.relay_token
         if not relay or len(token or "") < 32:
             raise HTTPException(status_code=422, detail="Set CPG44_RELAY_URL and CPG44_RELAY_TOKEN to pair a phone")
-        ca = os.environ.get("CPG44_RELAY_CA_FILE", "").strip()
-        return relay, httpx.AsyncClient(timeout=8.0, verify=ca if ca and Path(ca).is_file() else True,
-                                        headers={"X-Auth": token})
+        return relay, httpx.AsyncClient(timeout=8.0, verify=_relay_tls(), headers={"X-Auth": token})
 
     @app.post("/api/v1/phone-camera/pair")
     async def pair_phone_camera(body: Optional[dict] = None):

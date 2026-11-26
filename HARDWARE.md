@@ -6,19 +6,23 @@ sketch and the supported field firmware. It publishes only to
 
 ## Connections
 
-The full build, power design and checks are in
-[docs/hardware/BUILD_GUIDE.md](docs/hardware/BUILD_GUIDE.md). Pin summary:
+The full step-by-step build, shopping list and checks are in
+[docs/hardware/BUILD_GUIDE.md](docs/hardware/BUILD_GUIDE.md), with the wiring
+diagram in [docs/hardware/vest_wiring.svg](docs/hardware/vest_wiring.svg).
+`python scripts/check_vest_circuit.py` checks the circuit against the
+datasheets and the firmware pins. Pin summary:
 
 | Connection | ESP32-S3 pin | Setting |
 |---|---:|---|
 | GY-87 SDA (MPU6050, magnetometer) | GPIO 4 | I2C, 100 kHz |
 | GY-87 SCL | GPIO 5 | I2C, 100 kHz |
 | NEO-6M TX to ESP32 RX | GPIO 16 | 9600 baud |
-| ESP32 TX to NEO-6M RX | GPIO 17 | sets 5 Hz at boot |
+| ESP32 TX to NEO-6M RX (through 1 kOhm) | GPIO 17 | sets 5 Hz at boot |
 | AD8232 OUTPUT | GPIO 2 | ADC1, 250 Hz |
 | AD8232 LO+ / LO- | GPIO 11 / 12 | electrode-off |
+| AD8232 3.3v and SDN | 3.3 V through 10 Ohm, 10 uF to GND | supply filter; SDN high keeps it on |
 | Battery divider (2 x 100 kOhm) | GPIO 1 | ADC1 |
-| TPS63020 3.3 V output | 3V3 pin | not 5V or VIN |
+| TPS63020 3.3 V output | 3V3 pin, through a 2-pin power plug | unplug it before connecting USB |
 
 The BMP180 on the GY-87 (0x77) is detected for the build check and not
 streamed. There is no pulse oximeter and no fuel gauge: heart rate comes from

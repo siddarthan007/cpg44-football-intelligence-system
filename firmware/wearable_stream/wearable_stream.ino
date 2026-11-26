@@ -6,9 +6,12 @@
 #include <NetworkClientSecure.h>
 #include <ArduinoJson.h>
 #include <sys/time.h>
-#include "esp_sntp.h"
+#include <WiFiUdp.h>
+#include "miniz.h"              // deflate in the ESP32-S3 ROM (tdefl_*)
+#include "esp_heap_caps.h"
 #include "esp_timer.h"
 #include "esp_system.h"
+#include "driver/gpio.h"
 
 #include <Adafruit_MPU6050.h>
 #include <Adafruit_Sensor.h>
@@ -97,9 +100,25 @@ HardwareSerial gpsSerial(1);
 
 bool mpuOK = false;
 bool baroFound = false;     // BMP180 on the GY-87: detected for the build check, not streamed
-enum class MagChip : uint8_t { None, HMC5883L, QMC5883L };
+enum class MagChip : uint8_t { None, HMC5883L, QMC5883L, QMC5883P };
 MagChip magChip = MagChip::None;
+float qmc5883pLsbPerUT = 10.0f;     // set from the range the chip reports
 volatile uint32_t ecgBlocks = 0;
+// Latest values for the serial self-test line, so the vest can be checked on
+// the bench over USB without Wi-Fi or the app.
+volatile uint16_t ecgBlockMin = 0;
+volatile uint16_t ecgBlockMax = 0;
+volatile bool ecgLeadOffNow = true;
+float lastAccelMps2 = NAN;
+bool lastMagValid = false;
+float lastMagUT = NAN;
+bool batterySensePresent = false;
+uint32_t statusCount = 0;
+char i2cFound[48] = "";
+uint64_t imuSeqAtCheck = 0;
+uint32_t loopMaxUS = 0;
+uint64_t loopLastUS = 0;
+volatile uint32_t relayAcceptedTotal = 0;
 uint32_t ecgBlocksAtStatus = 0;
 uint64_t ecgSeq = 0;
 uint32_t gpsFixCount = 0;
@@ -151,9 +170,26 @@ float lipoPercent(float v) {
 // Cell voltage through the 100k/100k divider (half the cell voltage at the
 // pin, inside the ADC's range at 11 dB). Median of 15 readings corrected by the
 // chip's eFuse ADC calibration, then the LiPo curve above.
+// Is the 100k/100k divider wired to GPIO1? Wired, the pin sits at half the
+// cell voltage and the pad's ~45 kOhm pull-down only drags it to about half of
+// that again; unwired, the pin collapses to almost 0 V. Without this test a
+// floating pin could be reported as a made-up battery level. The pull is set on
+// the pad directly so the ADC channel stays configured.
+bool probeBatteryDivider() {
+  const uint32_t open = analogReadMilliVolts(BATTERY_ADC);
+  gpio_set_pull_mode(static_cast<gpio_num_t>(BATTERY_ADC), GPIO_PULLDOWN_ONLY);
+  delay(15);                                           // 100 nF settles in ~3 ms
+  const uint32_t pulled = analogReadMilliVolts(BATTERY_ADC);
+  gpio_set_pull_mode(static_cast<gpio_num_t>(BATTERY_ADC), GPIO_FLOATING);
+  delay(15);
+  const float cell = 2.0f * open / 1000.0f;
+  return cell > 2.8f && cell < 4.4f && pulled * 4 >= open;
+}
+
 void readBattery(SampleRecord &sample) {
   sample.batteryV = NAN;
   sample.batteryPct = NAN;
+  if (!batterySensePresent) return;
   uint32_t mv[15];
   for (int i = 0; i < 15; ++i) mv[i] = analogReadMilliVolts(BATTERY_ADC);
   std::sort(mv, mv + 15);
@@ -191,6 +227,13 @@ void configureGPS() {
 }
 
 void enqueueSample(const SampleRecord &sample) {
+  // Until the clock is set a sample cannot be timestamped, so it is skipped
+  // rather than queued and later counted as dropped; "dropped" then means data
+  // that was lost, not the first seconds before Wi-Fi.
+  portENTER_CRITICAL(&stateMux);
+  const bool timed = clockReady;
+  portEXIT_CRITICAL(&stateMux);
+  if (!timed && sample.type != SampleType::Status) return;
   if (relayQueue != nullptr && xQueueSend(relayQueue, &sample, 0) == pdTRUE) return;
   portENTER_CRITICAL(&stateMux);
   ++droppedSamples;
@@ -251,7 +294,60 @@ bool syncClockFromHttpDate() {
   return false;
 }
 
+// One NTP query over an ordinary UDP socket, from the relay task once Wi-Fi is
+// up. The core's built-in SNTP client is not used: when its first DNS lookup
+// failed before Wi-Fi connected, its retry ran DNS without the network-stack
+// lock and the board rebooted (assert in udp_new_ip_type). The server's transmit
+// time plus half the round trip gives the time at reception, to a few ms.
+uint32_t lastNtpMS = 0;
+
+bool syncClockNTP(const char *host) {
+  IPAddress ip;
+  if (!WiFi.hostByName(host, ip)) return false;
+  WiFiUDP udp;
+  if (!udp.begin(0)) return false;
+  uint8_t pkt[48] = {0};
+  pkt[0] = 0x23;                                       // leap 0, version 4, client
+  const uint64_t t1 = deviceTimeUS();
+  udp.beginPacket(ip, 123);
+  udp.write(pkt, sizeof(pkt));
+  udp.endPacket();
+  while (deviceTimeUS() - t1 < 1500000ULL) {
+    if (udp.parsePacket() >= 48) {
+      const uint64_t t4 = deviceTimeUS();
+      udp.read(pkt, sizeof(pkt));
+      udp.stop();
+      const uint32_t secs = (uint32_t)pkt[40] << 24 | (uint32_t)pkt[41] << 16 | (uint32_t)pkt[42] << 8 | pkt[43];
+      const uint32_t frac = (uint32_t)pkt[44] << 24 | (uint32_t)pkt[45] << 16 | (uint32_t)pkt[46] << 8 | pkt[47];
+      if (secs < 2208988800UL + 1577836800UL) return false;      // not a plausible time
+      const int64_t unixUS = static_cast<int64_t>(secs - 2208988800UL) * 1000000LL
+                             + static_cast<int64_t>((static_cast<uint64_t>(frac) * 1000000ULL) >> 32)
+                             + static_cast<int64_t>(t4 - t1) / 2;
+      timeval tv = {.tv_sec = static_cast<time_t>(unixUS / 1000000LL), .tv_usec = static_cast<suseconds_t>(unixUS % 1000000LL)};
+      settimeofday(&tv, nullptr);
+      portENTER_CRITICAL(&stateMux);
+      epochOffsetUS = unixUS - static_cast<int64_t>(t4);
+      clockReady = true;
+      portEXIT_CRITICAL(&stateMux);
+      Serial.printf("Clock set by NTP from %s, round trip %lu ms\n", host, static_cast<unsigned long>((t4 - t1) / 1000));
+      return true;
+    }
+    vTaskDelay(pdMS_TO_TICKS(10));
+  }
+  udp.stop();
+  return false;
+}
+
 bool refreshClockAnchor() {
+  // NTP every 10 minutes keeps crystal drift (~20 ppm, 72 ms an hour) small;
+  // between queries the system clock carries the anchor. If the network blocks
+  // NTP, the relay's HTTP Date header is the fallback (1 s resolution).
+  if (lastNtpMS == 0 || millis() - lastNtpMS >= 600000) {
+    if (syncClockNTP("time.cloudflare.com") || syncClockNTP("pool.ntp.org")) {
+      lastNtpMS = millis();
+      return true;
+    }
+  }
   timeval tv{};
   gettimeofday(&tv, nullptr);
   if (tv.tv_sec >= 1577836800) {
@@ -283,33 +379,23 @@ const char *sampleTypeName(SampleType type) {
   return "unknown";
 }
 
+// Only what the relay needs per sample. The relay derives its duplicate key
+// from match, player, boot, type, timestamp and sequence, and adds the tags
+// itself, so the event id, tags and clock method string are not sent: about a
+// third of every motion sample's bytes.
 void addCommonFields(JsonObject event, const SampleRecord &sample) {
-  const char *kind = sampleTypeName(sample.type);
-  char eventId[160];
-  snprintf(
-    eventId, sizeof(eventId), "%s:%d:%08lx:%s:%llu",
-    MATCH_ID, PLAYER_ID, static_cast<unsigned long>(bootId), kind,
-    static_cast<unsigned long long>(sample.sequence)
-  );
-  event["event_id"] = eventId;
   event["match_id"] = MATCH_ID;
   event["player_id"] = PLAYER_ID;
   event["source"] = "wearable";
   event["source_seq"] = sample.sequence;
   event["source_timestamp_ns"] = sourceTimestampNS(sample.deviceUS);
   event["device_boot_id"] = bootId;
-  event["sample_type"] = kind;
-
-  JsonObject clock = event["clock"].to<JsonObject>();
-  clock["valid"] = true;
-  clock["method"] = "sntp_esp_timer_anchor";
-
-  JsonObject tags = event["tags"].to<JsonObject>();
-  tags["session_id"] = MATCH_ID;
-  char deviceId[48];
-  snprintf(deviceId, sizeof(deviceId), "wearable-%d", PLAYER_ID);
-  tags["device_id"] = deviceId;
+  event["sample_type"] = sampleTypeName(sample.type);
+  event["clock"]["valid"] = true;
 }
+
+// Values rounded to the sensors' own resolution, so JSON carries no noise digits.
+static inline float roundTo(float x, float step) { return roundf(x / step) * step; }
 
 void addPayload(JsonObject event, const SampleRecord &sample) {
   JsonObject payload = event["payload"].to<JsonObject>();
@@ -319,13 +405,13 @@ void addPayload(JsonObject event, const SampleRecord &sample) {
     JsonArray accel = payload["a"].to<JsonArray>();
     JsonArray gyro = payload["g"].to<JsonArray>();
     for (int i = 0; i < 3; ++i) {
-      accel.add(sample.accel[i]);
-      gyro.add(sample.gyro[i]);
+      accel.add(roundTo(sample.accel[i], 0.001f));     // MPU6050 at +-16 g: 0.0048 m/s2 per count
+      gyro.add(roundTo(sample.gyro[i], 0.0001f));      // at +-2000 deg/s: 0.0011 rad/s per count
     }
-    payload["temp_c"] = sample.temperatureC;
+    payload["temp_c"] = roundTo(sample.temperatureC, 0.1f);
     if (sample.magValid) {
       JsonArray m = payload["m"].to<JsonArray>();
-      for (int i = 0; i < 3; ++i) m.add(sample.mag[i]);
+      for (int i = 0; i < 3; ++i) m.add(roundTo(sample.mag[i], 0.1f));
     }
     return;
   }
@@ -380,6 +466,27 @@ static NetworkClientSecure tlsClient;
 static HTTPClient httpClient;
 static bool tlsInitialized = false;
 
+// Batches are deflated (zlib) with the compressor in the chip's ROM: the JSON
+// is repetitive and shrinks several times, which matters on a busy campus
+// uplink where a plain 34 KB batch took 2 s. A relay that does not take
+// compressed bodies answers 4xx; the vest then sends plain JSON from then on
+// and resends the same batch, so nothing is lost while the relay is updated.
+bool relayDeflate = true;
+bool deflateReported = false;
+tdefl_compressor *deflater = nullptr;
+uint8_t *deflateOut = nullptr;
+constexpr size_t DEFLATE_OUT_CAP = 64 * 1024;
+
+size_t deflateBody(const String &body) {
+  if (!deflater) deflater = static_cast<tdefl_compressor *>(heap_caps_malloc(sizeof(tdefl_compressor), MALLOC_CAP_SPIRAM));
+  if (!deflateOut) deflateOut = static_cast<uint8_t *>(heap_caps_malloc(DEFLATE_OUT_CAP, MALLOC_CAP_SPIRAM));
+  if (!deflater || !deflateOut) return 0;
+  size_t inLen = body.length(), outLen = DEFLATE_OUT_CAP;
+  if (tdefl_init(deflater, nullptr, nullptr, TDEFL_WRITE_ZLIB_HEADER | TDEFL_GREEDY_PARSING_FLAG | 32) != TDEFL_STATUS_OKAY) return 0;
+  if (tdefl_compress(deflater, body.c_str(), &inLen, deflateOut, &outLen, TDEFL_FINISH) != TDEFL_STATUS_DONE) return 0;
+  return outLen;
+}
+
 bool postRelayBatch() {
   if (!relayBatchCount || !isClockReady() || WiFi.status() != WL_CONNECTED) return false;
 
@@ -404,37 +511,83 @@ bool postRelayBatch() {
     tlsInitialized = true;
   }
 
-  if (!httpClient.connected()) {
-    if (!httpClient.begin(tlsClient, RELAY_ENDPOINT)) {
-      Serial.println("Relay HTTPS setup failed");
-      return false;
+  for (int attempt = 0; attempt < 2; ++attempt) {
+    if (!httpClient.connected()) {
+      if (!httpClient.begin(tlsClient, RELAY_ENDPOINT)) {
+        Serial.println("Relay HTTPS setup failed");
+        return false;
+      }
     }
-  }
+    const size_t packed = relayDeflate ? deflateBody(body) : 0;
+    httpClient.addHeader("Content-Type", "application/json");
+    httpClient.addHeader("Accept", "application/json");
+    httpClient.addHeader("X-Auth", RELAY_TOKEN);
+    httpClient.addHeader("Connection", "keep-alive");
+    if (packed) httpClient.addHeader("Content-Encoding", "deflate");
+    const int code = packed ? httpClient.POST(deflateOut, packed) : httpClient.POST(body);
+    String responseDetail = httpClient.getString();
 
-  httpClient.addHeader("Content-Type", "application/json");
-  httpClient.addHeader("Accept", "application/json");
-  httpClient.addHeader("X-Auth", RELAY_TOKEN);
-  httpClient.addHeader("Connection", "keep-alive");
-  const int code = httpClient.POST(body);
-  String responseDetail = httpClient.getString();
-
-  if (code >= 200 && code < 300) {
-    Serial.printf("Relay accepted %u samples; local queue %u\n",
-                  static_cast<unsigned>(relayBatchCount),
-                  static_cast<unsigned>(uxQueueMessagesWaiting(relayQueue)));
-    relayBatchCount = 0;
-    return true;
-  }
-  Serial.printf("Relay POST failed: HTTP %d; response: %s; queued samples: %u\n",
-                code, responseDetail.c_str(), static_cast<unsigned>(relayBatchCount));
-
-  if (code >= 400 && code < 500 && code != 429) {
-    portENTER_CRITICAL(&stateMux);
-    droppedSamples += relayBatchCount;
-    portEXIT_CRITICAL(&stateMux);
-    relayBatchCount = 0;
+    if (code >= 200 && code < 300) {
+      relayAcceptedTotal = relayAcceptedTotal + relayBatchCount;
+      if (packed && !deflateReported) {
+        deflateReported = true;
+        Serial.printf("Relay takes compressed batches: %u bytes sent as %u\n",
+                      static_cast<unsigned>(body.length()), static_cast<unsigned>(packed));
+      }
+      Serial.printf("Relay accepted %u samples; local queue %u\n",
+                    static_cast<unsigned>(relayBatchCount),
+                    static_cast<unsigned>(uxQueueMessagesWaiting(relayQueue)));
+      relayBatchCount = 0;
+      return true;
+    }
+    if (packed && code >= 400 && code < 500 && code != 401 && code != 429) {
+      relayDeflate = false;                                // older relay: plain JSON from now on
+      Serial.println("Relay does not take compressed batches yet; sending plain JSON");
+      continue;
+    }
+    Serial.printf("Relay POST failed: HTTP %d; response: %s; queued samples: %u\n",
+                  code, responseDetail.c_str(), static_cast<unsigned>(relayBatchCount));
+    if (code >= 400 && code < 500 && code != 429) {
+      portENTER_CRITICAL(&stateMux);
+      droppedSamples += relayBatchCount;
+      portEXIT_CRITICAL(&stateMux);
+      relayBatchCount = 0;
+    }
+    return false;
   }
   return false;
+}
+
+// When the saved network cannot be joined, list what the vest can actually
+// see. The ESP32-S3 radio is 2.4 GHz only, so a 5 GHz-only network never
+// appears here; this answers "is my Wi-Fi reachable?" from the vest itself.
+char wifiSeen[160] = "";
+uint32_t wifiDownSinceMS = 0;
+uint32_t lastWifiScanMS = 0;
+
+void scanWifiIfLost() {
+  if (WiFi.status() == WL_CONNECTED) { wifiDownSinceMS = 0; return; }
+  const uint32_t now = millis();
+  if (wifiDownSinceMS == 0) wifiDownSinceMS = now;
+  if (now - wifiDownSinceMS < 15000 || (lastWifiScanMS && now - lastWifiScanMS < 60000)) return;
+  lastWifiScanMS = now;
+  WiFi.disconnect(false, false);                          // a scan fails while a join is in progress
+  vTaskDelay(pdMS_TO_TICKS(200));
+  const int n = WiFi.scanNetworks(false, true);
+  bool savedSeen = false;
+  wifiSeen[0] = 0;
+  for (int i = 0; i < n; ++i) {
+    if (WiFi.SSID(i) == WIFI_SSID) savedSeen = true;
+    char one[48];
+    snprintf(one, sizeof(one), "%s%s (%d dBm, ch %d)", i ? ", " : "", WiFi.SSID(i).length() ? WiFi.SSID(i).c_str() : "hidden",
+             static_cast<int>(WiFi.RSSI(i)), static_cast<int>(WiFi.channel(i)));
+    if (strlen(wifiSeen) + strlen(one) < sizeof(wifiSeen) - 1) strcat(wifiSeen, one);
+  }
+  WiFi.scanDelete();
+  Serial.printf("Wi-Fi: \"%s\" %s. 2.4 GHz networks in range: %s\n", WIFI_SSID,
+                savedSeen ? "is in range but would not connect (password?)" : "not in range",
+                n > 0 ? wifiSeen : n == 0 ? "none" : "scan failed");
+  WiFi.begin(WIFI_SSID, WIFI_PASS);                       // scanning interrupts the join attempt
 }
 
 void relayTask(void *) {
@@ -442,9 +595,11 @@ void relayTask(void *) {
 
   for (;;) {
     if (WiFi.status() != WL_CONNECTED) {
+      scanWifiIfLost();
       vTaskDelay(pdMS_TO_TICKS(1000));
       continue;
     }
+    wifiDownSinceMS = 0;
 
     if (!isClockReady() || millis() - lastClockAnchorMS >= 60000) {
       if (refreshClockAnchor()) {
@@ -529,6 +684,23 @@ void setupMagnetometer() {
     writeReg8(0x0D, 0x0B, 0x01);   // set/reset period
     writeReg8(0x0D, 0x09, 0x1D);   // continuous, 200 Hz, +-8 G, OSR 512
     magChip = MagChip::QMC5883L;
+  } else if (readBytes(0x2C, 0x00, id, 1) && id[0] == 0x80) {
+    // QMC5883P, on recent GY-87 boards (chip ID 0x80 at 0x2C)
+    // Order matters on the boards tested: the range write (0x0B) must come
+    // before the mode write (0x0A), or it clears the mode. These parts keep
+    // their default +-30 G range anyway, so the scale follows the range the
+    // chip reports back.
+    writeReg8(0x2C, 0x0B, 0x80);   // soft reset
+    delay(10);
+    writeReg8(0x2C, 0x29, 0x06);   // axis sign definition from QST's example
+    writeReg8(0x2C, 0x0B, 0x08);   // ask for +-8 G, set and reset on
+    writeReg8(0x2C, 0x0A, 0x0B);   // continuous, 100 Hz, OSR1 8, OSR2 1
+    delay(10);
+    uint8_t ctrl2 = 0;
+    readBytes(0x2C, 0x0B, &ctrl2, 1);
+    static const float LSB_PER_GAUSS[4] = {1000.0f, 2500.0f, 3750.0f, 15000.0f};   // 30, 12, 8, 2 G
+    qmc5883pLsbPerUT = LSB_PER_GAUSS[(ctrl2 >> 2) & 0x03] / 100.0f;
+    magChip = MagChip::QMC5883P;
   }
 }
 
@@ -543,6 +715,11 @@ bool readMagnetometer(float out[3]) {
   if (magChip == MagChip::QMC5883L && readBytes(0x0D, 0x00, b, 6)) {
     const int16_t x = (b[1] << 8) | b[0], y = (b[3] << 8) | b[2], z = (b[5] << 8) | b[4];
     out[0] = x / 30.0f; out[1] = y / 30.0f; out[2] = z / 30.0f;   // 3000 LSB per gauss at +-8 G
+    return true;
+  }
+  if (magChip == MagChip::QMC5883P && readBytes(0x2C, 0x01, b, 6)) {
+    const int16_t x = (b[1] << 8) | b[0], y = (b[3] << 8) | b[2], z = (b[5] << 8) | b[4];
+    out[0] = x / qmc5883pLsbPerUT; out[1] = y / qmc5883pLsbPerUT; out[2] = z / qmc5883pLsbPerUT;
     return true;
   }
   return false;
@@ -564,6 +741,11 @@ void ecgTask(void *) {
     block.ecg[block.ecgCount++] = static_cast<uint16_t>(analogRead(ECG_OUT));
     block.leadOff |= digitalRead(ECG_LO_PLUS) == HIGH || digitalRead(ECG_LO_MINUS) == HIGH;
     if (block.ecgCount == ECG_BLOCK) {
+      uint16_t lo = 4095, hi = 0;
+      for (uint8_t i = 0; i < ECG_BLOCK; ++i) { lo = min(lo, block.ecg[i]); hi = max(hi, block.ecg[i]); }
+      ecgBlockMin = lo;
+      ecgBlockMax = hi;
+      ecgLeadOffNow = block.leadOff;
       block.sequence = ecgSeq++;
       enqueueSample(block);
       ecgBlocks = ecgBlocks + 1;
@@ -598,6 +780,9 @@ void serviceIMU() {
   sample.gyro[2] = g.gyro.z;
   sample.temperatureC = temp.temperature;
   sample.magValid = magChip != MagChip::None && readMagnetometer(sample.mag);
+  lastAccelMps2 = sqrtf(sample.accel[0] * sample.accel[0] + sample.accel[1] * sample.accel[1] + sample.accel[2] * sample.accel[2]);
+  lastMagValid = sample.magValid;
+  if (sample.magValid) lastMagUT = sqrtf(sample.mag[0] * sample.mag[0] + sample.mag[1] * sample.mag[1] + sample.mag[2] * sample.mag[2]);
   enqueueSample(sample);
 }
 
@@ -605,10 +790,53 @@ bool gpsReceivingNow() {
   return lastGPSByteMS != 0 && millis() - lastGPSByteMS < 3000;
 }
 
+// The GPS link is found, not assumed. TX and RX are easy to swap on the bench,
+// and a module whose EEPROM saved another speed talks at 38400 or 115200 baud.
+// Until a sentence with a valid checksum arrives: no bytes at all means try the
+// other pin (both are plain 3.3 V lines, so the swap is harmless); bytes that
+// never form a sentence mean try the next baud rate.
+const uint32_t GPS_BAUDS[] = {GPS_BAUD, 38400, 115200};
+uint8_t gpsBaudIndex = 0;
+bool gpsPinsSwapped = false;
+bool gpsLocked = false;
+uint32_t gpsAttemptMS = 0;
+uint32_t gpsAttemptBytes = 0;
+uint8_t gpsNotes = 0;
+
+void gpsBegin() {
+  gpsSerial.end();
+  gpsSerial.begin(GPS_BAUDS[gpsBaudIndex], SERIAL_8N1, gpsPinsSwapped ? GPS_TX : GPS_RX, gpsPinsSwapped ? GPS_RX : GPS_TX);
+  gpsAttemptMS = millis();
+  gpsAttemptBytes = 0;
+}
+
+void checkGPSWiring() {
+  if (gpsLocked) return;
+  if (gps.passedChecksum() > 0) {
+    gpsLocked = true;
+    Serial.printf("GPS: sentences on GPIO%d at %lu baud%s\n", gpsPinsSwapped ? GPS_TX : GPS_RX,
+                  static_cast<unsigned long>(GPS_BAUDS[gpsBaudIndex]),
+                  gpsPinsSwapped ? " (TX and RX wires are swapped; working anyway)" : "");
+    configureGPS();                                      // 5 Hz, now on the pin the module listens to
+    return;
+  }
+  if (millis() - gpsAttemptMS < 3000) return;
+  if (gpsAttemptBytes > 20) gpsBaudIndex = (gpsBaudIndex + 1) % 3;
+  else gpsPinsSwapped = !gpsPinsSwapped;
+  gpsBegin();
+  if (gpsNotes < 4) {
+    ++gpsNotes;
+    Serial.printf("GPS: nothing valid yet, trying GPIO%d at %lu baud\n", gpsPinsSwapped ? GPS_TX : GPS_RX,
+                  static_cast<unsigned long>(GPS_BAUDS[gpsBaudIndex]));
+  }
+}
+
 void serviceGPS() {
+  checkGPSWiring();
   while (gpsSerial.available()) {
     gps.encode(gpsSerial.read());
-    lastGPSByteMS = millis();
+    ++gpsAttemptBytes;
+    if (gpsLocked) lastGPSByteMS = millis();
   }
 
   // Send each new fix as it arrives (5 Hz); without a fix, one heartbeat a second.
@@ -644,6 +872,36 @@ void serviceGPS() {
   enqueueSample(sample);
 }
 
+// One line every 2 s on USB: every sensor's state in plain numbers.
+void printSelfTest(const SampleRecord &status) {
+  char gpsText[64];
+  if (gpsReceivingNow()) {
+    snprintf(gpsText, sizeof(gpsText), "%lu chars, %u sats, %s", static_cast<unsigned long>(gps.charsProcessed()),
+             gps.satellites.isValid() ? static_cast<unsigned>(gps.satellites.value()) : 0U,
+             gps.location.isValid() && gps.location.age() < 3000 ? "fix" : "no fix");
+  } else {
+    snprintf(gpsText, sizeof(gpsText), gpsAttemptBytes > 20 ? "bytes but no valid sentence yet"
+                                                                  : "nothing on GPIO16 or GPIO17: check VCC, GND, TX");
+  }
+  char battText[24];
+  if (isfinite(status.batteryV)) snprintf(battText, sizeof(battText), "%.2f V %.0f %%", status.batteryV, status.batteryPct);
+  else snprintf(battText, sizeof(battText), "not wired (GPIO1)");
+  const uint16_t lo = ecgBlockMin, hi = ecgBlockMax;
+  const float imuHz = (imuSeq - imuSeqAtCheck) / 2.0f;
+  imuSeqAtCheck = imuSeq;
+  const unsigned long pauseMS = loopMaxUS / 1000;
+  loopMaxUS = 0;
+  Serial.printf("[check] i2c%s | imu %s | mag %s | gps %s | ecg %u-%u, electrodes %s | battery %s | wifi %s | relay sent %lu\n",
+                i2cFound[0] ? i2cFound : " none",
+                mpuOK && isfinite(lastAccelMps2) ? (String(lastAccelMps2, 1) + " m/s2 at " + String(imuHz, 0) + " Hz"
+                                                    + (pauseMS > 15 ? ", loop paused " + String(pauseMS) + " ms" : "")).c_str() : "missing",
+                magChip == MagChip::None ? "none" : (lastMagValid ? (String(magChip == MagChip::HMC5883L ? "HMC5883L " : magChip == MagChip::QMC5883L ? "QMC5883L " : "QMC5883P ")
+                                 + String(lastMagUT, 0) + " uT").c_str() : "no data"),
+                gpsText, lo, hi, ecgLeadOffNow ? "off" : "on", battText,
+                WiFi.status() == WL_CONNECTED ? (String(WIFI_SSID) + " " + String(WiFi.RSSI()) + " dBm").c_str() : "not connected",
+                static_cast<unsigned long>(relayAcceptedTotal));
+}
+
 void serviceStatus() {
   const uint32_t nowMS = millis();
   if (nowMS - lastStatusMS < 2000) return;
@@ -661,12 +919,18 @@ void serviceStatus() {
   const uint32_t blocks = ecgBlocks;
   sample.ecgRateHz = (blocks - ecgBlocksAtStatus) * ECG_BLOCK / 2.0f;
   ecgBlocksAtStatus = blocks;
+  if (++statusCount % 30 == 0) batterySensePresent = probeBatteryDivider();   // re-check once a minute
   readBattery(sample);
   enqueueSample(sample);
+  printSelfTest(sample);
 }
 
 void setup() {
   Serial.begin(115200);
+  // USB serial must never block: with the cable plugged in but no program
+  // reading the port, each print waited for a reader and the sensor loop
+  // stalled (motion fell from 50 to about 20 samples a second).
+  Serial.setTxTimeoutMs(0);
   delay(1000);
   bootId = esp_random();
 
@@ -707,14 +971,23 @@ void setup() {
     Serial.println("MPU6050 ready");
     bindI2C();
     setupMagnetometer();
+    for (uint8_t a = 1; a < 127; ++a) {
+      if (probeI2C(a) && strlen(i2cFound) < sizeof(i2cFound) - 6) {
+        char one[6];
+        snprintf(one, sizeof(one), " %02X", a);
+        strcat(i2cFound, one);
+      }
+    }
+    Serial.printf("I2C devices:%s\n", i2cFound);
     Serial.println(magChip == MagChip::HMC5883L ? "HMC5883L magnetometer ready"
-                   : magChip == MagChip::QMC5883L ? "QMC5883L magnetometer ready" : "No magnetometer found");
+                   : magChip == MagChip::QMC5883L ? "QMC5883L magnetometer ready"
+                   : magChip == MagChip::QMC5883P ? "QMC5883P magnetometer ready" : "No magnetometer found");
   } else {
     Serial.println("MPU6050 FAILED");
   }
 
   bindI2C();
-  gpsSerial.begin(GPS_BAUD, SERIAL_8N1, GPS_RX, GPS_TX);
+  gpsBegin();
   delay(100);
   configureGPS();
   Serial.println("NEO-6M UART started, 5 Hz RMC+GGA requested");
@@ -724,12 +997,12 @@ void setup() {
   WiFi.setSleep(false);
   WiFi.setAutoReconnect(true);
   WiFi.begin(WIFI_SSID, WIFI_PASS);
-  sntp_set_sync_mode(SNTP_SYNC_MODE_IMMED);
-  configTime(0, 0, "time.cloudflare.com", "pool.ntp.org", "time.google.com");
 
   analogReadResolution(12);
   analogSetPinAttenuation(BATTERY_ADC, ADC_11db);
   analogSetPinAttenuation(ECG_OUT, ADC_11db);
+  batterySensePresent = probeBatteryDivider();
+  Serial.println(batterySensePresent ? "Battery divider on GPIO1: found" : "Battery divider on GPIO1: not wired, battery not reported");
   if (ECG_ENABLED) {
     pinMode(ECG_LO_PLUS, INPUT_PULLDOWN);
     pinMode(ECG_LO_MINUS, INPUT_PULLDOWN);
@@ -749,6 +1022,9 @@ void setup() {
 }
 
 void loop() {
+  const uint64_t nowUS = deviceTimeUS();
+  if (loopLastUS) loopMaxUS = max<uint32_t>(loopMaxUS, static_cast<uint32_t>(nowUS - loopLastUS));
+  loopLastUS = nowUS;
   serviceIMU();
   serviceGPS();
   serviceStatus();

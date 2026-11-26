@@ -192,3 +192,15 @@ def test_vest_sessions_listing(tmp_path, monkeypatch):
     assert [r["id"] for r in rows] == ["20260821T131001Z"]
     assert rows[0]["vests"] == [3] and abs(rows[0]["start_unix"] - 1787317801.0) < 1
     assert main._vest_session_log("../../etc") is None
+
+
+def test_relay_tls_trusts_public_roots_and_the_saved_file(tmp_path, monkeypatch):
+    """A saved chain without a self-signed root must not break relay calls."""
+    import ssl
+    from cpg44_api import main
+    monkeypatch.setenv("CPG44_RELAY_CA_FILE", str(Path(__file__).resolve().parents[1] / "configs" / "relay_ca.pem"))
+    ctx = main._relay_tls()
+    assert ctx.verify_mode == ssl.CERT_REQUIRED and ctx.check_hostname
+    assert ctx.cert_store_stats()["x509_ca"] >= 100          # the public roots, not only the file
+    monkeypatch.setenv("CPG44_RELAY_CA_FILE", str(tmp_path / "missing.pem"))
+    assert main._relay_tls().cert_store_stats()["x509_ca"] >= 100
