@@ -45,7 +45,7 @@ export const EvidencePage = () => {
   const det = e.detector_test_soccernet ?? {}, cmp = e.detector_compare ?? {};
   const bestDet = Object.entries(cmp).sort((a: any, b: any) => (b[1].map50_95 ?? 0) - (a[1].map50_95 ?? 0))[0]?.[1] as J | undefined;
   const nowDet = bestDet && bestDet.map50_95 > (det.soccernet?.map50_95 ?? 0) ? bestDet : det.soccernet;
-  const reid = e.reid_val, teams = e.team_separation_val, phys = e.physics_synthetic, vest = e.vest_recorded_sessions;
+  const reid = e.reid_val, teams = e.team_separation_val, phys = e.physics_synthetic, vest = e.vest_recorded_sessions, today = e.vest_delivery_now;
 
   const rows: Row[] = [];
   if (old && now) {
@@ -98,12 +98,19 @@ export const EvidencePage = () => {
           <Tile g="x" value={`${phys.ecg_heart_rate.naive_peak_mae_bpm} bpm`} label="simple peak counting" />
         </div></section>}
 
-      {vest && <section className="panel"><div className="panel-head"><h2>First prototype on the bench</h2><span className="muted">{vest.sessions} sessions, {vest.active_minutes} min</span></div>
-        <div className="ev-grid" style={{ gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 10 }}>
-          <Tile g="chip" value={`${Math.round(vest.imu_completeness_median * 100)}%`} label="motion samples arrived" />
-          <Tile g="sources" value={`${Math.round(vest.transport_delay_ms_p50_median / 1000)} s`} label="median delay to the laptop" />
+      {vest && <section className="panel"><div className="panel-head"><h2>Vest delivery</h2>
+        <span className="muted">first prototype{today ? ' against today' : ''}</span></div>
+        <div className="ba">
+          <div className="ba-row"><span>Motion samples arrived</span>
+            <div className="ba-bars"><i className="before" style={{ width: `${vest.imu_completeness_median * 100}%` }} />
+              {today && <i className="after" style={{ width: `${today.imu_completeness_median * 100}%` }} />}</div>
+            <span className="ba-val num"><small>{Math.round(vest.imu_completeness_median * 100)}%</small>{today ? `${Math.round(today.imu_completeness_median * 100)}%` : ''}</span></div>
+          <div className="ba-row"><span>Median delay to the laptop</span>
+            <span className="num">{(vest.transport_delay_ms_p50_median / 1000).toFixed(0)} s{today?.transport_delay_ms_p50 != null ? ` then, ${(today.transport_delay_ms_p50 / 1000).toFixed(2)} s now` : ''}</span><span /></div>
         </div>
-        <p className="muted" style={{ margin: '10px 0 0', fontSize: 12.5 }}>Why the firmware now sends 96 samples per post and the vest uses a chest ECG.</p></section>}
+        <p className="muted" style={{ margin: '10px 0 0', fontSize: 12.5 }}>
+          {today ? `Today: ${today.readings} s of live vest data, ${today.dropped_during_run ?? 0} samples dropped, 90% of samples within ${((today.transport_delay_ms_p90 ?? 0) / 1000).toFixed(2)} s. `
+            : ''}The prototype sent small uncompressed batches and lost samples on slow Wi-Fi; the vest now queues, compresses and batches them.</p></section>}
     </div>
   </div>;
 };

@@ -164,3 +164,20 @@ def test_gyro_calibrates_even_with_a_4_percent_accelerometer_scale_error():
         accel = np.array([0.0, 0.3 * np.sin(k / 3), 9.4 + 0.4 * np.sin(k / 2)])
         moving.update(bias + rng.normal(0, 0.002, 3), accel, accel_tolerance=1.5)
     assert not moving.calibrated
+
+
+def test_vest_lying_still_counts_as_still_before_accel_calibration():
+    """An uncalibrated accelerometer offset (10.5 m/s2 upside down) must not
+    read as constant motion: stillness also follows how steady the reading is."""
+    import numpy as np
+    from soccer_analytics.sensors.hub import TelemetryEngine
+    engine = TelemetryEngine()
+    rng = np.random.default_rng(3)
+    t0 = 10_000_000_000
+    for k in range(150):
+        a = np.array([0.7, -0.3, -10.45]) + rng.normal(0, 0.01, 3)
+        g = np.array([-0.0445, 0.0019, 0.0050]) + rng.normal(0, 0.001, 3)
+        engine._process_imu({"a": a.tolist(), "g": g.tolist(), "m": [27.9, 10.1, -20.0], "device_us": 1_000_000 + k * 20_000,
+                             "host_mono_ns": t0 + k * 20_000_000, "host_unix_ns": 1_800_000_000_000_000_000 + k * 20_000_000,
+                             "clock_synced": True, "transport_delay_ms": 120.0, "temp_c": 31.0})
+    assert engine.state["imu"]["stationary"] is True

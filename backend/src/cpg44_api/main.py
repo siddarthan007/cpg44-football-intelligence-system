@@ -57,7 +57,41 @@ def _vest_session_log(session_id: str) -> Optional[Path]:
     return raw if raw.is_file() and raw.stat().st_size > 0 else None
 
 
-def _vest_sessions(limit: int = 40) -> list:
+_SPAN_CACHE: dict = {}
+
+
+def _log_span(raw: Path) -> Optional[float]:
+    """Seconds between the first and last sample in a vest log, read from its
+    two ends only (logs run to hundreds of megabytes). Cached by size."""
+    st = raw.stat()
+    key = (str(raw), st.st_size, st.st_mtime_ns)
+    if key in _SPAN_CACHE:
+        return _SPAN_CACHE[key]
+
+    def stamp(line: bytes) -> Optional[float]:
+        try:
+            row = json.loads(line)
+        except ValueError:
+            return None
+        ns = row.get("source_unix_ns") or row.get("host_unix_ns")
+        return ns / 1e9 if isinstance(ns, (int, float)) else None
+
+    span = None
+    try:
+        with raw.open("rb") as fh:
+            first = stamp(fh.readline())
+            fh.seek(max(0, st.st_size - 65536))
+            tail = fh.read().splitlines()
+        last = next((t for t in (stamp(x) for x in reversed(tail[1:] or tail)) if t is not None), None)
+        if first is not None and last is not None and last >= first:
+            span = round(last - first, 1)
+    except OSError:
+        pass
+    _SPAN_CACHE[key] = span
+    return span
+
+
+def _vest_sessions(limit: int = 40, min_s: float = 60.0) -> list:
     base = ROOT / "data" / "live_sessions"
     rows = []
     for d in sorted(base.iterdir(), reverse=True) if base.is_dir() else []:
@@ -82,8 +116,11 @@ def _vest_sessions(limit: int = 40) -> list:
         if start is None:          # the folder name is the UTC start time
             from datetime import datetime, timezone
             start = datetime.strptime(d.name, "%Y%m%dT%H%M%SZ").replace(tzinfo=timezone.utc).timestamp()
-        rows.append({"id": d.name, "start_unix": start, "duration_s": meta.get("duration_s"),
-                     "active_s": (meta.get("sampling") or {}).get("active_s"), "vests": sorted(vests)})
+        span = meta.get("duration_s") or _log_span(raw)
+        if span is not None and span < min_s:
+            continue            # bench restarts and quick checks, not a session to analyse
+        rows.append({"id": d.name, "start_unix": start, "duration_s": span,
+                     "active_s": (meta.get("sampling") or {}).get("active_s") or span, "vests": sorted(vests)})
         if len(rows) >= limit:
             break
     return rows

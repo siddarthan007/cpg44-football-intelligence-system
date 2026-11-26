@@ -70,7 +70,7 @@ export const MatchUploadPage = () => {
           <div className="panel-head" style={{ marginTop: 18 }}><h2>Vest recordings</h2>{picked.length > 0 && <span className="muted num">{picked.length} added</span>}</div>
           <div className="vest-pick">{sessions.slice(0, 8).map(v => <label key={v.id}>
             <input type="checkbox" checked={picked.includes(v.id)} onChange={e => setPicked(p => e.target.checked ? [...p, v.id] : p.filter(x => x !== v.id))} />
-            <span><strong>{stamp(v.start_unix)}</strong><small className="num">{v.vests.length ? `vest ${v.vests.join(', ')}` : 'vest'}{v.active_s ? `, ${Math.max(1, Math.round(v.active_s / 60))} min of data` : ''}</small></span>
+            <span><strong>{stamp(v.start_unix)}</strong><small className="num">{v.vests.length ? `vest ${v.vests.join(', ')}` : 'vest'}{v.active_s ? `, ${v.active_s >= 3600 ? `${(v.active_s / 3600).toFixed(1)} h` : `${Math.max(1, Math.round(v.active_s / 60))} min`}` : ''}</small></span>
           </label>)}</div>
         </>}
         <button className="btn" style={{ marginTop: 16, width: '100%', justifyContent: 'center' }} disabled={!file || busy || running} onClick={upload}>
