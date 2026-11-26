@@ -14,12 +14,16 @@ import subprocess
 from typing import Dict, List, Optional
 
 # Espressif USB JTAG/serial plus the common UART bridge chips used on dev boards.
-ESP32_NAME_TAGS = ("esp32", "jtag", "serial", "cp210", "ch340", "ch9102", "ftdi")
+ESP32_NAME_TAGS = ("esp32", "jtag", "serial", "cp210", "ch340", "ch9102", "ftdi",
+                   "303a:", "10c4:", "1a86:", "0403:")   # Espressif, Silicon Labs, WCH, FTDI USB vendor ids
 BUSID_PATTERN = re.compile(r"^(\d+-\d+(?:\.\d+)*)\s")
 
 
 def _usbipd_exe() -> Optional[str]:
-    path = shutil.which("usbipd")
+    """The Windows usbipd-win tool. A plain ``usbipd`` on the Linux PATH is
+    the USB/IP server daemon from linux-tools, which cannot list or attach
+    Windows devices, so only an .exe counts."""
+    path = shutil.which("usbipd.exe")
     if path:
         return path
     # WSL can execute Windows binaries directly; check the standard location.

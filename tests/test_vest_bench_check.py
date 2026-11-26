@@ -29,3 +29,25 @@ def test_slow_motion_sampling_and_flat_ecg_are_flagged():
             "ecg 2048-2050, electrodes on | battery 3.40 V 8 % | wifi LC -85 dBm | relay sent 10")
     s = states(line)
     assert s["imu"] == "warn" and s["ecg"] == "bad" and s["battery"] == "warn" and s["wifi"] == "warn" and s["gps"] == "warn"
+
+
+def _gps_row(text):
+    from cpg44_api.flasher import parse_check_line
+    rows = parse_check_line(f"[check] i2c 68 | imu 9.8 m/s2 at 50 Hz | mag none | gps {text} | ecg 1500-2600, electrodes on "
+                            f"| battery 0 V on GPIO1 | wifi x -60 dBm | relay sent 1 | chip 47 C, tx 15.0 dBm, 160 MHz")
+    return next(r for r in rows if r["key"] == "gps")
+
+
+def test_gps_line_probe_states_have_their_own_advice():
+    assert _gps_row("TX held low: GPS has GND but no power, check VCC")["value"] == "no power"
+    assert _gps_row("GPS powered but silent: module not sending")["value"] == "powered, sends nothing"
+    assert _gps_row("nothing connected on GPIO16 or GPIO17: check TX wire")["value"] == "TX wire open"
+    assert _gps_row("seen at times: loose TX wire or contact")["value"] == "comes and goes"
+    assert _gps_row("found on GPIO43 instead of GPIO16, no valid sentence yet")["state"] == "warn"
+
+
+def test_usbipd_ignores_the_linux_usbip_daemon(monkeypatch):
+    from cpg44_api import usb_bridge
+    monkeypatch.setattr(usb_bridge.shutil, "which", lambda name: "/usr/bin/usbipd" if name == "usbipd" else None)
+    monkeypatch.setattr(usb_bridge, "Path_exists", lambda path: False)
+    assert usb_bridge._usbipd_exe() is None

@@ -181,3 +181,17 @@ def test_vest_lying_still_counts_as_still_before_accel_calibration():
                              "host_mono_ns": t0 + k * 20_000_000, "host_unix_ns": 1_800_000_000_000_000_000 + k * 20_000_000,
                              "clock_synced": True, "transport_delay_ms": 120.0, "temp_c": 31.0})
     assert engine.state["imu"]["stationary"] is True
+
+
+def test_partial_accelerometer_poses_survive_a_restart(tmp_path):
+    import json
+    import numpy as np
+    from soccer_analytics.sensors.hub import TelemetryEngine
+    path = tmp_path / "imu.json"
+    first = TelemetryEngine(calibration_path=str(path))
+    first.accel_cal.poses = [np.array([0.0, 0.0, 9.6]), np.array([9.7, 0.0, 0.2])]
+    first._save_calibration()
+    assert len(json.loads(path.read_text())["accel_poses_mps2"]) == 2
+    second = TelemetryEngine(calibration_path=str(path))
+    assert len(second.accel_cal.poses) == 2 and not second.accel_scale_calibrated
+    assert TelemetryEngine(calibration_path=str(tmp_path / "missing.json")).accel_cal.poses == []

@@ -368,14 +368,21 @@ class TelemetryEngine:
         self.distance_total_m = 0.0
         self.gps_speed_accel = None
 
-        if calibration_path:
-            cfg = json.loads(Path(calibration_path).read_text())
+        cfg = None
+        if calibration_path and Path(calibration_path).is_file():
+            try:
+                cfg = json.loads(Path(calibration_path).read_text())
+            except (OSError, ValueError):
+                cfg = None                        # unreadable: calibrate again rather than crash
+        if cfg is not None:
+            # poses gathered before a restart count towards the six-pose fit
+            self.accel_cal.poses = [np.asarray(v, dtype=np.float64) for v in cfg.get("accel_poses_mps2", [])][-24:]
             self.gyro_bias = np.asarray(cfg.get("gyro_bias_rads", [0, 0, 0]), dtype=np.float64)
             self.accel_bias = np.asarray(cfg.get("accel_bias_mps2", [0, 0, 0]), dtype=np.float64)
             self.accel_scale = np.asarray(cfg.get("accel_scale", [1, 1, 1]), dtype=np.float64)
-            self.auto_gyro_calibrated = True
+            self.auto_gyro_calibrated = "gyro_bias_rads" in cfg
             self.accel_scale_calibrated = "accel_scale" in cfg
-            self.gyro_cal.bias, self.gyro_cal.calibrated = self.gyro_bias.copy(), True
+            self.gyro_cal.bias, self.gyro_cal.calibrated = self.gyro_bias.copy(), self.auto_gyro_calibrated
             if self.accel_scale_calibrated:
                 self.accel_cal.bias, self.accel_cal.scale, self.accel_cal.calibrated = \
                     self.accel_bias.copy(), self.accel_scale.copy(), True
@@ -535,7 +542,8 @@ class TelemetryEngine:
         try:
             path = Path(self.calibration_path)
             cfg = json.loads(path.read_text()) if path.is_file() else {}
-            cfg.update({"gyro_bias_rads": [float(x) for x in self.gyro_cal.bias]})
+            cfg.update({"gyro_bias_rads": [float(x) for x in self.gyro_cal.bias],
+                        "accel_poses_mps2": [[round(float(x), 4) for x in v] for v in self.accel_cal.poses]})
             if self.accel_cal.calibrated:
                 cfg.update({"accel_bias_mps2": [float(x) for x in self.accel_cal.bias],
                             "accel_scale": [float(x) for x in self.accel_cal.scale],
@@ -569,8 +577,10 @@ class TelemetryEngine:
         # loosely (a 4 % scale error put this vest at 9.4 m/s2 and no window ever
         # counted as still, so neither sensor could calibrate).
         if self.gyro_cal.update(g_raw, accel, accel_tolerance=0.35 if self.accel_cal.calibrated else 1.5):
-            if self.accel_cal.add_still_mean(np.mean(np.asarray(self._still_accel), axis=0)):
-                self._save_calibration()
+            poses_before = len(self.accel_cal.poses)
+            if self.accel_cal.add_still_mean(np.mean(np.asarray(self._still_accel), axis=0)) \
+                    or len(self.accel_cal.poses) != poses_before:
+                self._save_calibration()           # a new pose or a new fit survives a restart
         self.gyro_bias = self.gyro_cal.bias
         self.auto_gyro_calibrated = self.gyro_cal.calibrated
         self.accel_bias, self.accel_scale = self.accel_cal.bias, self.accel_cal.scale
@@ -1154,9 +1164,11 @@ def main():
         if len(ARGS.relay_token) < 32:
             raise SystemExit("CPG44_RELAY_TOKEN must contain at least 32 characters")
 
+    # Each vest keeps its own IMU calibration unless a file is given.
+    default_cal = Path(__file__).resolve().parents[2] / "data" / "live" / f"imu_calibration_vest{ARGS.player_id}.json"
     ENGINE = TelemetryEngine(
         record_path=ARGS.record,
-        calibration_path=ARGS.calibration,
+        calibration_path=ARGS.calibration or str(default_cal),
     )
     ENGINE.state["player_id"] = ARGS.player_id
     ENGINE.state["match_id"] = ARGS.match_id

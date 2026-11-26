@@ -36,6 +36,7 @@ inline constexpr char RELAY_CA_PEM[] = "";
 #define GPS_RX 16
 #define GPS_TX 17
 #define GPS_BAUD 9600
+enum GpsLine : uint8_t { LINE_UNKNOWN, LINE_SENDING, LINE_POWERED_SILENT, LINE_HELD_LOW, LINE_OPEN };
 
 // AD8232 single-lead ECG and battery divider: ADC1 pins only (ADC2 is not
 // usable while Wi-Fi runs). GPIO 35-37 are taken by the N16R8 octal PSRAM and
@@ -101,6 +102,8 @@ struct SampleRecord {
 Adafruit_MPU6050 mpu;
 TinyGPSPlus gps;
 HardwareSerial gpsSerial(1);
+int8_t txPowerNow = 78;            // quarter-dBm units, as the Wi-Fi driver uses
+uint8_t txStrongCount = 0;
 
 bool mpuOK = false;
 bool baroFound = false;     // BMP180 on the GY-87: detected for the build check, not streamed
@@ -230,6 +233,13 @@ void configureGPS() {
   for (const auto &m : off) sendUBX(0x06, 0x01, m, 3);
   const uint8_t rate[] = {200, 0, 1, 0, 1, 0};  // CFG-RATE: 200 ms, 1 cycle, GPS time
   sendUBX(0x06, 0x08, rate, sizeof(rate));
+  // CFG-NAV5: pedestrian platform model (3). It filters for slow, low-acceleration
+  // movement like a player's and still allows 30 m/s; only the model is changed
+  // (mask bit 0), every other navigation setting keeps the module default.
+  uint8_t nav5[36] = {0};
+  nav5[0] = 0x01;
+  nav5[2] = 3;
+  sendUBX(0x06, 0x24, nav5, sizeof(nav5));
 }
 
 void enqueueSample(const SampleRecord &sample) {
@@ -447,6 +457,8 @@ void addPayload(JsonObject event, const SampleRecord &sample) {
   }
 
   payload["rssi_dbm"] = sample.rssiDbm;
+  payload["chip_c"] = roundTo(temperatureRead(), 0.1f);
+  payload["tx_dbm"] = txPowerNow / 4.0f;
   payload["heap"] = sample.freeHeap;
   payload["mpu6050"] = mpuOK;
   payload["gps_rx"] = sample.gpsReceiving;
@@ -849,45 +861,190 @@ bool gpsReceivingNow() {
 // Until a sentence with a valid checksum arrives: no bytes at all means try the
 // other pin (both are plain 3.3 V lines, so the swap is harmless); bytes that
 // never form a sentence mean try the next baud rate.
-const uint32_t GPS_BAUDS[] = {GPS_BAUD, 38400, 115200};
+const uint32_t GPS_BAUDS[] = {GPS_BAUD, 4800, 19200, 38400, 57600, 115200};
+const uint8_t GPS_BAUD_COUNT = sizeof(GPS_BAUDS) / sizeof(GPS_BAUDS[0]);
 uint8_t gpsBaudIndex = 0;
 bool gpsPinsSwapped = false;
+int gpsRxPin = GPS_RX, gpsTxPin = GPS_TX;      // where the GPS really is (see findGpsPin)
+int gpsFoundElsewhere = -1;
+uint32_t gpsReprobeMS = 0, gpsReprobeStartMS = 0;
+bool gpsReprobing = false;
+uint16_t gpsSeenProbes = 0, gpsProbes = 0;
 bool gpsLocked = false;
 uint32_t gpsAttemptMS = 0;
 uint32_t gpsAttemptBytes = 0;
 uint8_t gpsNotes = 0;
 
+// What the GPS lines look like electrically, measured once at boot before the
+// UART takes the pins. A UART alone cannot tell "wire not connected" from
+// "module without power" from "powered but silent"; the pin's own pull-down
+// and pull-up, plus counting edges for 1.1 s, can:
+//   edges                 -> the module is sending (a baud or pin question)
+//   high with pull-down   -> something holds the line high: module powered, silent
+//   low with pull-up      -> something holds it low: module has GND but no power
+//   follows the pull      -> nothing connected on this pin
+GpsLine gpsLine16 = LINE_UNKNOWN, gpsLine17 = LINE_UNKNOWN;
+volatile uint32_t gpsProbeEdges = 0, gpsProbeLastUS = 0, gpsProbeMinUS = UINT32_MAX;
+void IRAM_ATTR gpsProbeEdge() {
+  const uint32_t t = micros(), d = t - gpsProbeLastUS;
+  gpsProbeLastUS = t;
+  ++gpsProbeEdges;
+  if (d > 4 && d < gpsProbeMinUS) gpsProbeMinUS = d;   // the shortest pulse is one bit
+}
+bool gpsPinKnown = false;          // the probe saw the module sending on this pin: never swap away
+int8_t gpsMeasuredBaud = -1;       // index into GPS_BAUDS from the measured bit time
+
+// The baud rate whose bit time is nearest the shortest pulse seen.
+int8_t baudFromBitUS(uint32_t bitUS) {
+  if (bitUS == UINT32_MAX || bitUS == 0) return -1;
+  int8_t best = -1;
+  float bestErr = 1e9f;
+  for (uint8_t i = 0; i < GPS_BAUD_COUNT; ++i) {
+    const float err = fabsf(logf((1e6f / GPS_BAUDS[i]) / bitUS));
+    if (err < bestErr) { bestErr = err; best = i; }
+  }
+  return bestErr < 0.35f ? best : -1;              // within about 40 % of a standard rate
+}
+
+GpsLine probeGpsLine(int pin) {
+  pinMode(pin, INPUT_PULLDOWN);
+  delay(3);
+  const bool highWithPullDown = digitalRead(pin);
+  pinMode(pin, INPUT_PULLUP);
+  delay(3);
+  const bool highWithPullUp = digitalRead(pin);
+  pinMode(pin, INPUT_PULLDOWN);
+  gpsProbeEdges = 0;
+  gpsProbeMinUS = UINT32_MAX;
+  gpsProbeLastUS = micros();
+  attachInterrupt(digitalPinToInterrupt(pin), gpsProbeEdge, CHANGE);
+  delay(1100);                                   // NMEA comes in a burst once a second
+  detachInterrupt(digitalPinToInterrupt(pin));
+  const uint32_t edges = gpsProbeEdges;
+  pinMode(pin, INPUT);
+  if (edges > 40) {
+    gpsMeasuredBaud = baudFromBitUS(gpsProbeMinUS);
+    return LINE_SENDING;
+  }
+  if (highWithPullDown) return LINE_POWERED_SILENT;
+  if (!highWithPullUp) return LINE_HELD_LOW;
+  return LINE_OPEN;
+}
+
+// Free pins on an ESP32-S3 N16R8 board that a GPS TX wire could have landed
+// on: not I2C (4, 5), ECG (2, 11, 12), battery (1), USB (19, 20), flash and
+// PSRAM (26 to 37), strapping (0, 3, 45, 46) or the RGB LED (48).
+const int GPS_SCAN_PINS[] = {6, 7, 8, 9, 10, 13, 14, 15, 18, 21, 38, 39, 40, 41, 42, 43, 44, 47};
+volatile uint32_t gpsScanEdges[sizeof(GPS_SCAN_PINS) / sizeof(int)];
+void IRAM_ATTR gpsScanEdge(void *arg) { ++gpsScanEdges[reinterpret_cast<uintptr_t>(arg)]; }
+
+// Listen on every free pin at once for 1.2 s; the GPS sends a burst of text
+// each second, so the pin with hundreds of edges is where its TX wire is.
+int findGpsPin() {
+  const size_t n = sizeof(GPS_SCAN_PINS) / sizeof(int);
+  for (size_t i = 0; i < n; ++i) {
+    gpsScanEdges[i] = 0;
+    pinMode(GPS_SCAN_PINS[i], INPUT_PULLDOWN);
+    attachInterruptArg(digitalPinToInterrupt(GPS_SCAN_PINS[i]), gpsScanEdge, reinterpret_cast<void *>(i), CHANGE);
+  }
+  delay(1200);
+  int best = -1;
+  uint32_t most = 40;
+  for (size_t i = 0; i < n; ++i) {
+    detachInterrupt(digitalPinToInterrupt(GPS_SCAN_PINS[i]));
+    pinMode(GPS_SCAN_PINS[i], INPUT);
+    if (gpsScanEdges[i] > most) { most = gpsScanEdges[i]; best = GPS_SCAN_PINS[i]; }
+  }
+  return best;
+}
+
+const char *gpsLineDiagnosis() {
+  static char found[64];
+  if (gpsSeenProbes > 0 && gpsSeenProbes < gpsProbes) return "seen at times: loose TX wire or contact";
+  if (gpsFoundElsewhere >= 0) {
+    snprintf(found, sizeof(found), "found on GPIO%d instead of GPIO16, no valid sentence yet", gpsFoundElsewhere);
+    return found;
+  }
+  if (gpsLine16 == LINE_SENDING || gpsLine17 == LINE_SENDING) return "signal present but no valid sentence: odd baud rate";
+  if (gpsLine16 == LINE_HELD_LOW || gpsLine17 == LINE_HELD_LOW) return "TX held low: GPS has GND but no power, check VCC";
+  if (gpsLine16 == LINE_POWERED_SILENT || gpsLine17 == LINE_POWERED_SILENT) return "GPS powered but silent: module not sending";
+  if (gpsLine16 == LINE_OPEN && gpsLine17 == LINE_OPEN) return "nothing connected on GPIO16 or GPIO17: check TX wire";
+  return "nothing on GPIO16 or GPIO17: check VCC, GND, TX";
+}
+
 void gpsBegin() {
   gpsSerial.end();
-  gpsSerial.begin(GPS_BAUDS[gpsBaudIndex], SERIAL_8N1, gpsPinsSwapped ? GPS_TX : GPS_RX, gpsPinsSwapped ? GPS_RX : GPS_TX);
+  gpsSerial.begin(GPS_BAUDS[gpsBaudIndex], SERIAL_8N1, gpsPinsSwapped ? gpsTxPin : gpsRxPin, gpsPinsSwapped ? gpsRxPin : gpsTxPin);
   gpsAttemptMS = millis();
   gpsAttemptBytes = 0;
 }
 
+// While no sentence has arrived, look at both lines again every 20 s with the
+// UART stopped (1.1 s, non-blocking). A loose TX wire or contact then recovers
+// on its own, and "seen at times" tells the bench check what is wrong.
+
+bool gpsReprobe() {                                // true while a probe is running
+  const uint32_t now = millis();
+  if (!gpsReprobing) {
+    if (now - gpsReprobeMS < 20000) return false;
+    gpsSerial.end();
+    const int pins[2] = {gpsRxPin, gpsTxPin};
+    for (uintptr_t i = 0; i < 2; ++i) {
+      gpsScanEdges[i] = 0;
+      pinMode(pins[i], INPUT_PULLDOWN);
+      attachInterruptArg(digitalPinToInterrupt(pins[i]), gpsScanEdge, reinterpret_cast<void *>(i), CHANGE);
+    }
+    gpsReprobing = true;
+    gpsReprobeStartMS = now;
+    return true;
+  }
+  if (now - gpsReprobeStartMS < 1100) return true;
+  const int pins[2] = {gpsRxPin, gpsTxPin};
+  for (int i = 0; i < 2; ++i) {
+    detachInterrupt(digitalPinToInterrupt(pins[i]));
+    pinMode(pins[i], INPUT);
+  }
+  gpsReprobing = false;
+  gpsReprobeMS = now;
+  ++gpsProbes;
+  const uint32_t e0 = gpsScanEdges[0], e1 = gpsScanEdges[1];
+  if (e0 > 40 || e1 > 40) {
+    ++gpsSeenProbes;
+    gpsPinsSwapped = e1 > e0;
+    gpsPinKnown = true;
+    gpsLine16 = gpsPinsSwapped ? LINE_OPEN : LINE_SENDING;
+    gpsLine17 = gpsPinsSwapped ? LINE_SENDING : LINE_OPEN;
+    Serial.printf("GPS: signal back on GPIO%d\n", gpsPinsSwapped ? gpsTxPin : gpsRxPin);
+  }
+  gpsBegin();
+  return false;
+}
+
 void checkGPSWiring() {
   if (gpsLocked) return;
+  if (gpsReprobe()) return;
   if (gps.passedChecksum() > 0) {
     gpsLocked = true;
-    Serial.printf("GPS: sentences on GPIO%d at %lu baud%s\n", gpsPinsSwapped ? GPS_TX : GPS_RX,
+    Serial.printf("GPS: sentences on GPIO%d at %lu baud%s\n", gpsPinsSwapped ? gpsTxPin : gpsRxPin,
                   static_cast<unsigned long>(GPS_BAUDS[gpsBaudIndex]),
                   gpsPinsSwapped ? " (TX and RX wires are swapped; working anyway)" : "");
     configureGPS();                                      // 5 Hz, now on the pin the module listens to
     return;
   }
   if (millis() - gpsAttemptMS < 3000) return;
-  if (gpsAttemptBytes > 20) gpsBaudIndex = (gpsBaudIndex + 1) % 3;
+  if (gpsAttemptBytes > 20 || gpsPinKnown) gpsBaudIndex = (gpsBaudIndex + 1) % GPS_BAUD_COUNT;
   else gpsPinsSwapped = !gpsPinsSwapped;
   gpsBegin();
   if (gpsNotes < 4) {
     ++gpsNotes;
-    Serial.printf("GPS: nothing valid yet, trying GPIO%d at %lu baud\n", gpsPinsSwapped ? GPS_TX : GPS_RX,
+    Serial.printf("GPS: nothing valid yet, trying GPIO%d at %lu baud\n", gpsPinsSwapped ? gpsTxPin : gpsRxPin,
                   static_cast<unsigned long>(GPS_BAUDS[gpsBaudIndex]));
   }
 }
 
 void serviceGPS() {
   checkGPSWiring();
-  while (gpsSerial.available()) {
+  while (!gpsReprobing && gpsSerial.available()) {
     gps.encode(gpsSerial.read());
     ++gpsAttemptBytes;
     if (gpsLocked) lastGPSByteMS = millis();
@@ -928,24 +1085,23 @@ void serviceGPS() {
 
 // One line every 2 s on USB: every sensor's state in plain numbers.
 void printSelfTest(const SampleRecord &status) {
-  char gpsText[64];
+  char gpsText[80];
   if (gpsReceivingNow()) {
     snprintf(gpsText, sizeof(gpsText), "%lu chars, %u sats, %s", static_cast<unsigned long>(gps.charsProcessed()),
              gps.satellites.isValid() ? static_cast<unsigned>(gps.satellites.value()) : 0U,
              gps.location.isValid() && gps.location.age() < 3000 ? "fix" : "no fix");
   } else {
-    snprintf(gpsText, sizeof(gpsText), gpsAttemptBytes > 20 ? "bytes but no valid sentence yet"
-                                                                  : "nothing on GPIO16 or GPIO17: check VCC, GND, TX");
+    snprintf(gpsText, sizeof(gpsText), "%s", gpsAttemptBytes > 20 ? "bytes but no valid sentence yet" : gpsLineDiagnosis());
   }
-  char battText[24];
+  char battText[32];
   if (isfinite(status.batteryV)) snprintf(battText, sizeof(battText), "%.2f V %.0f %%", status.batteryV, status.batteryPct);
-  else snprintf(battText, sizeof(battText), "not wired (GPIO1)");
+  else snprintf(battText, sizeof(battText), "0 V on GPIO1");
   const uint16_t lo = ecgBlockMin, hi = ecgBlockMax;
   const float imuHz = (imuSeq - imuSeqAtCheck) / 2.0f;
   imuSeqAtCheck = imuSeq;
   const unsigned long pauseMS = loopMaxUS / 1000;
   loopMaxUS = 0;
-  Serial.printf("[check] i2c%s | imu %s | mag %s | gps %s | ecg %u-%u, electrodes %s | battery %s | wifi %s | relay sent %lu\n",
+  Serial.printf("[check] i2c%s | imu %s | mag %s | gps %s | ecg %u-%u, electrodes %s | battery %s | wifi %s | relay sent %lu | chip %.0f C, tx %.1f dBm, %lu MHz\n",
                 i2cFound[0] ? i2cFound : " none",
                 mpuOK && isfinite(lastAccelMps2) ? (String(lastAccelMps2, 1) + " m/s2 at " + String(imuHz, 0) + " Hz"
                                                     + (pauseMS > 15 ? ", loop paused " + String(pauseMS) + " ms" : "")).c_str() : "missing",
@@ -953,13 +1109,15 @@ void printSelfTest(const SampleRecord &status) {
                                  + String(lastMagUT, 0) + " uT").c_str() : "no data"),
                 gpsText, lo, hi, ecgLeadOffNow ? "off" : "on", battText,
                 WiFi.status() == WL_CONNECTED ? (String(WIFI_SSID) + " " + String(WiFi.RSSI()) + " dBm").c_str() : "not connected",
-                static_cast<unsigned long>(relayAcceptedTotal));
+                static_cast<unsigned long>(relayAcceptedTotal), temperatureRead(), txPowerNow / 4.0f,
+                static_cast<unsigned long>(getCpuFrequencyMhz()));
 }
 
 void serviceStatus() {
   const uint32_t nowMS = millis();
   if (nowMS - lastStatusMS < 2000) return;
   lastStatusMS = nowMS;
+  tuneTxPower(lastAcceptedMS != 0 && nowMS - lastAcceptedMS > 10000);
 
   SampleRecord sample{};
   sample.type = SampleType::Status;
@@ -980,6 +1138,7 @@ void serviceStatus() {
 }
 
 void setup() {
+  setCpuFrequencyMhz(160);        // 50 Hz IMU, 250 Hz ECG and compression need far less than 240 MHz
   Serial.begin(115200);
   // USB serial must never block: with the cable plugged in but no program
   // reading the port, each print waited for a reader and the sensor loop
@@ -1042,6 +1201,29 @@ void setup() {
   }
 
   bindI2C();
+  gpsLine16 = probeGpsLine(GPS_RX);
+  gpsLine17 = probeGpsLine(GPS_TX);
+  Serial.printf("GPS lines: GPIO16 %s, GPIO17 %s\n",
+                gpsLine16 == LINE_SENDING ? "sending" : gpsLine16 == LINE_POWERED_SILENT ? "held high, silent"
+                : gpsLine16 == LINE_HELD_LOW ? "held low" : "open",
+                gpsLine17 == LINE_SENDING ? "sending" : gpsLine17 == LINE_POWERED_SILENT ? "held high, silent"
+                : gpsLine17 == LINE_HELD_LOW ? "held low" : "open");
+  if (gpsLine17 == LINE_SENDING && gpsLine16 != LINE_SENDING) gpsPinsSwapped = true;   // start on the pin that talks
+  gpsPinKnown = gpsLine16 == LINE_SENDING || gpsLine17 == LINE_SENDING;
+  if (gpsLine16 != LINE_SENDING && gpsLine17 != LINE_SENDING) {
+    const int pin = findGpsPin();
+    if (pin >= 0) {
+      gpsFoundElsewhere = gpsRxPin = pin;
+      gpsPinKnown = true;
+      Serial.printf("GPS: its TX wire is on GPIO%d, not GPIO16; reading it there (move the wire when convenient)\n", pin);
+    } else {
+      Serial.println("GPS: no signal on any free pin: the module has no power, or its TX is not connected");
+    }
+  }
+  if (gpsMeasuredBaud >= 0) {
+    gpsBaudIndex = gpsMeasuredBaud;
+    Serial.printf("GPS: measured %lu baud from its shortest pulse\n", static_cast<unsigned long>(GPS_BAUDS[gpsBaudIndex]));
+  }
   gpsBegin();
   delay(100);
   configureGPS();
@@ -1049,6 +1231,9 @@ void setup() {
 
   WiFi.mode(WIFI_STA);
   WiFi.persistent(false);
+  // The radio stays awake (modem sleep would delay every relay reply by up to a
+  // beacon interval); heat is cut instead by a lower CPU clock and by sending
+  // no louder than the link needs (tuneTxPower).
   WiFi.setSleep(false);
   WiFi.setAutoReconnect(true);
   WiFi.begin(WIFI_SSID, WIFI_PASS);
@@ -1074,6 +1259,26 @@ void setup() {
   Serial.print(MATCH_ID);
   Serial.print('/');
   Serial.println(PLAYER_ID);
+}
+
+// Transmit power follows the access point's signal, with hysteresis: a strong
+// link (-55 dBm or better) needs 11 dBm, not the default 19.5 dBm, and the
+// power amplifier is the hottest part of the module while sending. Power
+// goes back up at once when the signal weakens or deliveries start failing.
+void tuneTxPower(bool deliveriesFailing) {
+  if (WiFi.status() != WL_CONNECTED) return;
+  const int rssi = WiFi.RSSI();
+  wifi_power_t want = deliveriesFailing || rssi <= -75 ? WIFI_POWER_19_5dBm
+                    : rssi <= -67 ? WIFI_POWER_17dBm
+                    : rssi <= -55 ? WIFI_POWER_15dBm : WIFI_POWER_11dBm;
+  if (static_cast<int8_t>(want) < txPowerNow) {      // lower only after 3 steady readings
+    if (++txStrongCount < 3) return;
+  }
+  txStrongCount = 0;
+  if (static_cast<int8_t>(want) != txPowerNow) {
+    WiFi.setTxPower(want);
+    txPowerNow = static_cast<int8_t>(want);
+  }
 }
 
 void loop() {
