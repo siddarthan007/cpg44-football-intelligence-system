@@ -549,6 +549,7 @@ async def server_time():
 
 
 MAX_DECODED_BYTES = 1_048_576
+MAX_BATCH = 500
 
 
 def _decode_body(raw: bytes, encoding: str) -> Any:
@@ -583,8 +584,10 @@ async def ingest(
         raise HTTPException(status_code=401, detail="invalid relay token")
     body = _decode_body(await request.body(), request.headers.get("content-encoding", ""))
     rows = body if isinstance(body, list) else [body]
-    if not 1 <= len(rows) <= 100:
-        raise HTTPException(status_code=422, detail="send 1 to 100 observations")
+    # Up to 500 per request: on a slow uplink a vest sends fewer, larger
+    # batches (it makes about 56 a second and a round trip can take 2 s).
+    if not 1 <= len(rows) <= MAX_BATCH:
+        raise HTTPException(status_code=422, detail=f"send 1 to {MAX_BATCH} observations")
     accepted: List[RelayEnvelope] = []
     fresh: List[RelayEnvelope] = []
     duplicates = 0

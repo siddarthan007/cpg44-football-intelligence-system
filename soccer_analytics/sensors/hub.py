@@ -343,7 +343,7 @@ class TelemetryEngine:
         self.gyro_cal = GyroBias(fs=50.0)
         self.accel_cal = AccelAutoCal()
         self.gps_kf = GpsKalman()
-        self.battery_hist = deque(maxlen=400)
+        self.battery_hist = deque(maxlen=1000)          # 30 min of 2 s status packets
         self.player_load_total = 0.0
         self.player_load_window = deque(maxlen=3000)          # (host_s, cumulative PL)
         self._last_accel_g = None

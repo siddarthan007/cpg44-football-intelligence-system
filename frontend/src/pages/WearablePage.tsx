@@ -47,6 +47,11 @@ function EcgStrip({ trace }: { trace?: Trace }) {
   </div>;
 }
 
+const hoursMinutes = (m: number) => {
+  const r = Math.round(m / 5) * 5;                     // battery estimates are not minute-precise
+  return r >= 60 ? `${Math.floor(r / 60)} h${r % 60 ? ` ${r % 60} min` : ''}` : `${Math.max(5, r)} min`;
+};
+
 function Tile({ label, value, unit, why, accent }: { label: string; value?: string | null; unit?: string; why?: string; accent?: boolean }) {
   return <div className={`vtile ${value ? '' : 'missing'}`}>
     <small>{label}</small>
@@ -99,7 +104,7 @@ export const WearablePage = () => {
     <section className="panel" aria-label="Link">
       <div className="chain">
         <div className={`node ${on ? 'ok' : 'off'}`}><Glyph g="vest" size={22} /><b>Vest</b>
-          <small>{on ? (s.battery ? `${Math.round(s.battery.pct)} % battery${s.battery.minutes_left != null ? `, ${s.battery.minutes_left} min left` : ''}` : 'battery not measured') : 'not heard from'}</small></div>
+          <small>{on ? (s.battery ? `${Math.round(s.battery.pct)} % battery${s.battery.minutes_left != null ? `, about ${hoursMinutes(s.battery.minutes_left)} left` : ''}` : 'battery not measured') : 'not heard from'}</small></div>
         <div className="link"><span>{s.rssi_dbm != null && on ? `Wi-Fi ${s.rssi_dbm} dBm` : ''}</span></div>
         <div className={`node ${on ? 'ok' : 'off'}`}><Glyph g="sources" size={22} /><b>Relay</b>
           <small>{s.transport_delay_ms != null && on ? `${Math.round(s.transport_delay_ms)} ms from vest to here` : 'no samples passing'}</small></div>

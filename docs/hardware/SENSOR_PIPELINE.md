@@ -15,10 +15,24 @@ cpg44.nivaspms.com) unless a test or synthetic benchmark is named.
 The firmware sent one HTTPS POST per batch and waited for the reply. Through
 Cloudflare a POST took 0.5 to 1 s and carried at most 32 samples, so the
 sender topped out near 35 samples/s while the sensors produced 75/s; the rest
-expired in the queue. The relay accepts 100 observations per POST, so the
-batch is now 96 (about 34 KB of JSON, 12 KB of RAM), which keeps up even at
-1.2 s per round trip (`firmware/wearable_stream/wearable_stream.ino`,
-`RELAY_BATCH_CAPACITY`).
+expired in the queue.
+
+Tested on the vest in November 2026 on a busy campus network, where a POST
+took 1 to 2 s, three changes made delivery keep up
+(`firmware/wearable_stream/wearable_stream.ino`):
+
+| Change | Effect measured on the vest |
+|---|---|
+| Slimmer JSON per sample (the relay derives the event id and tags) | about a third fewer bytes |
+| Batches deflated with the ROM compressor (relay accepts `Content-Encoding: deflate`) | a batch is about a sixth of its plain size |
+| Up to 288 samples per POST (relay limit 500), samples kept up to 15 s, a 1024-sample queue in PSRAM | delivery ceiling about 140 samples/s at 2 s per round trip |
+
+After these, the vest delivered every sample (0 dropped over the test, motion
+at 50 Hz, ECG at 250 Hz) with 130 to 190 ms from vest to laptop. A relay that
+still caps batches at 100 or refuses compressed bodies is detected and served
+96 plain samples at a time. A delivery watchdog rebuilds the HTTPS connection
+after 90 s without an accepted batch and restarts the vest after 5 minutes;
+this was added after the vest stopped sending when the relay was redeployed.
 
 Consequence found while replaying the logs: 22 % of the optical pulse
 intervals were gaps, and the windows that did arrive were swamped by step

@@ -215,26 +215,30 @@ class GpsKalman:
 
 
 def battery_state(history: deque, now_s: float, pct: Optional[float], volts: Optional[float],
-                  rate_pct_h: Optional[float] = None) -> Optional[Dict[str, object]]:
+                  capacity_mah: float = 3000.0, draw_ma: float = 195.0) -> Optional[Dict[str, object]]:
     """Battery percentage, time left and a warning level.
 
-    The vest reads the cell through a 100k/100k divider and converts voltage to
-    charge with a LiPo curve, so single readings wobble with load; time left is
-    the slope of the last 10 minutes of charge once enough history exists."""
+    The vest reads the cell through a divider and turns voltage into charge
+    with a LiPo curve. Across the flat middle of that curve (3.7 to 3.9 V) the
+    percentage barely moves, so a short slope there underestimates the drain:
+    on the real vest a 10-minute slope read 1.7 %/h while it used about 6.5 %/h,
+    and "time left" came out as 25 hours. Time left therefore starts from the
+    vest's known draw (about 195 mA, see scripts/check_vest_circuit.py) and
+    switches to the measured slope only once 20 minutes of history agree with
+    it to within a factor of two."""
     if pct is None or not np.isfinite(pct):
         return None
     history.append((now_s, float(pct)))
-    while history and now_s - history[0][0] > 600:
+    while history and now_s - history[0][0] > 1800:
         history.popleft()
-    rate = None
-    if len(history) >= 10 and history[-1][0] - history[0][0] >= 120:
+    typical = -draw_ma / capacity_mah * 100.0                   # %/h
+    rate, source = typical, "typical draw"
+    if len(history) >= 30 and history[-1][0] - history[0][0] >= 1200:
         t, p = np.asarray(history).T
-        slope = float(np.polyfit(t, p, 1)[0]) * 3600          # %/h
-        rate = slope if slope < -0.1 else None
-    if rate is None and rate_pct_h is not None and np.isfinite(rate_pct_h) and rate_pct_h < -0.1:
-        rate = float(rate_pct_h)
-    minutes_left = None if rate is None else max(0.0, pct / -rate * 60)
-    level = "low" if pct < 15 or (minutes_left is not None and minutes_left < 20) else "ok"
+        slope = float(np.polyfit(t, p, 1)[0]) * 3600
+        if 0.5 * typical >= slope >= 2.0 * typical:            # both negative
+            rate, source = slope, "measured"
+    minutes_left = max(0.0, pct / -rate * 60)
+    level = "low" if pct < 15 or minutes_left < 20 else "ok"
     return {"pct": round(float(pct), 1), "volts": None if volts is None else round(float(volts), 3),
-            "rate_pct_h": None if rate is None else round(rate, 1),
-            "minutes_left": None if minutes_left is None else round(minutes_left), "level": level}
+            "rate_pct_h": round(rate, 1), "minutes_left": round(minutes_left), "estimate": source, "level": level}

@@ -51,15 +51,19 @@ constexpr size_t ECG_BLOCK = 50;   // 0.2 s per packet
 constexpr uint32_t I2C_HZ = 100000;       // stable on the tested board
 constexpr uint32_t IMU_PERIOD_US = 20000; // 50 Hz
 
-constexpr size_t RELAY_QUEUE_CAPACITY = 256;
-// Throughput, not latency, limits delivery: one HTTPS POST through Cloudflare
-// takes 0.5-1 s. The earlier prototype sent at most 32 samples per POST and
-// lost half of its data. The vest now produces about 61 events per second
-// (IMU 50 Hz, ECG 5 blocks of 50 samples, GNSS 5 Hz, status 0.5 Hz). The relay
-// accepts 100 per POST; 96 per POST keeps up even at 1.2 s per round trip.
-constexpr size_t RELAY_BATCH_CAPACITY = 96;
+// Delivery is limited by round trips, not bytes: on a busy campus network one
+// HTTPS POST through Cloudflare took 1 to 2 s. The vest makes about 56 events
+// a second (motion 50 Hz, ECG 5 blocks of 50 samples, GNSS, status), so 96
+// per POST topped out near 48 a second and data was lost. Batches of up to 288
+// (about 10 KB once deflated) keep up even at 2 s per round trip; a relay that
+// only takes 100 per POST is detected and sent 96 at a time. Samples wait up to
+// 15 s and the queue (in PSRAM) holds about 18 s, so a slow patch delays data
+// instead of losing it; every sample carries its own timestamp.
+constexpr size_t RELAY_QUEUE_CAPACITY = 1024;
+constexpr size_t RELAY_BATCH_CAPACITY = 288;
+constexpr size_t RELAY_LEGACY_LIMIT = 96;
 constexpr uint32_t RELAY_BATCH_WINDOW_MS = 25;
-constexpr uint64_t RELAY_MAX_SAMPLE_AGE_US = 2000000ULL;
+constexpr uint64_t RELAY_MAX_SAMPLE_AGE_US = 15000000ULL;
 
 enum class SampleType : uint8_t { Imu, Gps, Status, Ecg };
 
@@ -134,8 +138,10 @@ uint32_t lastStatusMS = 0;
 uint32_t lastClockAnchorMS = 0;
 
 QueueHandle_t relayQueue = nullptr;
-SampleRecord relayBatch[RELAY_BATCH_CAPACITY];
+SampleRecord *relayBatch = nullptr;          // RELAY_BATCH_CAPACITY records, in PSRAM
 size_t relayBatchCount = 0;
+size_t relaySendLimit = RELAY_BATCH_CAPACITY;
+uint32_t limitSinceMS = 0;
 portMUX_TYPE stateMux = portMUX_INITIALIZER_UNLOCKED;
 int64_t epochOffsetUS = 0;
 bool clockReady = false;
@@ -472,6 +478,9 @@ static bool tlsInitialized = false;
 // compressed bodies answers 4xx; the vest then sends plain JSON from then on
 // and resends the same batch, so nothing is lost while the relay is updated.
 bool relayDeflate = true;
+uint32_t plainSinceMS = 0;          // when compression was last refused; retried after 10 min
+uint32_t lastAcceptedMS = 0;        // last batch the relay took, for the delivery watchdog
+bool connectionReset = false;
 bool deflateReported = false;
 tdefl_compressor *deflater = nullptr;
 uint8_t *deflateOut = nullptr;
@@ -487,12 +496,20 @@ size_t deflateBody(const String &body) {
   return outLen;
 }
 
+// Remove the first n records of the batch (sent, or refused for good).
+void dropFront(size_t n) {
+  if (n >= relayBatchCount) { relayBatchCount = 0; return; }
+  memmove(relayBatch, relayBatch + n, (relayBatchCount - n) * sizeof(SampleRecord));
+  relayBatchCount -= n;
+}
+
 bool postRelayBatch() {
   if (!relayBatchCount || !isClockReady() || WiFi.status() != WL_CONNECTED) return false;
 
+  const size_t n = min(relayBatchCount, relaySendLimit);
   JsonDocument document;
   JsonArray events = document.to<JsonArray>();
-  for (size_t i = 0; i < relayBatchCount; ++i) {
+  for (size_t i = 0; i < n; ++i) {
     JsonObject event = events.add<JsonObject>();
     addCommonFields(event, relayBatch[i]);
     addPayload(event, relayBatch[i]);
@@ -528,20 +545,29 @@ bool postRelayBatch() {
     String responseDetail = httpClient.getString();
 
     if (code >= 200 && code < 300) {
-      relayAcceptedTotal = relayAcceptedTotal + relayBatchCount;
+      relayAcceptedTotal = relayAcceptedTotal + n;
+      lastAcceptedMS = millis();
+      connectionReset = false;
       if (packed && !deflateReported) {
         deflateReported = true;
         Serial.printf("Relay takes compressed batches: %u bytes sent as %u\n",
                       static_cast<unsigned>(body.length()), static_cast<unsigned>(packed));
       }
       Serial.printf("Relay accepted %u samples; local queue %u\n",
-                    static_cast<unsigned>(relayBatchCount),
-                    static_cast<unsigned>(uxQueueMessagesWaiting(relayQueue)));
-      relayBatchCount = 0;
+                    static_cast<unsigned>(n), static_cast<unsigned>(uxQueueMessagesWaiting(relayQueue)));
+      dropFront(n);
       return true;
     }
+    if (n > RELAY_LEGACY_LIMIT && (code == 413 || code == 422)) {
+      relaySendLimit = RELAY_LEGACY_LIMIT;                // older relay: at most 100 per POST
+      limitSinceMS = millis();
+      Serial.printf("Relay refused %u samples in one batch; sending %u at a time\n",
+                    static_cast<unsigned>(n), static_cast<unsigned>(RELAY_LEGACY_LIMIT));
+      return postRelayBatch();                           // rebuilt with the smaller batch
+    }
     if (packed && code >= 400 && code < 500 && code != 401 && code != 429) {
-      relayDeflate = false;                                // older relay: plain JSON from now on
+      relayDeflate = false;                                // older relay: plain JSON for now
+      plainSinceMS = millis();
       Serial.println("Relay does not take compressed batches yet; sending plain JSON");
       continue;
     }
@@ -549,9 +575,9 @@ bool postRelayBatch() {
                   code, responseDetail.c_str(), static_cast<unsigned>(relayBatchCount));
     if (code >= 400 && code < 500 && code != 429) {
       portENTER_CRITICAL(&stateMux);
-      droppedSamples += relayBatchCount;
+      droppedSamples += n;
       portEXIT_CRITICAL(&stateMux);
-      relayBatchCount = 0;
+      dropFront(n);
     }
     return false;
   }
@@ -590,6 +616,33 @@ void scanWifiIfLost() {
   WiFi.begin(WIFI_SSID, WIFI_PASS);                       // scanning interrupts the join attempt
 }
 
+// Delivery watchdog. When the relay restarted for an update, the vest kept its
+// Wi-Fi but never got a batch through again until it was power-cycled. Whatever
+// the stuck layer is (a dead keep-alive socket, a half-closed TLS session), on
+// Wi-Fi with nothing accepted for 90 s the HTTPS client is rebuilt from scratch,
+// and after 5 minutes the vest restarts cleanly. A relay that once refused
+// compression is offered it again after 10 minutes, so an upgraded relay is
+// picked up without a reset.
+void deliveryWatchdog() {
+  const uint32_t now = millis();
+  if (!relayDeflate && plainSinceMS && now - plainSinceMS > 600000) relayDeflate = true;
+  if (relaySendLimit < RELAY_BATCH_CAPACITY && now - limitSinceMS > 600000) relaySendLimit = RELAY_BATCH_CAPACITY;
+  if (lastAcceptedMS == 0 || !isClockReady()) return;
+  const uint32_t silent = now - lastAcceptedMS;
+  if (silent > 300000) {
+    Serial.println("Relay: nothing accepted for 5 min; restarting");
+    delay(100);
+    ESP.restart();
+  }
+  if (silent > 90000 && !connectionReset) {
+    connectionReset = true;
+    Serial.println("Relay: nothing accepted for 90 s; reconnecting from scratch");
+    httpClient.end();
+    tlsClient.stop();
+    tlsInitialized = false;
+  }
+}
+
 void relayTask(void *) {
   uint32_t retryMS = 500;
 
@@ -600,6 +653,7 @@ void relayTask(void *) {
       continue;
     }
     wifiDownSinceMS = 0;
+    deliveryWatchdog();
 
     if (!isClockReady() || millis() - lastClockAnchorMS >= 60000) {
       if (refreshClockAnchor()) {
@@ -942,8 +996,9 @@ void setup() {
     while (true) delay(1000);
   }
 
-  relayQueue = xQueueCreate(RELAY_QUEUE_CAPACITY, sizeof(SampleRecord));
-  if (relayQueue == nullptr) {
+  relayBatch = static_cast<SampleRecord *>(heap_caps_malloc(sizeof(SampleRecord) * RELAY_BATCH_CAPACITY, MALLOC_CAP_SPIRAM));
+  relayQueue = xQueueCreateWithCaps(RELAY_QUEUE_CAPACITY, sizeof(SampleRecord), MALLOC_CAP_SPIRAM);
+  if (relayQueue == nullptr || relayBatch == nullptr) {
     Serial.println("Could not allocate the bounded relay queue.");
     while (true) delay(1000);
   }
